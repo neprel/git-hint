@@ -346,25 +346,27 @@ func uniq(in []string) []string {
 	return out
 }
 
-// fileEntry reads and analyzes one file, or returns the cached analysis when the size
-// and modification time did not change.
+// fileEntry reads and analyzes one file. Every file is read and hashed on every scan; the
+// cached analysis (parse result) is reused only when the content hash is the same. Size and
+// modification time alone never decide: a content change that keeps both must be found.
 func fileEntry(opt Options, p string) (*FileEntry, bool, error) {
 	full := filepath.Join(opt.Root, filepath.FromSlash(p))
 	fi, err := os.Stat(full)
 	if err != nil {
 		return nil, false, err
 	}
-	if opt.Cache != nil {
-		if fe := opt.Cache.get(p, fi.Size(), fi.ModTime().UnixNano()); fe != nil {
-			return fe, true, nil
-		}
-	}
 	b, err := os.ReadFile(full)
 	if err != nil {
 		return nil, false, err
 	}
 	sum := sha256.Sum256(b)
-	fe := &FileEntry{Size: fi.Size(), ModNS: fi.ModTime().UnixNano(), Hash: hex.EncodeToString(sum[:]), Lines: -1}
+	hash := hex.EncodeToString(sum[:])
+	if opt.Cache != nil {
+		if fe := opt.Cache.get(p, hash); fe != nil {
+			return fe, true, nil
+		}
+	}
+	fe := &FileEntry{Size: int64(len(b)), ModNS: fi.ModTime().UnixNano(), Hash: hash, Lines: -1}
 	probe := b
 	if len(probe) > 8000 {
 		probe = probe[:8000]

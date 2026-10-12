@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/neprel/git-hint/internal/hint"
@@ -140,9 +141,6 @@ func Init(dir string, opt InitOptions) (*Store, bool, error) {
 		if err := json.Unmarshal(b, &s.Cfg); err != nil {
 			return nil, false, fmt.Errorf("project.json: %w", err)
 		}
-		if s.key, err = readKey(s.Cfg.KeyID); err != nil {
-			return nil, false, err
-		}
 	} else {
 		created = true
 		id := make([]byte, 16)
@@ -151,15 +149,23 @@ func Init(dir string, opt InitOptions) (*Store, bool, error) {
 		}
 		s.Cfg = Config{FormatVersion: FormatVersion, KeyID: hex.EncodeToString(id), Policy: DefaultPolicy(),
 			Repos: []Repo{{Name: filepath.Base(root), Path: "."}}}
-		if s.key, err = newKey(s.Cfg.KeyID); err != nil {
-			return nil, false, err
-		}
-		s.Cfg.ProjectNamespace = hint.NamespaceID(s.key)
 	}
 	for _, r := range opt.Repos {
 		if err := s.addRepo(r); err != nil {
 			return nil, false, err
 		}
+	}
+	// the key must stay outside every repository of the project, also the new ones
+	if err := s.checkKeyLocation(); err != nil {
+		return nil, false, err
+	}
+	if created {
+		if s.key, err = newKey(s.Cfg.KeyID); err != nil {
+			return nil, false, err
+		}
+		s.Cfg.ProjectNamespace = hint.NamespaceID(s.key)
+	} else if s.key, err = readKey(s.Cfg.KeyID); err != nil {
+		return nil, false, err
 	}
 	if opt.ServerURL != "" {
 		s.Cfg.ServerURL = opt.ServerURL
@@ -215,6 +221,9 @@ func Open(dir string) (*Store, error) {
 			if s.Cfg.FormatVersion != FormatVersion {
 				return nil, fmt.Errorf("store format %d is not supported (want %d)", s.Cfg.FormatVersion, FormatVersion)
 			}
+			if err := s.checkKeyLocation(); err != nil {
+				return nil, err
+			}
 			if s.key, err = readKey(s.Cfg.KeyID); err != nil {
 				return nil, err
 			}
@@ -266,6 +275,59 @@ func readKey(id string) ([]byte, error) {
 	return k, nil
 }
 
+// ErrKeyInWorkTree is returned when the key directory or key file lies inside a
+// repository of the project.
+var ErrKeyInWorkTree = errors.New("the project key must not be inside a repository of the project")
+
+// resolve returns the absolute, symlink-free form of p. For a path that does not exist
+// yet, the longest existing prefix is resolved and the rest is appended.
+func resolve(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
+	}
+	rest := ""
+	cur := abs
+	for {
+		if ev, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(ev, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return abs
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
+}
+
+func within(root, p string) bool {
+	rel, err := filepath.Rel(root, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+// checkKeyLocation rejects a key directory or key file inside any repository of the
+// project. Relative paths (HINT_KEY_DIR) and symbolic links are resolved first.
+func (s *Store) checkKeyLocation() error {
+	dir, err := KeyDir()
+	if err != nil {
+		return err
+	}
+	kf, _ := keyPath(s.Cfg.KeyID)
+	cands := []string{resolve(dir), resolve(kf), filepath.Clean(dir), filepath.Clean(kf)}
+	for _, r := range s.Cfg.Repos {
+		roots := []string{filepath.Clean(s.RepoRoot(r)), resolve(s.RepoRoot(r))}
+		for _, root := range roots {
+			for _, c := range cands {
+				if filepath.IsAbs(c) && within(root, c) {
+					return fmt.Errorf("%w: %s is inside %s; set HINT_KEY_DIR to a directory outside the repositories", ErrKeyInWorkTree, c, root)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // KeyFile returns the path of the project key file.
 func (s *Store) KeyFile() (string, error) { return keyPath(s.Cfg.KeyID) }
 
@@ -282,10 +344,23 @@ func (s *Store) SaveConfig() error {
 // Git exclusion: `.hint/` must never be committed.
 // ---------------------------------------------------------------------------
 
-// ensureExcludeEntry adds `.hint/` to .git/info/exclude unless Git already ignores it.
+// probePaths are representative paths of every area that the client writes.
+var probePaths = []string{
+	"state/project.json", "state/snapshots/r/s.json", "state/snapshots/r/latest.json",
+	"state/activity/spool.jsonl", "state/activity/sources.json", "state/activity/adapter-stats.json",
+	"state/exports/state.json", "state/exports/history.jsonl", "state/exports/t/d.hint.json",
+	"state/queue/q/queue.json", "state/recommendations/latest.json", "state/recommendations/p.md",
+	"cache/scan-r.json",
+}
+
+// ensureExcludeEntry adds `/.hint/` to .git/info/exclude unless Git already ignores every
+// area of the store.
 func ensureExcludeEntry(root string) error {
-	if ignored(root) {
+	if checkPaths(root, storePaths(root, probePaths)...) == nil {
 		return nil
+	}
+	if err := tracked(root); err != nil {
+		return err
 	}
 	out, err := exec.Command("git", "-C", root, "rev-parse", "--git-path", "info/exclude").Output()
 	if err != nil {
@@ -305,34 +380,90 @@ func ensureExcludeEntry(root string) error {
 	if err := os.WriteFile(p, append(old, []byte("# HINT local store\n/"+Dir+"/\n")...), 0o644); err != nil {
 		return err
 	}
-	if !ignored(root) {
-		return errors.New(".hint/ is still not ignored by Git after adding it to info/exclude")
-	}
-	return nil
+	return checkPaths(root, storePaths(root, probePaths)...)
 }
 
-func ignored(root string) bool {
-	return exec.Command("git", "-C", root, "check-ignore", "-q", Dir+"/state/project.json").Run() == nil
+func storePaths(root string, rel []string) []string {
+	out := make([]string, len(rel))
+	for i, r := range rel {
+		out[i] = filepath.Join(root, Dir, filepath.FromSlash(r))
+	}
+	return out
 }
 
 // ErrNotExcluded is returned when a write would put `.hint/` at risk of a commit.
-var ErrNotExcluded = errors.New(".hint/ is not ignored by Git; run `git hint init` again or add .hint/ to .gitignore")
+var ErrNotExcluded = errors.New(".hint/ is not ignored by Git; run `git hint init` again or add /.hint/ to .gitignore")
 
-// CheckExcluded fails closed when Git does not ignore `.hint/`.
-func (s *Store) CheckExcluded() error {
-	if !ignored(s.Root) {
-		return ErrNotExcluded
+// tracked fails when Git already tracks a file below `.hint/`: ignore rules do not apply
+// to tracked files, so their content would reach the next commit.
+func tracked(root string) error {
+	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--", Dir).Output()
+	if err != nil {
+		return fmt.Errorf("git ls-files: %w", err)
+	}
+	if len(bytes.Trim(out, "\x00")) > 0 {
+		first := strings.SplitN(string(out), "\x00", 2)[0]
+		return fmt.Errorf("%w: Git tracks %s; remove it from the index (git rm --cached -r .hint)", ErrNotExcluded, first)
 	}
 	return nil
+}
+
+// checkPaths fails unless no file below `.hint/` is tracked and Git ignores every given
+// path (absolute paths below the root).
+func checkPaths(root string, paths ...string) error {
+	if err := tracked(root); err != nil {
+		return err
+	}
+	args := []string{"-C", root, "check-ignore", "--no-index", "-v", "-n", "--"}
+	for _, p := range paths {
+		rel, err := filepath.Rel(root, p)
+		if err != nil || !strings.HasPrefix(filepath.ToSlash(rel), Dir+"/") {
+			return fmt.Errorf("%w: %s is not below %s", ErrNotExcluded, p, Dir)
+		}
+		args = append(args, filepath.ToSlash(rel))
+	}
+	out, err := exec.Command("git", args...).Output()
+	if err != nil && len(out) == 0 {
+		return fmt.Errorf("git check-ignore: %w", err)
+	}
+	// -v -n prints "<source>:<line>:<pattern>\t<path>" per path; "::\t<path>" when no
+	// pattern matches. A matching negated pattern ("!...") means the path is NOT ignored.
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(lines) != len(paths) {
+		return fmt.Errorf("%w: unexpected git check-ignore output", ErrNotExcluded)
+	}
+	for _, line := range lines {
+		left, path, _ := strings.Cut(line, "\t")
+		m := ignoreLine.FindStringSubmatch(left)
+		if m == nil || strings.HasPrefix(m[1], "!") {
+			return fmt.Errorf("%w (%s)", ErrNotExcluded, path)
+		}
+	}
+	return nil
+}
+
+var ignoreLine = regexp.MustCompile(`^.*:[0-9]+:(.+)$`)
+
+// CheckExcluded fails closed unless Git ignores every area of the store and tracks no
+// file below it.
+func (s *Store) CheckExcluded() error {
+	return checkPaths(s.Root, storePaths(s.Root, probePaths)...)
+}
+
+// CheckPath fails closed unless Git ignores this path below `.hint/`, every other area of
+// the store, and tracks no file below the store. Every write calls it with its actual
+// path; a partly ignored store stops all writes.
+func (s *Store) CheckPath(p string) error {
+	return checkPaths(s.Root, append(storePaths(s.Root, probePaths), p)...)
 }
 
 // WriteState writes a file below `.hint/` atomically with owner-only permissions. It
 // checks the Git exclusion first.
 func (s *Store) WriteState(data []byte, elem ...string) error {
-	if err := s.CheckExcluded(); err != nil {
+	p := s.Path(elem...)
+	if err := s.CheckPath(p); err != nil {
 		return err
 	}
-	p := s.Path(elem...)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
@@ -379,10 +510,10 @@ func (s *Store) ReadJSON(v any, elem ...string) error {
 
 // AppendLine appends one line to a file below `.hint/` (owner-only permissions).
 func (s *Store) AppendLine(line []byte, elem ...string) error {
-	if err := s.CheckExcluded(); err != nil {
+	p := s.Path(elem...)
+	if err := s.CheckPath(p); err != nil {
 		return err
 	}
-	p := s.Path(elem...)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
@@ -403,10 +534,10 @@ type Appender struct{ f *os.File }
 
 // OpenAppend opens a file below `.hint/` for appending.
 func (s *Store) OpenAppend(elem ...string) (*Appender, error) {
-	if err := s.CheckExcluded(); err != nil {
+	p := s.Path(elem...)
+	if err := s.CheckPath(p); err != nil {
 		return nil, err
 	}
-	p := s.Path(elem...)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return nil, err
 	}

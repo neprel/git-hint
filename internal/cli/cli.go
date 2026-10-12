@@ -348,8 +348,10 @@ func cmdExport(e *Env, args []string) int {
 	dir := *out
 	if dir == "" {
 		dir = s.Path("state", "exports", now.UTC().Format("20060102T150405Z"))
-		if err := s.CheckExcluded(); err != nil {
-			return fail(e, err)
+		for _, d := range p.Docs {
+			if err := s.CheckPath(filepath.Join(dir, d.File)); err != nil {
+				return fail(e, err)
+			}
 		}
 	} else if !filepath.IsAbs(dir) {
 		dir = filepath.Join(e.Dir, dir)

@@ -25,8 +25,11 @@ Only canonical HINT documents: `export_policy`, `repository_snapshot`, `change_s
 | Deny by default before sending | every document passes the schema, the semantic rules (including the content scan) and the export policy before it is written or sent; a failure stops the export | `TestPolicyAllowlistKeepsRecordTypesOut` |
 | Record types and fields outside the policy never leave | the policy filter runs before validation; the validation checks the policy again | `TestPolicyAllowlistKeepsRecordTypesOut` (file and API) |
 | The user inspects before sending | `export --dry-run --privacy-report`; `recommend` needs approval | `TestRecommendNeedsApproval` |
-| `.hint/` is never committed | `init` adds it to `.git/info/exclude`; every write checks it and fails closed | `TestInitExcludesStoreAndKeepsKeyOutside`, `TestWriteFailsClosedWhenNotExcluded` |
-| Transport | `https` only (except loopback), no redirects, response size limit, receipt validation | `internal/api` tests |
+| `.hint/` is never committed | `init` adds `/.hint/` to `.git/info/exclude`; every write checks its own path and every store area with `git check-ignore`, and that Git tracks no file below `.hint/`; a partial rule or a tracked file stops every write | `TestInitExcludesStoreAndKeepsKeyOutside`, `TestWriteFailsClosedWhenNotExcluded`, `TestPartialIgnoreAndTrackedFilesFailClosed` |
+| The key stays outside the repositories | a key directory or key file inside any project repository (also by relative path or symbolic link) is refused at `init` and at every start | `TestKeyInsideAProjectRepositoryIsRejected` |
+| A changed work tree is never mistaken for an old one | every file is hashed on every scan; the cache only saves parsing | `TestSameSizeAndMtimeChangeIsDetected` |
+| Transport | `https` only (except loopback), no redirects, response size limit | `internal/api` tests |
+| A send counts only when the server confirms it | the receipt must pass the schema and the semantic rules, and its accepted entry must name the sent document ID and content digest; otherwise the export is not marked as done | `TestWrongReceiptDoesNotMarkExport` |
 | An independent check agrees | the conformance suite builds the client and validates its exports with the reference checker | `tests/conformance` `TestClientExportsPassReferenceChecker` |
 
 The canary tests place fake secrets in file names, directory names, file content, comments, string literals, symbol names, the commit message, the branch name, the remote URL, the author email, agent session and call IDs, shell commands and tool output. None of them appears in an export or an API request.

@@ -124,14 +124,14 @@ type Receipt struct {
 	Code     string // rejection code when not accepted
 }
 
-// PostDocument sends one document and checks the receipt.
-func (c *Client) PostDocument(ctx context.Context, doc []byte, documentID string) (Receipt, error) {
+// PostDocument sends one document and checks the receipt. A document counts as accepted
+// only when the server answers 201 with a valid receipt (schema and semantic rules,
+// including its own content digest) whose accepted entry names the sent document ID and
+// the sent content digest.
+func (c *Client) PostDocument(ctx context.Context, doc []byte, documentID, digest string) (Receipt, error) {
 	status, body, err := c.do(ctx, http.MethodPost, "/hint/v0.1/documents", doc)
 	if err != nil {
 		return Receipt{}, err
-	}
-	if status >= 500 {
-		return Receipt{}, fmt.Errorf("%w: server status %d", ErrNetwork, status)
 	}
 	if status != http.StatusCreated && status != http.StatusUnprocessableEntity {
 		return Receipt{}, fmt.Errorf("unexpected server status %d", status)
@@ -140,19 +140,27 @@ func (c *Client) PostDocument(ctx context.Context, doc []byte, documentID string
 	if err != nil {
 		return Receipt{}, err
 	}
-	for _, a := range list(rc["accepted"]) {
-		if m, _ := a.(map[string]any); m["document_id"] == documentID && status == http.StatusCreated {
+	if status == http.StatusCreated {
+		for _, a := range list(rc["accepted"]) {
+			m, _ := a.(map[string]any)
+			if m["document_id"] != documentID {
+				continue
+			}
+			if m["content_digest"] != digest {
+				return Receipt{}, fmt.Errorf("the receipt confirms another content digest for document %s", documentID)
+			}
 			return Receipt{Accepted: true}, nil
 		}
+		return Receipt{}, fmt.Errorf("the receipt does not confirm document %s", documentID)
 	}
 	for _, r := range list(rc["rejected"]) {
 		m, _ := r.(map[string]any)
-		if id, _ := m["document_id"].(string); id == documentID || id == "" {
+		if id, _ := m["document_id"].(string); id == documentID || m["document_id"] == nil {
 			code, _ := m["code"].(string)
 			return Receipt{Code: code}, nil
 		}
 	}
-	return Receipt{}, errors.New("the receipt does not name the document")
+	return Receipt{}, errors.New("the rejection receipt does not name the document")
 }
 
 func parseReceipt(b []byte) (map[string]any, error) {
@@ -173,6 +181,9 @@ func parseReceipt(b []byte) (map[string]any, error) {
 	}
 	if doc["document_type"] != "receipt" {
 		return nil, errors.New("server answer is not a receipt")
+	}
+	if f := hint.Check(doc, nil); len(f) > 0 {
+		return nil, fmt.Errorf("receipt fails the semantic rules: %s", f[0].String())
 	}
 	p, _ := doc["payload"].(map[string]any)
 	return p, nil

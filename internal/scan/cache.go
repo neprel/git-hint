@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 )
 
-// FileEntry is the analysis of one file. It is cached by path, size and modification
-// time; a hit skips reading and parsing the file.
+// FileEntry is the analysis of one file. It is cached by path and content hash; a hit
+// skips parsing (the file is still read and hashed).
 type FileEntry struct {
 	Size   int64    `json:"size"`
 	ModNS  int64    `json:"mod_ns"`
@@ -19,7 +19,7 @@ type FileEntry struct {
 }
 
 // CacheVersion changes when the analysis changes; an old cache is ignored.
-const CacheVersion = "scan-0.1.0"
+const CacheVersion = "scan-0.1.1"
 
 // Cache holds file analyses of one repository. It is rebuildable data (.hint/cache/).
 type Cache struct {
@@ -43,9 +43,9 @@ func LoadCache(p string) *Cache {
 	return c
 }
 
-func (c *Cache) get(p string, size, mod int64) *FileEntry {
+func (c *Cache) get(p, hash string) *FileEntry {
 	fe := c.Files[p]
-	if fe == nil || fe.Size != size || fe.ModNS != mod {
+	if fe == nil || fe.Hash != hash {
 		return nil
 	}
 	return fe

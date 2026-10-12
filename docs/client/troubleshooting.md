@@ -6,7 +6,10 @@ Run `git hint doctor` first. It checks Git, the store, the key, the schemas and 
 |---|---|---|
 | `no HINT project here` | No `.hint/state/project.json` in this directory or above. | Run `git hint init` in the root of the repository. |
 | `is not inside a Git work tree` | `init` runs only in a Git repository. | Run `git init` first, or change to the repository. |
-| `.hint/ is not ignored by Git` | The entry in `.git/info/exclude` was removed. Writes stop to protect the store. | Run `git hint init` again, or add `.hint/` to `.gitignore`. |
+| `.hint/ is not ignored by Git` | The entry in `.git/info/exclude` was removed, or a rule ignores only a part of `.hint/` (for example one file, or a negated subdirectory). Writes stop to protect the store. | Run `git hint init` again, or add `/.hint/` to `.gitignore`. |
+| `Git tracks .hint/...` | A file below `.hint/` is in the Git index; ignore rules do not apply to it. | `git rm --cached -r .hint`, then commit. |
+| `the project key must not be inside a repository` | `HINT_KEY_DIR` (or a symbolic link in it) points into one of the project repositories. | Use a directory outside every repository, for example the default. |
+| `the receipt ...` | The server answer did not confirm the sent document (wrong digest or ID, or an invalid receipt). The export is not marked as done. | Send again later; report the server problem. |
 | `project key ... not found` | The key file was moved or deleted, or `HINT_KEY_DIR` points elsewhere. | Restore the key file. Without it, the old IDs cannot be reproduced; a new project (`init` in a fresh store) gets new, unlinkable IDs. |
 | `repository ... has no snapshot` | `export` or `recommend` before the first scan. | Run `git hint collect --full`. |
 | `the export policy removes the required field` | A field allowlist in `project.json` drops a field that the record needs. | Add the field, or remove the record type from `record_types`. |

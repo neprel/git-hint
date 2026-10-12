@@ -23,7 +23,7 @@ Every command says what it reads, what it writes and whether it uses the network
 
 | Variable | Meaning |
 |---|---|
-| `HINT_KEY_DIR` | Directory of project keys (default: user configuration directory). |
+| `HINT_KEY_DIR` | Directory of project keys (default: user configuration directory). It must be outside every repository of the project. |
 | `HINT_SERVER_URL` | Server base URL; overrides the configuration. |
 | `HINT_SERVER_TOKEN` | Optional bearer token for the server; never stored. |
 | `HINT_BIN` | Path of `git-hint` for the OpenCode plugin. |

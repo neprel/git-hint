@@ -28,6 +28,8 @@ type Server struct {
 	Fail     bool              // answer 503 to every request (simulated outage)
 	// Mutate changes the recommendation payload before it is sealed (for negative tests).
 	Mutate func(doc map[string]any)
+	// Receipt changes a receipt after it is sealed (for negative tests).
+	Receipt func(doc map[string]any)
 }
 
 // NewServer starts a mock server.
@@ -71,7 +73,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			payload["rejected"] = []any{map[string]any{"document_id": did, "code": code}}
 			status = http.StatusUnprocessableEntity
 		}
-		write(w, status, envelope("receipt", "00000000000000000000000000000000", nil, nil, payload))
+		rc := envelope("receipt", "00000000000000000000000000000000", nil, nil, payload)
+		if s.Receipt != nil {
+			s.Receipt(rc)
+		}
+		write(w, status, rc)
 	case r.Method == http.MethodGet && r.URL.Path == "/hint/v0.1/recommendations":
 		ns := r.URL.Query().Get("project_namespace")
 		doc := s.recommend(ns)
@@ -225,6 +231,8 @@ func envelope(docType, ns string, repos []any, types []string, payload map[strin
 }
 
 // Reseal recomputes the content digest of a document map.
+func Reseal(d map[string]any) { reseal(d) }
+
 func reseal(d map[string]any) {
 	b, _ := json.Marshal(d["payload"])
 	var plain any

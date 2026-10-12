@@ -597,3 +597,206 @@ func TestPlanMarksUnsupportedAndRefusals(t *testing.T) {
 		t.Fatalf("want partial and render_only: %s", r.stdout)
 	}
 }
+
+// --- regression tests of review findings -----------------------------------------
+
+func TestSameSizeAndMtimeChangeIsDetected(t *testing.T) {
+	shop, _ := setup(t)
+	f := filepath.Join(shop, "canary_dir_e1d2", "billing", "ledger.go")
+	// make the work tree dirty first, so that only the content can reveal the next edit
+	// (the work tree state stays "dirty")
+	old, _ := os.ReadFile(f)
+	if err := os.WriteFile(f, append(old, []byte("\n// edited\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	must(t, run(t, shop, "", "collect"))
+	srv := testkit.NewServer()
+	defer srv.Close()
+	must(t, run(t, shop, "", "recommend", "--yes", "--server", srv.URL))
+	fi, err := os.Stat(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(f)
+	nb := bytes.Replace(b, []byte("return a\n"), []byte("return b\n"), 1) // same length
+	if bytes.Equal(b, nb) || len(b) != len(nb) {
+		t.Fatal("fixture edit")
+	}
+	if err := os.WriteFile(f, nb, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(f, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if fi2, _ := os.Stat(f); fi2.Size() != fi.Size() || !fi2.ModTime().Equal(fi.ModTime()) {
+		t.Fatal("size or mtime changed")
+	}
+	// the plan check sees the change before a collect
+	if r := must(t, run(t, shop, "", "plan", "--json")); !strings.Contains(r.stdout, "snapshot_mismatch") {
+		t.Fatalf("plan for the old content accepted: %s", r.stdout)
+	}
+	r := must(t, run(t, shop, "", "collect", "--json"))
+	if !strings.Contains(r.stdout, `"changed": true`) {
+		t.Fatalf("collect missed a same-size, same-mtime change: %s", r.stdout)
+	}
+	full := must(t, run(t, shop, "", "collect", "--full", "--json"))
+	if !strings.Contains(full.stdout, `"changed": false`) {
+		t.Fatalf("incremental and full snapshots differ: %s", full.stdout)
+	}
+}
+
+func TestKeyInsideAProjectRepositoryIsRejected(t *testing.T) {
+	cases := []struct {
+		name string
+		key  func(shop, web string) string // HINT_KEY_DIR
+		args []string
+	}{
+		{"absolute inside .hint", func(shop, _ string) string { return filepath.Join(shop, ".hint", "keys") }, nil},
+		{"repository root", func(shop, _ string) string { return shop }, nil},
+		{"relative inside", func(shop, _ string) string { t.Chdir(shop); return "keys" }, nil},
+		{"symlink into the repository", func(shop, _ string) string {
+			link := filepath.Join(t.TempDir(), "keys-link")
+			if err := os.MkdirAll(filepath.Join(shop, "secret-keys"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(shop, "secret-keys"), link); err != nil {
+				t.Fatal(err)
+			}
+			return link
+		}, nil},
+		{"second repository", func(_, web string) string { return filepath.Join(web, "keys") }, []string{"--repo", "WEB"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("HINT_SERVER_URL", "")
+			shop, web := testkit.Fixture(t)
+			t.Setenv("HINT_KEY_DIR", c.key(shop, web))
+			args := []string{"init"}
+			for _, a := range c.args {
+				args = append(args, strings.ReplaceAll(a, "WEB", web))
+			}
+			r := run(t, shop, "", args...)
+			if r.code == 0 || !strings.Contains(r.stderr, "must not be inside a repository") {
+				t.Fatalf("key inside a repository accepted: %+v", r)
+			}
+			for _, root := range []string{shop, web} {
+				var keys []string
+				_ = filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
+					if err == nil && strings.HasSuffix(p, ".key") {
+						keys = append(keys, p)
+					}
+					return nil
+				})
+				if len(keys) > 0 {
+					t.Fatalf("key file written inside a repository: %v", keys)
+				}
+			}
+		})
+	}
+	// a repository added later must not contain the key directory either
+	t.Run("added later", func(t *testing.T) {
+		t.Setenv("HINT_SERVER_URL", "")
+		shop, web := testkit.Fixture(t)
+		t.Setenv("HINT_KEY_DIR", filepath.Join(web, "keys"))
+		must(t, run(t, shop, "", "init"))
+		if r := run(t, shop, "", "init", "--repo", web); r.code == 0 || !strings.Contains(r.stderr, "must not be inside") {
+			t.Fatalf("adding a repository that holds the key accepted: %+v", r)
+		}
+	})
+}
+
+func snapshotOfStore(t *testing.T, dir string) map[string]int64 {
+	m := map[string]int64{}
+	_ = filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
+		if err == nil && !fi.IsDir() {
+			m[p] = fi.ModTime().UnixNano() ^ fi.Size()
+		}
+		return nil
+	})
+	return m
+}
+
+func TestPartialIgnoreAndTrackedFilesFailClosed(t *testing.T) {
+	cases := []struct {
+		name    string
+		exclude string
+		track   string // file below .hint/ to add to the index
+	}{
+		{"only project.json ignored", "/.hint/state/project.json\n", ""},
+		{"negated area", "/.hint/*\n!/.hint/state\n", ""},
+		{"only state ignored", "/.hint/state/\n", ""},
+		{"tracked file", "/.hint/\n", ".hint/state/project.json"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			shop, _ := setup(t)
+			s, _ := store.Open(shop)
+			if err := os.WriteFile(filepath.Join(shop, ".git", "info", "exclude"), []byte(c.exclude), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if c.track != "" {
+				testkit.Git(t, shop, "add", "-f", c.track)
+			}
+			testkit.WriteFile(t, shop, "web/new.ts", "export const n = 1\n")
+			before := snapshotOfStore(t, s.Path())
+			for _, args := range [][]string{{"collect"}, {"adapter", "opencode", "--project", shop}, {"export"}, {"cache", "clean"}} {
+				r := run(t, shop, openCodeEvents(shop), args...)
+				if args[0] == "cache" {
+					continue // cache clean deletes only; it never writes
+				}
+				if r.code == 0 || !strings.Contains(r.stderr, "not ignored by Git") {
+					t.Errorf("%v must fail closed: %+v", args, r)
+				}
+			}
+			after := snapshotOfStore(t, s.Path())
+			for p, v := range after {
+				if w, ok := before[p]; !ok || w != v {
+					t.Errorf("written although not excluded: %s", p)
+				}
+			}
+		})
+	}
+}
+
+func TestWrongReceiptDoesNotMarkExport(t *testing.T) {
+	cases := map[string]func(d map[string]any){
+		"wrong accepted digest": func(d map[string]any) {
+			acc := d["payload"].(map[string]any)["accepted"].([]any)
+			if len(acc) > 0 {
+				acc[0].(map[string]any)["content_digest"] = "sha256:" + strings.Repeat("0", 64)
+			}
+			testkit.Reseal(d)
+		},
+		"wrong document ID": func(d map[string]any) {
+			acc := d["payload"].(map[string]any)["accepted"].([]any)
+			if len(acc) > 0 {
+				acc[0].(map[string]any)["document_id"] = strings.Repeat("ab", 16)
+			}
+			testkit.Reseal(d)
+		},
+		"receipt digest wrong": func(d map[string]any) {
+			d["content_digest"] = "sha256:" + strings.Repeat("1", 64)
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			shop, _ := setup(t)
+			must(t, run(t, shop, openCodeEvents(shop), "adapter", "opencode", "--project", shop))
+			srv := testkit.NewServer()
+			defer srv.Close()
+			srv.Receipt = mutate
+			r := run(t, shop, "", "recommend", "--yes", "--server", srv.URL)
+			if r.code == 0 || !strings.Contains(r.stderr, "receipt") {
+				t.Fatalf("wrong receipt accepted: %+v", r)
+			}
+			s, _ := store.Open(shop)
+			if _, err := os.Stat(s.Path("state", "exports", "history.jsonl")); !os.IsNotExist(err) {
+				t.Fatal("export marked as done")
+			}
+			// the observations are still pending: a dry run still includes them
+			if d := must(t, run(t, shop, "", "export", "--dry-run")); !strings.Contains(d.stdout, "activity_stream") {
+				t.Fatalf("observations marked as exported: %s", d.stdout)
+			}
+		})
+	}
+}

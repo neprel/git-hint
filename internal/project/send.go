@@ -40,7 +40,7 @@ func (e *ErrQueued) Unwrap() error { return e.Err }
 // .hint/state/queue/ (retryable); a rejection by the server is an error with its code.
 func Send(ctx context.Context, s *store.Store, c *api.Client, p *Package, now time.Time) error {
 	for _, d := range p.Docs {
-		rc, err := c.PostDocument(ctx, d.Raw, d.ID)
+		rc, err := c.PostDocument(ctx, d.Raw, d.ID, d.Digest)
 		if errors.Is(err, api.ErrNetwork) {
 			dir, qerr := enqueue(s, p, now)
 			if qerr != nil {

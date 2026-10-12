@@ -52,6 +52,9 @@ func Collect(s *store.Store, opt CollectOptions) ([]RepoResult, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := s.CheckPath(cachePath); err != nil {
+			return nil, err
+		}
 		if err := cache.Save(cachePath); err != nil {
 			return nil, err
 		}

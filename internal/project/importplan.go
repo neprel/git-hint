@@ -52,7 +52,7 @@ func CurrentState(s *store.Store, now time.Time) (*Current, error) {
 		if err != nil {
 			return nil, err
 		}
-		if s.CheckExcluded() == nil {
+		if s.CheckPath(cachePath) == nil {
 			_ = cache.Save(cachePath)
 		}
 		prev, err := LoadLatest(s, repoID)

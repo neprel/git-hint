@@ -57,7 +57,7 @@ func TestNoRedirectWrongTypeAndRetryableStatus(t *testing.T) {
 	if _, err := c.Recommendations(ctx, "down"); !errors.Is(err, ErrNetwork) {
 		t.Errorf("503 must be retryable: %v", err)
 	}
-	if _, err := c.PostDocument(ctx, []byte("{}"), "x"); err == nil {
+	if _, err := c.PostDocument(ctx, []byte("{}"), "x", "sha256:00"); err == nil {
 		t.Error("missing receipt accepted")
 	}
 }
