@@ -16,6 +16,6 @@ The `git-hint` binary includes the following components. Each keeps its license.
 | `golang.org/x/oauth2`, `golang.org/x/sync`, `golang.org/x/sys`, `golang.org/x/time` | v0.35.0, v0.20.0, v0.47.0, v0.15.0 | BSD-3-Clause | Copyright 2009 The Go Authors |
 | Go standard library | Go toolchain | BSD-3-Clause | Copyright (c) 2009 The Go Authors |
 
-The full license texts are in each module's `LICENSE` file (`go mod download -json` shows the location). None of the modules has a NOTICE file. The shell parser is used for syntax only; its interpreter package is not used.
+Release archives contain the full license texts of the Go toolchain and of each module in `licenses/`. For a source build, the texts are in each module's `LICENSE` file (`go mod download -json` shows the location). None of the modules has a NOTICE file. The shell parser is used for syntax only; its interpreter package is not used.
 
 The OpenCode plugin (`adapters/opencode/hint-adapter.ts`) is original code. It uses the public plugin interface of OpenCode (MIT) and includes no OpenCode code.

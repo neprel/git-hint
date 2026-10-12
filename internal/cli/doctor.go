@@ -23,6 +23,9 @@ var adapterInfo = []struct{ agent, status, evidence, fields, limits string }{
 	{"Codex", "not available", "source code only", "—", "adapter not implemented in this version"},
 }
 
+// optionalTools are external indexers that a later version may use; none is bundled.
+var optionalTools = []string{"scip-go", "scip-typescript", "scip-python", "sem"}
+
 func cmdDoctor(e *Env, args []string) int {
 	fs := flags(e, "doctor", "reads local state and tools; no network")
 	if fs.Parse(args) != nil {
@@ -89,7 +92,7 @@ func cmdDoctor(e *Env, args []string) int {
 	}
 	coverage := "Go: declarations and imports (go/parser, syntax level); other languages: file level"
 	info("structural coverage", coverage)
-	for _, tool := range []string{"scip-go", "scip-typescript", "scip-python", "sem"} {
+	for _, tool := range optionalTools {
 		if p, err := exec.LookPath(tool); err == nil {
 			info("optional "+tool, "found at "+p+"; not used by this version")
 		} else {

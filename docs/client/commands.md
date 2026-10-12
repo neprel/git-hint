@@ -17,7 +17,7 @@ Every command says what it reads, what it writes and whether it uses the network
 | `git hint adapter install opencode [--force]` | writes `.opencode/plugins/hint-adapter.ts`; no network | Install the OpenCode adapter plugin. |
 | `git hint adapter opencode --project DIR` | reads stdin; writes the activity spool; no network | Started by the OpenCode plugin. Not for direct use. |
 | `git hint mcp [--project DIR] [--tools NAMES]` | stdio MCP server; each tool states its effect; `hint_recommend` sends only with the user's rule | Serve the HINT tools to a coding agent. See [mcp.md](mcp.md). |
-| `git hint version` | none | Client and data format version. |
+| `git hint version [--json] [--capabilities]`, `git hint --version` | none | Client and data format version, commit, build; `--capabilities`: languages, MCP, adapters, optional tools, platform support. |
 
 ## Environment
 

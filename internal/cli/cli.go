@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
@@ -21,6 +22,7 @@ import (
 	"github.com/neprel/git-hint/internal/api"
 	"github.com/neprel/git-hint/internal/mcpserver"
 	"github.com/neprel/git-hint/internal/project"
+	"github.com/neprel/git-hint/internal/scan"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/version"
 )
@@ -59,7 +61,7 @@ func init() {
 		{"doctor", "reads local state and tools; no network", "Check Git, the store, the key, schemas, adapters and optional indexers.", cmdDoctor},
 		{"adapter", "writes .opencode/plugins/ (install); no network", "`adapter install opencode`: install the OpenCode adapter plugin.", cmdAdapter},
 		{"mcp", "stdio MCP server; tools state their own effects (hint_recommend sends only if the local rule allows it)", "Start the MCP server for a coding agent (stdio).", cmdMCP},
-		{"version", "no effects", "Print the version.", cmdVersion},
+		{"version", "no effects", "Print the version; --capabilities lists what this build supports.", cmdVersion},
 	}
 }
 
@@ -70,6 +72,9 @@ func Run(args []string, e *Env) int {
 	}
 	if e.IsTerminal == nil {
 		e.IsTerminal = func() bool { return false }
+	}
+	if len(args) > 0 && args[0] == "--version" {
+		return cmdVersion(e, args[1:])
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		usage(e.Stdout)
@@ -686,8 +691,109 @@ func classifyForStderr(err error) string {
 }
 
 func cmdVersion(e *Env, args []string) int {
-	fmt.Fprintf(e.Stdout, "git-hint %s (HINT data standard %s)\n", version.Version, version.SpecVersion)
+	fs := flags(e, "version", "no effects")
+	asJSON := fs.Bool("json", false, "print JSON")
+	caps := fs.Bool("capabilities", false, "also list languages, MCP, adapters and optional tools of this build")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	b := version.Info()
+	if !*caps {
+		if *asJSON {
+			return writeJSON(e, b)
+		}
+		fmt.Fprintf(e.Stdout, "git-hint %s (HINT data standard %s)\ncommit %s, %s, %s %s/%s\n", b.Version, b.Standard,
+			b.Commit, b.Date, b.GoVersion, b.OS, b.Arch)
+		return 0
+	}
+	c := capabilities(b)
+	if *asJSON {
+		return writeJSON(e, c)
+	}
+	w := e.Stdout
+	fmt.Fprintf(w, "git-hint %s (HINT data standard %s; reads %s)\n", b.Version, b.Standard, strings.Join(b.ReadsMinors, ", "))
+	fmt.Fprintf(w, "build: commit %s, %s, %s, %s/%s, cgo %v\n", b.Commit, b.Date, b.GoVersion, b.OS, b.Arch, b.CGO)
+	fmt.Fprintf(w, "platform %s/%s: %s\n", b.OS, b.Arch, c.Platform)
+	fmt.Fprintf(w, "structure: %s\n", c.Structure.Summary)
+	fmt.Fprintf(w, "file-level languages: %s\n", strings.Join(c.Structure.FileLevelLanguages, ", "))
+	fmt.Fprintf(w, "embedded grammars: none\n")
+	fmt.Fprintf(w, "MCP: stdio; protocol versions %s; %d tools\n", strings.Join(c.MCP.ProtocolVersions, ", "), len(c.MCP.Tools))
+	for _, a := range c.Adapters {
+		fmt.Fprintf(w, "adapter %s: %s\n", a.Agent, a.Status)
+	}
+	for _, o := range c.OptionalTools {
+		fmt.Fprintf(w, "optional %s: %s\n", o.Name, o.State)
+	}
+	fmt.Fprintf(w, "server: not needed for init, collect, export, plan or mcp; recommend needs a configured HINT server\n")
 	return 0
+}
+
+// Capabilities is the `version --capabilities` report.
+type Capabilities struct {
+	Build     version.Build `json:"build"`
+	Platform  string        `json:"platform"`
+	Structure struct {
+		Summary            string   `json:"summary"`
+		Declarations       []string `json:"declaration_languages"`
+		Parser             string   `json:"parser"`
+		FileLevelLanguages []string `json:"file_level_languages"`
+		EmbeddedGrammars   []string `json:"embedded_grammars"`
+	} `json:"structure"`
+	MCP struct {
+		Transport        string   `json:"transport"`
+		ProtocolVersions []string `json:"protocol_versions"`
+		Tools            []string `json:"tools"`
+	} `json:"mcp"`
+	Adapters      []AdapterCap  `json:"adapters"`
+	OptionalTools []OptionalCap `json:"optional_tools"`
+}
+
+type AdapterCap struct {
+	Agent  string `json:"agent"`
+	Status string `json:"status"`
+}
+
+type OptionalCap struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+func capabilities(b version.Build) Capabilities {
+	var c Capabilities
+	c.Build = b
+	c.Platform = platformSupport(b.OS, b.Arch)
+	c.Structure.Summary = "Go: declarations and imports (go/parser, syntax level); other languages: file level"
+	c.Structure.Declarations = []string{"go"}
+	c.Structure.Parser = "go/parser (Go standard library)"
+	c.Structure.FileLevelLanguages = scan.FileLevelLanguages()
+	c.Structure.EmbeddedGrammars = []string{}
+	c.MCP.Transport = "stdio"
+	c.MCP.ProtocolVersions = mcpserver.ProtocolVersions()
+	c.MCP.Tools = append([]string{}, mcpserver.ToolNames...)
+	for _, a := range adapterInfo {
+		c.Adapters = append(c.Adapters, AdapterCap{a.agent, a.status})
+	}
+	for _, tool := range optionalTools {
+		st := "not found; not needed"
+		if _, err := exec.LookPath(tool); err == nil {
+			st = "found; not used by this version"
+		}
+		c.OptionalTools = append(c.OptionalTools, OptionalCap{tool, st})
+	}
+	return c
+}
+
+// platformSupport states the support level of a platform. Only tested platforms are
+// "supported"; Windows is deferred.
+func platformSupport(goos, arch string) string {
+	switch {
+	case (goos == "darwin" || goos == "linux") && (arch == "arm64" || arch == "amd64"):
+		return "supported"
+	case goos == "windows":
+		return "deferred (not supported, not tested)"
+	default:
+		return "not tested"
+	}
 }
 
 func writeJSON(e *Env, v any) int {
