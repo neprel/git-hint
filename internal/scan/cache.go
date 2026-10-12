@@ -71,5 +71,18 @@ func (c *Cache) Save(p string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(p, b, 0o600)
+	// atomic: two concurrent scans never leave a torn cache file
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".cache-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), p)
 }

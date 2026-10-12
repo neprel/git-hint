@@ -56,7 +56,19 @@ type Config struct {
 	Repos            []Repo `json:"repos"`
 	ServerURL        string `json:"server_url,omitempty"`
 	Policy           Policy `json:"policy"`
+	MCP              MCP    `json:"mcp"`
 }
+
+// MCP holds the local rules of the MCP server. Only the user changes them (CLI or the
+// file); no MCP tool can.
+type MCP struct {
+	// Upload is "deny" (default) or "allow": whether the hint_recommend tool may send the
+	// export package to the configured server. The agent's request alone never sends data.
+	Upload string `json:"upload,omitempty"`
+}
+
+// MCPUploadAllowed reports the local MCP upload rule (deny by default).
+func (c Config) MCPUploadAllowed() bool { return c.MCP.Upload == "allow" }
 
 // Store is an opened project store.
 type Store struct {
@@ -123,6 +135,7 @@ func GitTopLevel(dir string) (string, error) {
 type InitOptions struct {
 	Repos     []Repo // additional repositories; the primary repository is always added
 	ServerURL string
+	MCPUpload string // "", "allow" or "deny"
 }
 
 // Init creates the store in the Git work tree that contains dir. It is idempotent for an
@@ -169,6 +182,13 @@ func Init(dir string, opt InitOptions) (*Store, bool, error) {
 	}
 	if opt.ServerURL != "" {
 		s.Cfg.ServerURL = opt.ServerURL
+	}
+	switch opt.MCPUpload {
+	case "":
+	case "allow", "deny":
+		s.Cfg.MCP.Upload = opt.MCPUpload
+	default:
+		return nil, false, fmt.Errorf("mcp upload rule %q: use allow or deny", opt.MCPUpload)
 	}
 	if err := s.SaveConfig(); err != nil {
 		return nil, false, err
@@ -350,6 +370,7 @@ var probePaths = []string{
 	"state/activity/spool.jsonl", "state/activity/sources.json", "state/activity/adapter-stats.json",
 	"state/exports/state.json", "state/exports/history.jsonl", "state/exports/t/d.hint.json",
 	"state/queue/q/queue.json", "state/recommendations/latest.json", "state/recommendations/p.md",
+	"state/lock", "state/mcp.log",
 	"cache/scan-r.json",
 }
 

@@ -10,12 +10,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/neprel/git-hint/internal/api"
+	"github.com/neprel/git-hint/internal/mcpserver"
 	"github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/version"
@@ -54,7 +57,7 @@ func init() {
 		{"cache", "removes .hint/cache/ only; no network", "`cache clean`: delete rebuildable data. Mapping, keys and state stay.", cmdCache},
 		{"doctor", "reads local state and tools; no network", "Check Git, the store, the key, schemas, adapters and optional indexers.", cmdDoctor},
 		{"adapter", "writes .opencode/plugins/ (install); no network", "`adapter install opencode`: install the OpenCode adapter plugin.", cmdAdapter},
-		{"mcp", "—", "Start the MCP server (not available in this version).", cmdMCP},
+		{"mcp", "stdio MCP server; tools state their own effects (hint_recommend sends only if the local rule allows it)", "Start the MCP server for a coding agent (stdio).", cmdMCP},
 		{"version", "no effects", "Print the version.", cmdVersion},
 	}
 }
@@ -118,6 +121,7 @@ func cmdInit(e *Env, args []string) int {
 	var repos repoFlags
 	fs.Var(&repos, "repo", "add another repository: PATH or PATH=NAME (repeatable)")
 	server := fs.String("server", "", "HINT server base URL (https; http only for a loopback host)")
+	mcpUpload := fs.String("mcp-upload", "", "allow or deny: may the MCP tool hint_recommend send data (default deny)")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -132,6 +136,7 @@ func cmdInit(e *Env, args []string) int {
 		}
 		opt.ServerURL = *server
 	}
+	opt.MCPUpload = *mcpUpload
 	s, created, err := store.Init(e.Dir, opt)
 	if err != nil {
 		return fail(e, err)
@@ -149,6 +154,11 @@ func cmdInit(e *Env, args []string) int {
 	if s.Cfg.ServerURL != "" {
 		fmt.Fprintf(e.Stdout, "Server: %s\n", s.Cfg.ServerURL)
 	}
+	upload := "deny"
+	if s.Cfg.MCPUploadAllowed() {
+		upload = "allow"
+	}
+	fmt.Fprintf(e.Stdout, "MCP upload rule: %s\n", upload)
 	fmt.Fprintf(e.Stdout, "Next: git hint collect --full\n")
 	return 0
 }
@@ -222,6 +232,11 @@ func cmdCollect(e *Env, args []string) int {
 	if err != nil {
 		return fail(e, err)
 	}
+	lock, err := s.LockState(true)
+	if err != nil {
+		return fail(e, err)
+	}
+	defer lock.Unlock()
 	res, err := project.Collect(s, project.CollectOptions{Full: *full, Now: e.Now})
 	if err != nil {
 		return fail(e, err)
@@ -345,6 +360,11 @@ func cmdExport(e *Env, args []string) int {
 		fmt.Fprintln(e.Stdout, "Dry run: nothing was written. The package is valid.")
 		return 0
 	}
+	lock, err := s.LockState(true)
+	if err != nil {
+		return fail(e, err)
+	}
+	defer lock.Unlock()
 	dir := *out
 	if dir == "" {
 		dir = s.Path("state", "exports", now.UTC().Format("20060102T150405Z"))
@@ -453,6 +473,11 @@ func cmdRecommend(e *Env, args []string) int {
 	}
 	now := e.Now()
 	ctx := context.Background()
+	lock, err := s.LockState(true)
+	if err != nil {
+		return fail(e, err)
+	}
+	defer lock.Unlock()
 	var packages []*project.Package
 	var queueIDs []string
 	if *retry {
@@ -556,6 +581,11 @@ func cmdPlan(e *Env, args []string) int {
 		return fail(e, err)
 	}
 	md := project.Render(im, cur, filepath.Base(src))
+	lock, err := s.LockState(true)
+	if err != nil {
+		return fail(e, err)
+	}
+	defer lock.Unlock()
 	dst := *out
 	if dst == "" {
 		dst = s.Path("state", "recommendations", "plan-"+now.UTC().Format("20060102T150405Z")+".md")
@@ -615,8 +645,32 @@ func cmdCache(e *Env, args []string) int {
 }
 
 func cmdMCP(e *Env, args []string) int {
-	fmt.Fprintln(e.Stderr, "git hint mcp: the MCP server is not available in this version.")
-	return 2
+	fs := flags(e, "mcp", "stdio MCP server; stdout carries MCP messages only")
+	dir := fs.String("project", e.Dir, "project directory")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	err := mcpserver.Run(ctx, mcpserver.Options{Dir: *dir, Now: e.Now, Stderr: e.Stderr},
+		io.NopCloser(e.Stdin), nopWriteCloser{e.Stdout})
+	if err != nil && ctx.Err() == nil {
+		fmt.Fprintln(e.Stderr, "git hint mcp: session ended:", classifyForStderr(err))
+		return 1
+	}
+	return 0
+}
+
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }
+
+// classifyForStderr keeps stderr free of names: only the error kind is printed.
+func classifyForStderr(err error) string {
+	if strings.Contains(err.Error(), "EOF") || strings.Contains(err.Error(), "closed") {
+		return "client disconnected"
+	}
+	return "transport error"
 }
 
 func cmdVersion(e *Env, args []string) int {

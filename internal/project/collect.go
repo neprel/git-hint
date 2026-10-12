@@ -1,7 +1,10 @@
 package project
 
 import (
+	"context"
 	"time"
+
+	"github.com/neprel/git-hint/internal/hint"
 
 	"github.com/neprel/git-hint/internal/activity"
 	"github.com/neprel/git-hint/internal/scan"
@@ -24,6 +27,11 @@ type RepoResult struct {
 type CollectOptions struct {
 	Full bool // ignore the scan cache (full baseline)
 	Now  func() time.Time
+	// Ctx cancels the scan; a repository is stored only after its complete scan.
+	Ctx context.Context
+	// TaskID is a task identifier that the agent or orchestrator supplied (raw); it is
+	// stored only as an opaque ID on the file-change observations. Never invented.
+	TaskID string
 }
 
 // Collect scans every configured repository. It stores a new snapshot when the state
@@ -48,9 +56,12 @@ func Collect(s *store.Store, opt CollectOptions) ([]RepoResult, error) {
 		} else {
 			cache = scan.LoadCache(cachePath)
 		}
-		res, err := scan.Scan(scan.Options{Root: s.RepoRoot(r), RepoID: repoID, Key: s.Key(), Cache: cache})
+		res, err := scan.Scan(scan.Options{Ctx: opt.Ctx, Root: s.RepoRoot(r), RepoID: repoID, Key: s.Key(), Cache: cache})
 		if err != nil {
 			return nil, err
+		}
+		if opt.Ctx != nil && opt.Ctx.Err() != nil {
+			return nil, opt.Ctx.Err()
 		}
 		if err := s.CheckPath(cachePath); err != nil {
 			return nil, err
@@ -73,7 +84,7 @@ func Collect(s *store.Store, opt CollectOptions) ([]RepoResult, error) {
 				return nil, err
 			}
 			if prev != nil {
-				n, err := recordMutations(s, prev, cur, at)
+				n, err := recordMutations(s, prev, cur, at, opt.TaskID)
 				if err != nil {
 					return nil, err
 				}
@@ -86,7 +97,7 @@ func Collect(s *store.Store, opt CollectOptions) ([]RepoResult, error) {
 	return out, nil
 }
 
-func recordMutations(s *store.Store, prev, cur *snapshot.Local, at time.Time) (int, error) {
+func recordMutations(s *store.Store, prev, cur *snapshot.Local, at time.Time, rawTask string) (int, error) {
 	_, local := snapshot.Diff(s.Key(), prev, cur)
 	var files []activity.FileChange
 	for _, c := range local {
@@ -120,10 +131,30 @@ func recordMutations(s *store.Store, prev, cur *snapshot.Local, at time.Time) (i
 		return 0, err
 	}
 	obs := activity.Mutations(s.Key(), prev.Record.SnapshotID, cur.Record.SnapshotID, files, since, at, recent)
+	if rawTask != "" {
+		task := hint.DeriveID(s.Key(), "task", rawTask)
+		for i := range obs {
+			if obs[i].Correlation == nil {
+				obs[i].Correlation = map[string]string{}
+			}
+			obs[i].Correlation["task_id"] = task
+			obs[i].Missing = withoutField(obs[i].Missing, "correlation.task_id")
+		}
+	}
 	for _, o := range obs {
 		if err := AppendObservation(s, o); err != nil {
 			return 0, err
 		}
 	}
 	return len(obs), nil
+}
+
+func withoutField(l []string, f string) []string {
+	out := []string{}
+	for _, x := range l {
+		if x != f {
+			out = append(out, x)
+		}
+	}
+	return out
 }

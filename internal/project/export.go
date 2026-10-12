@@ -47,6 +47,7 @@ type Report struct {
 	TimeMin               string              `json:"time_min,omitempty"`
 	TimeMax               string              `json:"time_max,omitempty"`
 	Features              []string            `json:"exact_features"`
+	RemovedFields         map[string]int      `json:"removed_fields"` // record type -> fields dropped by the policy
 	Notes                 []string            `json:"notes"`
 }
 
@@ -77,7 +78,8 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 	fields := pol["fields"].(map[string][]string)
 	p := &Package{Policy: pol, SnapshotDigests: map[string]string{}, Report: Report{Profile: s.Cfg.Policy.Profile,
 		TimeResolutionSeconds: res, PolicyID: pol["policy_id"].(string), Documents: map[string]int{},
-		Records: map[string]int{}, EntityKinds: map[string]int{}, Ops: map[string]int{}, Fields: fields}}
+		Records: map[string]int{}, EntityKinds: map[string]int{}, Ops: map[string]int{}, Fields: fields,
+		RemovedFields: map[string]int{}}}
 	tf := &transform{fields: fields, res: res, report: &p.Report}
 
 	// 1. export policy: the receiver checks the allowlist against it
@@ -378,6 +380,7 @@ func (t *transform) filter(rt string, m map[string]any) map[string]any {
 	for k := range m {
 		if !contains(allow, k) {
 			delete(m, k)
+			t.report.RemovedFields[rt]++
 		}
 	}
 	if rt == "Entity" {

@@ -4,7 +4,7 @@
 
 `git-hint` collects the structure of your repositories and the activity of an AI coding agent on your machine. It removes content and names, and writes canonical HINT documents. It exchanges these documents with a HINT server in file mode or API mode. It validates the recommendations that come back, resolves their identifiers on your machine and writes a Markdown plan. It never changes your code.
 
-Other documents: [command reference](commands.md), [privacy and data audit](privacy.md), [troubleshooting](troubleshooting.md), [sample configuration](project.example.json).
+Other documents: [command reference](commands.md), [MCP server](mcp.md), [privacy and data audit](privacy.md), [troubleshooting](troubleshooting.md), [sample configuration](project.example.json).
 
 ## 1. Requirements
 

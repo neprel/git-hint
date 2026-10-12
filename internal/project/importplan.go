@@ -1,7 +1,14 @@
 package project
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/neprel/git-hint/internal/hint"
@@ -35,6 +42,11 @@ type CurrentRepo struct {
 // CurrentState scans every repository (with the cache) and compares it with the latest
 // stored snapshot. Nothing is written except the rebuildable scan cache.
 func CurrentState(s *store.Store, now time.Time) (*Current, error) {
+	return CurrentStateCtx(context.Background(), s, now)
+}
+
+// CurrentStateCtx is CurrentState with cancellation between files.
+func CurrentStateCtx(ctx context.Context, s *store.Store, now time.Time) (*Current, error) {
 	st, err := loadExportState(s)
 	if err != nil {
 		return nil, err
@@ -48,7 +60,7 @@ func CurrentState(s *store.Store, now time.Time) (*Current, error) {
 		repoID := s.RepoID(r)
 		cachePath := s.Path("cache", "scan-"+repoID+".json")
 		cache := scan.LoadCache(cachePath)
-		res, err := scan.Scan(scan.Options{Root: s.RepoRoot(r), RepoID: repoID, Key: s.Key(), Cache: cache})
+		res, err := scan.Scan(scan.Options{Ctx: ctx, Root: s.RepoRoot(r), RepoID: repoID, Key: s.Key(), Cache: cache})
 		if err != nil {
 			return nil, err
 		}
@@ -124,11 +136,10 @@ func Import(raw []byte, cur *Current) (*Imported, error) {
 // SaveRecommendation stores an imported recommendation document (raw bytes) and returns
 // its path below .hint/state/recommendations/.
 func SaveRecommendation(s *store.Store, raw []byte) (string, error) {
-	d, err := hint.Digest(mustPlain(raw))
-	if err != nil {
-		return "", err
-	}
-	name := fmt.Sprintf("recommendation_set-%s.hint.json", d[len("sha256:"):len("sha256:")+12])
+	// named by the hash of the received bytes: also a malformed document is kept as
+	// received (it is rejected by the import, never trusted)
+	sum := sha256.Sum256(raw)
+	name := fmt.Sprintf("recommendation_set-%s.hint.json", hex.EncodeToString(sum[:])[:12])
 	if err := s.WriteState(raw, "state", "recommendations", name); err != nil {
 		return "", err
 	}
@@ -149,10 +160,52 @@ func LatestRecommendation(s *store.Store) (string, error) {
 	return s.Path("state", "recommendations", ref.File), nil
 }
 
-func mustPlain(raw []byte) any {
-	dec, err := hint.Decode(raw)
+// StoredRecommendation is one recommendation document in .hint/state/recommendations/.
+type StoredRecommendation struct {
+	ID   string // document_id from the document
+	Path string
+	Time time.Time
+}
+
+// ListRecommendations returns the stored recommendation documents, newest first.
+func ListRecommendations(s *store.Store) ([]StoredRecommendation, error) {
+	files, err := filepath.Glob(s.Path("state", "recommendations", "recommendation_set-*.hint.json"))
 	if err != nil {
-		return string(raw)
+		return nil, err
 	}
-	return dec
+	var out []StoredRecommendation
+	for _, f := range files {
+		fi, err := os.Stat(f)
+		if err != nil {
+			continue
+		}
+		var head struct {
+			ID string `json:"document_id"`
+		}
+		b, err := os.ReadFile(f)
+		if err != nil || json.Unmarshal(b, &head) != nil || head.ID == "" {
+			continue
+		}
+		out = append(out, StoredRecommendation{ID: head.ID, Path: f, Time: fi.ModTime()})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+	return out, nil
+}
+
+// FindRecommendation returns the stored document with this document ID, or the latest
+// for "" or "latest".
+func FindRecommendation(s *store.Store, id string) (string, error) {
+	if id == "" || id == "latest" {
+		return LatestRecommendation(s)
+	}
+	list, err := ListRecommendations(s)
+	if err != nil {
+		return "", err
+	}
+	for _, r := range list {
+		if r.ID == id {
+			return r.Path, nil
+		}
+	}
+	return "", fmt.Errorf("no stored recommendation with this ID")
 }

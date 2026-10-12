@@ -16,6 +16,7 @@ git hint export --dry-run --privacy-report
 |---|---|
 | [User guide](docs/client/README.md) | install, first run, several repositories, OpenCode adapter, file and API mode, plans |
 | [Command reference](docs/client/commands.md) | commands, their effects (read, write, network), environment, local store |
+| [MCP server](docs/client/mcp.md) | `git hint mcp` for coding agents: tools, upload rule, limits, OpenCode configuration |
 | [Privacy and data audit](docs/client/privacy.md) | what stays local, what leaves, how it is enforced and tested |
 | [Troubleshooting](docs/client/troubleshooting.md) | messages and actions |
 | [Third-party notices](THIRD_PARTY_NOTICES.md) | licenses of included components |

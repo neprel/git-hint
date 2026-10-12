@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -893,3 +894,77 @@ func (s *syncBuffer) Write(p []byte) (int, error) {
 	return s.b.Write(p)
 }
 func (s *syncBuffer) String() string { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
+
+// TestMCPStdoutCarriesOnlyProtocolMessages runs the built binary as an MCP server over
+// stdio, drives it with raw JSON-RPC, and requires that every stdout line is a JSON-RPC
+// 2.0 message. Diagnostics may go to stderr only.
+func TestMCPStdoutCarriesOnlyProtocolMessages(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	shop, _ := setup(t)
+	bin := filepath.Join(t.TempDir(), "git-hint")
+	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/git-hint").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	cmd := exec.Command(bin, "mcp")
+	cmd.Dir = shop
+	cmd.Env = os.Environ()
+	stdin, _ := cmd.StdinPipe()
+	var stdout, stderr syncBuffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	send := func(v map[string]any) {
+		b, _ := json.Marshal(v)
+		stdin.Write(append(b, '\n'))
+	}
+	waitID := func(id int) {
+		for i := 0; i < 500; i++ {
+			if strings.Contains(stdout.String(), fmt.Sprintf(`"id":%d`, id)) {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("no response %d\nstdout:%s\nstderr:%s", id, stdout.String(), stderr.String())
+	}
+	send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{
+		"protocolVersion": "2025-11-25", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "raw", "version": "0"}}})
+	waitID(1)
+	send(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
+	send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+	waitID(2)
+	send(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": map[string]any{"name": "hint_collect", "arguments": map[string]any{"full": true}}})
+	waitID(3)
+	send(map[string]any{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": map[string]any{"name": "hint_export_preview", "arguments": map[string]any{}}})
+	waitID(4)
+	send(map[string]any{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": map[string]any{"name": "hint_recommend", "arguments": map[string]any{}}})
+	waitID(5)
+	stdin.Close()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("server did not exit after stdin closed")
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) < 5 {
+		t.Fatalf("too few messages: %d", len(lines))
+	}
+	for _, l := range lines {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(l), &m); err != nil || m["jsonrpc"] != "2.0" {
+			t.Fatalf("non-protocol stdout line: %q", l)
+		}
+	}
+	out := stdout.String()
+	if !strings.Contains(out, `"protocolVersion":"2025-11-25"`) || !strings.Contains(out, "approval_required") {
+		t.Fatalf("unexpected answers: %s", out)
+	}
+	if strings.Contains(out, "HINTCANARY_KEY") || strings.Contains(out, "HINTCANARY_LITERAL") {
+		t.Fatal("source content in MCP output")
+	}
+}

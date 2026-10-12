@@ -23,4 +23,8 @@ Run `git hint doctor` first. It checks Git, the store, the key, the schemas and 
 | OpenCode: no observations in `status` | The plugin is not installed, `git-hint` is not on the `PATH` of OpenCode, or Git is missing for the child process. | `git hint adapter install opencode`; set `HINT_BIN`; check `adapter-stats.json` in `.hint/state/activity/` for `dropped`. |
 | OpenCode: a second HINT plugin | OpenCode loads every `.ts` file in `.opencode/plugins/`. | Keep only `hint-adapter.ts`. |
 | Slow export on a large repository | Canonical digests (RFC 8785) of large snapshots. About 1 s per 1,000 files on a laptop. | Use `export` without `--dry-run` once; `collect` stays incremental. `HINT_CPUPROFILE=<file>` records a profile. |
+| MCP: `approval_required` | The user's local rule denies uploads from MCP (default). Nothing was sent. | Inspect with `git hint export --dry-run --privacy-report`; send with `git hint recommend`, or allow MCP uploads with `git hint init --mcp-upload allow`. |
+| MCP: `busy` | Another HINT operation writes the project state. | Call the tool again when it ends. |
+| MCP: tools missing in the first OpenCode request | OpenCode 2.x connects MCP servers asynchronously. | The tools are available from the next request. |
+| MCP: HINT tools only through `execute` in OpenCode | The configuration uses the old `"mcp": {"<name>": ...}` form. | Use `"mcp": {"servers": {...}}` with `"codemode": false`. |
 | Windows | Not tested. | Use macOS or Linux. |

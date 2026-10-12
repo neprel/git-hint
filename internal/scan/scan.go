@@ -10,6 +10,7 @@ package scan
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -95,6 +96,9 @@ type Stats struct {
 
 // Options control one scan.
 type Options struct {
+	// Ctx cancels a scan between files (nil: not cancelable). A canceled scan writes
+	// nothing; the caller stores results only after a complete scan.
+	Ctx    context.Context
 	Root   string // repository root
 	RepoID string
 	Key    []byte
@@ -177,6 +181,11 @@ func Scan(opt Options) (*Result, error) {
 	modules := goModules(opt.Root, files)
 	var goFiles []goFile
 	for _, p := range files {
+		if opt.Ctx != nil {
+			if err := opt.Ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		res.Stats.Files++
 		parent := ensureDir(parentDir(p))
 		fe, cached, err := fileEntry(opt, p)

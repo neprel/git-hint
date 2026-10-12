@@ -30,6 +30,7 @@ Only canonical HINT documents: `export_policy`, `repository_snapshot`, `change_s
 | The key stays outside the repositories | a key directory or key file inside any project repository (also by relative path or symbolic link) is refused at `init` and at every start | `TestKeyInsideAProjectRepositoryIsRejected` |
 | A changed work tree is never mistaken for an old one | every file is hashed on every scan; the cache only saves parsing | `TestSameSizeAndMtimeChangeIsDetected` |
 | Transport | `https` only (except loopback), no redirects, response size limit | `internal/api` tests |
+| The MCP server never sends on the agent's word | `hint_recommend` has no arguments, uses only the configured server and the local policy, and sends only with the user's local rule `mcp.upload: allow`; tool errors are redacted; paths are checked against the project repositories | `internal/mcpserver` tests: `TestRecommendFailsClosedWithoutLocalApproval`, `TestErrorsAreRedacted`, `TestImportRecommendationPathsAndLimits` |
 | A send counts only when the server confirms it | the receipt must pass the schema and the semantic rules, and its accepted entry must name the sent document ID and content digest; otherwise the export is not marked as done | `TestWrongReceiptDoesNotMarkExport` |
 | An independent check agrees | the conformance suite builds the client and validates its exports with the reference checker | `tests/conformance` `TestClientExportsPassReferenceChecker` |
 

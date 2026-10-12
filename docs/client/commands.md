@@ -4,7 +4,7 @@ Every command says what it reads, what it writes and whether it uses the network
 
 | Command | Effects | Purpose |
 |---|---|---|
-| `git hint init [--repo PATH[=NAME]]... [--server URL]` | writes local state; no network | Create the store, the key and the repository list. Running it again adds repositories and keeps the key. |
+| `git hint init [--repo PATH[=NAME]]... [--server URL] [--mcp-upload allow\|deny]` | writes local state; no network | Create the store, the key and the repository list. Running it again adds repositories and keeps the key. `--mcp-upload` sets whether the MCP tool `hint_recommend` may send data (default deny). |
 | `git hint status` | reads local state; no network | Repositories, last snapshots, adapter counters, queued packages, privacy profile. |
 | `git hint collect [--full] [--json]` | reads the work trees; writes local state; no network | Scan the repositories; store a new snapshot when they changed; record changed files. `--full` ignores the scan cache. |
 | `git hint changes [--format text\|canonical]` | reads local state; no network | Changes between the last two snapshots. `text` shows local names; `canonical` prints the HINT change set without names. |
@@ -16,7 +16,7 @@ Every command says what it reads, what it writes and whether it uses the network
 | `git hint doctor` | reads local state and tools; no network | Check Git, the store, the key, the schemas, the adapters and optional tools. Starts no agent. |
 | `git hint adapter install opencode [--force]` | writes `.opencode/plugins/hint-adapter.ts`; no network | Install the OpenCode adapter plugin. |
 | `git hint adapter opencode --project DIR` | reads stdin; writes the activity spool; no network | Started by the OpenCode plugin. Not for direct use. |
-| `git hint mcp` | — | Not available in this version. |
+| `git hint mcp [--project DIR]` | stdio MCP server; each tool states its effect; `hint_recommend` sends only with the user's rule | Serve the HINT tools to a coding agent. See [mcp.md](mcp.md). |
 | `git hint version` | none | Client and data format version. |
 
 ## Environment
