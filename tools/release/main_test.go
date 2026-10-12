@@ -24,13 +24,13 @@ func TestArchiveIsDeterministic(t *testing.T) {
 	when := time.Unix(1700000000, 0).UTC()
 	lic := []namedFile{{"licenses/go/LICENSE", []byte("license")}}
 	a, b := filepath.Join(dir, "a.tar.gz"), filepath.Join(dir, "b.tar.gz")
-	if err := writeArchive(a, "x", root, bin, lic, when); err != nil {
+	if _, err := writeArchive(a, "x", root, bin, lic, when); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(bin, time.Now(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeArchive(b, "x", root, bin, lic, when); err != nil {
+	if _, err := writeArchive(b, "x", root, bin, lic, when); err != nil {
 		t.Fatal(err)
 	}
 	ba, _ := os.ReadFile(a)
@@ -64,22 +64,65 @@ func TestCheckBinaryFindsForbiddenContent(t *testing.T) {
 	}
 }
 
-func TestSumsAndVerify(t *testing.T) {
+// distWith writes a release directory with one archive of the given tar content and gzip
+// level, and a manifest that names the build host.
+func distWith(t *testing.T, content string, level int, host string) string {
+	t.Helper()
 	dir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(dir, "git-hint_1.0.0_linux_amd64.tar.gz"), []byte("a"), 0o644)
-	sum, size, _ := hashFile(filepath.Join(dir, "git-hint_1.0.0_linux_amd64.tar.gz"))
-	m := Manifest{Artifacts: []Artifact{{OS: "linux", Arch: "amd64", File: "git-hint_1.0.0_linux_amd64.tar.gz", SHA256: sum, Size: size}}}
+	var tb bytes.Buffer
+	tw := tar.NewWriter(&tb)
+	tw.WriteHeader(&tar.Header{Name: "x/git-hint", Mode: 0o755, Size: int64(len(content)), Typeflag: tar.TypeReg})
+	tw.Write([]byte(content))
+	tw.Close()
+	var gb bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&gb, level)
+	zw.Write(tb.Bytes())
+	zw.Close()
+	name := "git-hint_1.0.0_linux_amd64.tar.gz"
+	_ = os.WriteFile(filepath.Join(dir, name), gb.Bytes(), 0o644)
+	sum, size, _ := hashFile(filepath.Join(dir, name))
+	ts, bs, err := contentSums(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := Manifest{Version: "v1.0.0", Commit: "c", GoVersion: "go1", BuildHost: host,
+		Artifacts: []Artifact{{OS: "linux", Arch: "amd64", File: name, SHA256: sum, Size: size, TarSHA256: ts, BinarySHA256: bs}}}
 	mb, _ := json.Marshal(m)
 	_ = os.WriteFile(filepath.Join(dir, "manifest.json"), mb, 0o644)
 	if err := writeSums(dir); err != nil {
 		t.Fatal(err)
 	}
+	return dir
+}
+
+func TestSumsAndVerify(t *testing.T) {
+	dir := distWith(t, "program", gzip.BestCompression, "linux/amd64")
 	if err := cmdVerify([]string{"-dir", dir}); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(filepath.Join(dir, "git-hint_1.0.0_linux_amd64.tar.gz"), []byte("b"), 0o644)
 	if err := cmdVerify([]string{"-dir", dir}); err == nil {
 		t.Fatal("a changed archive passed")
+	}
+}
+
+func TestCompare(t *testing.T) {
+	a := distWith(t, "program", gzip.BestCompression, "linux/amd64")
+	same := distWith(t, "program", gzip.BestCompression, "linux/amd64")
+	otherGzip := distWith(t, "program", gzip.BestSpeed, "darwin/arm64")
+	otherGzipSameHost := distWith(t, "program", gzip.BestSpeed, "linux/amd64")
+	otherProgram := distWith(t, "program2", gzip.BestCompression, "linux/amd64")
+	if err := cmdCompare([]string{a, same}); err != nil {
+		t.Errorf("identical: %v", err)
+	}
+	if err := cmdCompare([]string{a, otherGzip}); err != nil {
+		t.Errorf("other host, same content: %v", err)
+	}
+	if err := cmdCompare([]string{a, otherGzipSameHost}); err == nil {
+		t.Error("same host with different archives passed")
+	}
+	if err := cmdCompare([]string{a, otherProgram}); err == nil {
+		t.Error("different program passed")
 	}
 }
 

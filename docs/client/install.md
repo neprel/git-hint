@@ -77,7 +77,7 @@ Limits: only release archives carry a verified commit, a checksum and provenance
 go install github.com/neprel/git-hint/cmd/git-hint@v0.1.0     # Go 1.27 or later
 ```
 
-Release archives are built with `go run ./tools/release build` from the files of one commit only; the same commit and Go version give byte-identical archives (see [releasing](releasing.md)).
+Release archives are built with `go run ./tools/release build` from the files of one commit only. The same commit and Go version give the same programs and tar streams on any host, and byte-identical archives on a host of the same CPU architecture (see [releasing](releasing.md)).
 
 ## 6. Update and uninstall
 

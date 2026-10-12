@@ -10,7 +10,12 @@ scripts/release/smoke.sh dist                             # this machine's platf
 
 `tools/release` extracts the files of the commit (`git archive`) into a new directory and builds there: local changes, untracked files and ignored files never reach a release, and the manifest names that commit. It builds `darwin/amd64`, `darwin/arm64`, `linux/amd64` and `linux/arm64` with `CGO_ENABLED=0`, `-trimpath`, an empty build ID and the version, commit and commit time set at link time. Each archive holds `git-hint`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `README.md` and the license texts of the Go toolchain and every linked module (`licenses/`). The tool rejects a binary that contains test fixture content, home directory paths, private IPv4 addresses or credential patterns. It writes `SHA256SUMS` and `manifest.json`.
 
-**Reproducibility.** The archive time and the version date are the commit time, so the same commit built with the same Go version gives byte-identical archives on any host. Limits: a different Go version, different module sources (the module checksums in `go.sum` prevent this) or a different `-version` value change the output.
+**Reproducibility.** The archive time and the version date are the commit time. The same commit built with the same Go version gives:
+
+- the same programs and the same uncompressed tar streams on any host (`binary_sha256`, `tar_sha256` in `manifest.json`);
+- byte-identical `.tar.gz` files only on a host of the same CPU architecture: Go's `compress/flate` produces different bytes on amd64 and arm64 hosts for some inputs. The manifest records the build host (`build_host`); the release workflow builds on Linux amd64.
+
+`go run ./tools/release compare <published dir> <rebuild dir>` checks a rebuild: identical archives on the same host architecture, identical tar streams and programs across architectures. Limits: a different Go version, different module sources (the module checksums in `go.sum` prevent this) or a different `-version` value change the output.
 
 ## Workflows
 

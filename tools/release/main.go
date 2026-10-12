@@ -55,6 +55,8 @@ func main() {
 		err = cmdCheck(os.Args[2:])
 	case "verify":
 		err = cmdVerify(os.Args[2:])
+	case "compare":
+		err = cmdCompare(os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q", os.Args[1])
 	}
@@ -71,6 +73,7 @@ type Manifest struct {
 	Commit          string     `json:"commit"`
 	Date            string     `json:"date"`
 	GoVersion       string     `json:"go_version"`
+	BuildHost       string     `json:"build_host"`
 	StandardVersion string     `json:"standard_version"`
 	Artifacts       []Artifact `json:"artifacts"`
 	Deferred        []string   `json:"deferred_platforms"`
@@ -82,6 +85,9 @@ type Artifact struct {
 	File   string `json:"file"`
 	SHA256 string `json:"sha256"`
 	Size   int64  `json:"size"`
+	// host-independent: the uncompressed tar stream and the git-hint program
+	TarSHA256    string `json:"tar_sha256"`
+	BinarySHA256 string `json:"binary_sha256"`
 }
 
 // semver is "v" plus the version pattern of the HINT data standard (common.schema.json,
@@ -148,7 +154,7 @@ func cmdBuild(args []string) error {
 		return err
 	}
 	m := Manifest{Name: "git-hint", Version: *ver, Commit: commit, Date: when.Format(time.RFC3339),
-		GoVersion: runtime.Version(), StandardVersion: std, Deferred: []string{"windows"}}
+		GoVersion: runtime.Version(), BuildHost: runtime.GOOS + "/" + runtime.GOARCH, StandardVersion: std, Deferred: []string{"windows"}}
 	if err := os.MkdirAll(outAbs, 0o755); err != nil {
 		return err
 	}
@@ -176,14 +182,20 @@ func cmdBuild(args []string) error {
 		}
 		name := fmt.Sprintf("git-hint_%s_%s_%s", strings.TrimPrefix(*ver, "v"), goos, arch)
 		file := name + ".tar.gz"
-		if err := writeArchive(filepath.Join(outAbs, file), name, src, bin, lic, when); err != nil {
+		tarSum, err := writeArchive(filepath.Join(outAbs, file), name, src, bin, lic, when)
+		if err != nil {
+			return err
+		}
+		binSum, _, err := hashFile(bin)
+		if err != nil {
 			return err
 		}
 		sum, size, err := hashFile(filepath.Join(outAbs, file))
 		if err != nil {
 			return err
 		}
-		m.Artifacts = append(m.Artifacts, Artifact{OS: goos, Arch: arch, File: file, SHA256: sum, Size: size})
+		m.Artifacts = append(m.Artifacts, Artifact{OS: goos, Arch: arch, File: file, SHA256: sum, Size: size,
+			TarSHA256: tarSum, BinarySHA256: binSum})
 	}
 	sort.Slice(m.Artifacts, func(i, j int) bool { return m.Artifacts[i].File < m.Artifacts[j].File })
 	mb, _ := json.MarshalIndent(m, "", "  ")
@@ -194,11 +206,14 @@ func cmdBuild(args []string) error {
 }
 
 // writeArchive writes a deterministic tar.gz: fixed order, owner, modes and time.
-func writeArchive(dst, dir, src, bin string, lic []namedFile, when time.Time) error {
-	var buf bytes.Buffer
-	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
-	zw.ModTime = when
-	tw := tar.NewWriter(zw)
+// It returns the SHA-256 of the uncompressed tar stream. The tar stream is the same on
+// every build host; the gzip layer is not: Go's compress/flate gives different bytes on
+// amd64 and arm64 hosts for some inputs. Archives are therefore byte-identical only when
+// they are built on the same host architecture; the tar and binary checksums in the
+// manifest compare builds from any host.
+func writeArchive(dst, dir, src, bin string, lic []namedFile, when time.Time) (string, error) {
+	var tbuf bytes.Buffer
+	tw := tar.NewWriter(&tbuf)
 	add := func(name string, mode int64, body []byte) error {
 		h := &tar.Header{Name: dir + "/" + name, Mode: mode, Size: int64(len(body)), ModTime: when, Typeflag: tar.TypeReg,
 			Uname: "root", Gname: "root", Format: tar.FormatPAX}
@@ -210,36 +225,43 @@ func writeArchive(dst, dir, src, bin string, lic []namedFile, when time.Time) er
 	}
 	if err := tw.WriteHeader(&tar.Header{Name: dir + "/", Mode: 0o755, ModTime: when, Typeflag: tar.TypeDir,
 		Uname: "root", Gname: "root", Format: tar.FormatPAX}); err != nil {
-		return err
+		return "", err
 	}
 	b, err := os.ReadFile(bin)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := add("git-hint", 0o755, b); err != nil {
-		return err
+		return "", err
 	}
 	for _, f := range docFiles {
 		b, err := os.ReadFile(filepath.Join(src, f))
 		if err != nil {
-			return err
+			return "", err
 		}
 		if err := add(f, 0o644, b); err != nil {
-			return err
+			return "", err
 		}
 	}
 	for _, f := range lic {
 		if err := add(f.name, 0o644, f.body); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := tw.Close(); err != nil {
-		return err
+		return "", err
+	}
+	var buf bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	zw.ModTime = when
+	if _, err := zw.Write(tbuf.Bytes()); err != nil {
+		return "", err
 	}
 	if err := zw.Close(); err != nil {
-		return err
+		return "", err
 	}
-	return os.WriteFile(dst, buf.Bytes(), 0o644)
+	sum := sha256.Sum256(tbuf.Bytes())
+	return hex.EncodeToString(sum[:]), os.WriteFile(dst, buf.Bytes(), 0o644)
 }
 
 type namedFile struct {
@@ -359,8 +381,86 @@ func cmdVerify(args []string) error {
 		if err != nil || got != a.SHA256 || size != a.Size || a.OS == "windows" {
 			return fmt.Errorf("%s: manifest entry does not match", a.File)
 		}
+		tarSum, binSum, err := contentSums(filepath.Join(*dir, a.File))
+		if err != nil || tarSum != a.TarSHA256 || binSum != a.BinarySHA256 {
+			return fmt.Errorf("%s: tar or program checksum does not match the manifest", a.File)
+		}
 	}
 	fmt.Printf("%d files verified, %d artifacts in the manifest\n", n, len(m.Artifacts))
+	return nil
+}
+
+// contentSums returns the SHA-256 of the uncompressed tar stream of an archive and of the
+// git-hint program in it.
+func contentSums(p string) (string, string, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		return "", "", err
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		return "", "", err
+	}
+	ts := sha256.Sum256(raw)
+	tr := tar.NewReader(bytes.NewReader(raw))
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			return "", "", fmt.Errorf("%s: no git-hint program", p)
+		}
+		if strings.HasSuffix(h.Name, "/git-hint") {
+			b, err := io.ReadAll(tr)
+			if err != nil {
+				return "", "", err
+			}
+			bs := sha256.Sum256(b)
+			return hex.EncodeToString(ts[:]), hex.EncodeToString(bs[:]), nil
+		}
+	}
+}
+
+// cmdCompare compares two release directories of the same version and commit, for
+// example a published release and a local rebuild. Archives built on the same host
+// architecture must be identical; across architectures the tar streams and programs must
+// be identical (the gzip layer may differ).
+func cmdCompare(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: release compare <dir A> <dir B>")
+	}
+	var ms [2]Manifest
+	for i, d := range args {
+		if err := cmdVerify([]string{"-dir", d}); err != nil {
+			return fmt.Errorf("%s: %w", d, err)
+		}
+		b, _ := os.ReadFile(filepath.Join(d, "manifest.json"))
+		if err := json.Unmarshal(b, &ms[i]); err != nil {
+			return err
+		}
+	}
+	a, b := ms[0], ms[1]
+	if a.Version != b.Version || a.Commit != b.Commit || a.GoVersion != b.GoVersion || len(a.Artifacts) != len(b.Artifacts) {
+		return fmt.Errorf("different builds: version, commit, Go version or artifact list differ")
+	}
+	sameHost := a.BuildHost == b.BuildHost
+	for i := range a.Artifacts {
+		x, y := a.Artifacts[i], b.Artifacts[i]
+		if x.File != y.File || x.TarSHA256 != y.TarSHA256 || x.BinarySHA256 != y.BinarySHA256 {
+			return fmt.Errorf("%s: content differs", x.File)
+		}
+		switch {
+		case x.SHA256 == y.SHA256:
+			fmt.Printf("%s: identical archive\n", x.File)
+		case sameHost:
+			return fmt.Errorf("%s: archives from the same host architecture differ", x.File)
+		default:
+			fmt.Printf("%s: identical tar and program; gzip differs (build hosts %s, %s)\n", x.File, a.BuildHost, b.BuildHost)
+		}
+	}
 	return nil
 }
 
