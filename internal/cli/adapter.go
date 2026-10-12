@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 
 	"fmt"
 	"io"
@@ -76,7 +77,14 @@ func adapterInstall(e *Env, args []string) int {
 
 // adapterOpenCode is the long-lived child of the OpenCode plugin. It reads reduced plugin
 // events from stdin and appends one observation per finished tool call to the spool.
-// Exit codes: 0 done, 1 setup error, 3 spool write failure (the plugin counts drops).
+//
+// Every line is written only after the Git exclusion of `.hint/` is checked again. When a
+// check fails (a rule was removed, or a file below `.hint/` was added to the index), the
+// child stops writing for the rest of the session: it tells the plugin on stdout
+// ({"hint":"stopped"}), keeps reading stdin so that OpenCode is never blocked, and counts
+// the discarded records in memory. It reports the counts on stderr and exits with 4.
+//
+// Exit codes: 0 done, 1 setup error, 3 spool write failure, 4 stopped (not excluded).
 func adapterOpenCode(e *Env, args []string) int {
 	fs := flags(e, "adapter opencode", "reads stdin; writes the activity spool; no network")
 	dir := fs.String("project", e.Dir, "project directory of the OpenCode session")
@@ -95,7 +103,41 @@ func adapterOpenCode(e *Env, args []string) int {
 	if err := project.RegisterSource(s, src); err != nil {
 		return fail(e, err)
 	}
+	spool, err := project.OpenSpool(s)
+	if err != nil {
+		return fail(e, err)
+	}
+	defer spool.Close()
+	var (
+		written, discarded, statsLines int
+		stopped                        error
+	)
+	stop := func(err error) {
+		if stopped == nil {
+			stopped = err
+			fmt.Fprintln(e.Stdout, `{"hint":"stopped","reason":"not_excluded"}`)
+			if f, ok := e.Stdout.(interface{ Sync() error }); ok {
+				_ = f.Sync()
+			}
+		}
+	}
 	n := &activity.Normalizer{Key: s.Key(), SourceID: src.SourceID, Cwd: cleanAbs(*dir), Resolve: resolver(s), Now: e.Now}
+	n.OnStats = func(line []byte) {
+		statsLines++
+		if stopped != nil {
+			return // nothing reaches .hint/ after a failed check; the plugin keeps its counters in memory
+		}
+		var in struct {
+			Stats map[string]any `json:"stats"`
+		}
+		if json.Unmarshal(line, &in) != nil || in.Stats == nil {
+			return
+		}
+		in.Stats["child"] = map[string]int{"written": written, "discarded": discarded}
+		if err := s.WriteJSON(in.Stats, "state", "activity", "adapter-stats.json"); err != nil && errors.Is(err, store.ErrNotExcluded) {
+			stop(err)
+		}
+	}
 	// On SIGTERM or SIGINT (OpenCode exit), end the input so that open calls are written
 	// with the end time missing instead of being lost.
 	in := e.Stdin
@@ -107,24 +149,31 @@ func adapterOpenCode(e *Env, args []string) int {
 		go func() { <-sig; pw.Close() }()
 		in = pr
 	}
-	spool, err := project.OpenSpool(s)
-	if err != nil {
-		return fail(e, err)
-	}
-	defer spool.Close()
-	written := 0
 	skipped, err := n.Stream(in, func(o activity.Observation) error {
+		if stopped != nil {
+			discarded++
+			return nil
+		}
 		b, err := json.Marshal(o)
 		if err != nil {
 			return err
 		}
 		if err := spool.Append(b); err != nil {
+			if errors.Is(err, store.ErrNotExcluded) {
+				stop(err)
+				discarded++
+				return nil
+			}
 			return err
 		}
 		written++
 		return nil
 	})
-	fmt.Fprintf(e.Stderr, "adapter opencode: written=%d skipped=%d\n", written, skipped)
+	fmt.Fprintf(e.Stderr, "adapter opencode: written=%d skipped=%d discarded=%d\n", written, skipped, discarded)
+	if stopped != nil {
+		fmt.Fprintf(e.Stderr, "adapter opencode: stopped writing: %v\n", stopped)
+		return 4
+	}
 	if err != nil {
 		fmt.Fprintf(e.Stderr, "adapter opencode: %v\n", err)
 		if strings.HasPrefix(err.Error(), "emit:") {

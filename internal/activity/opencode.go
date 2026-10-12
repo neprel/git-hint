@@ -28,6 +28,8 @@ type Normalizer struct {
 	Resolve      Resolver
 	Now          func() time.Time
 	AgentVersion string
+	// OnStats receives the counter lines of the plugin (hook "hint.stats"), if set.
+	OnStats func(line []byte)
 }
 
 // OpenCodeSource returns the source entry of the OpenCode plugin adapter.
@@ -234,7 +236,17 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
 		var e ocEvent
-		if err := json.Unmarshal(sc.Bytes(), &e); err != nil || e.Input.CallID == "" {
+		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
+			skipped++
+			continue
+		}
+		if e.Hook == "hint.stats" {
+			if n.OnStats != nil {
+				n.OnStats(sc.Bytes())
+			}
+			continue
+		}
+		if e.Input.CallID == "" {
 			skipped++
 			continue
 		}

@@ -65,7 +65,7 @@ Repository names are local. Exported documents name repositories only by opaque 
 git hint adapter install opencode     # writes .opencode/plugins/hint-adapter.ts
 ```
 
-OpenCode loads the plugin. The plugin starts `git-hint adapter opencode` and sends it reduced tool events through a pipe. Tool output, edit text, search patterns and prompts never leave the OpenCode process; the plugin replaces output by its byte length. The child process writes one observation per tool call to `.hint/state/activity/spool.jsonl`. If `git-hint` is not on `PATH`, set `HINT_BIN` to its path. Set `HINT_DISABLE=1` to turn the adapter off. The plugin never blocks or breaks OpenCode: without the child it drops and counts events.
+OpenCode loads the plugin. The plugin starts `git-hint adapter opencode` and sends it reduced tool events through a pipe. Tool output, edit text, search patterns and prompts never leave the OpenCode process; the plugin replaces output by its byte length. The child process writes one observation per tool call to `.hint/state/activity/spool.jsonl`. If `git-hint` is not on `PATH`, set `HINT_BIN` to its path. Set `HINT_DISABLE=1` to turn the adapter off. The plugin never blocks or breaks OpenCode: without the child it drops and counts events. The plugin itself writes no file; its counters go through the child. The child checks the Git exclusion of `.hint/` before every record. If the exclusion breaks during a session (a rule is removed, or a file below `.hint/` enters the Git index), the child stops writing for the rest of the session and tells the plugin; later events are counted as dropped in memory, and OpenCode continues.
 
 Claude Code and Codex adapters are not available in this version.
 

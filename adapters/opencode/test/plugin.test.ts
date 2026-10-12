@@ -81,8 +81,10 @@ describe("OpenCode adapter plugin, offline", () => {
     expect(ops).toEqual(["DELEGATE", "EDIT_INTENT", "READ", "SEARCH", "TEST", "TOOL"])
     for (const o of obs) for (const t of o.targets ?? []) expect(/^[0-9a-f]{32}$/.test(t.entity_id)).toBe(true)
     expect(statSync(join(PROJECT, ".hint", "state", "activity", "spool.jsonl")).mode & 0o777).toBe(0o600)
+    // the counters reach the store only through the child (the plugin writes no file)
     const st2 = JSON.parse(readFileSync(join(PROJECT, ".hint", "state", "activity", "adapter-stats.json"), "utf8"))
     expect(st2.dropped).toBe(0)
+    expect(st2.child.written).toBeGreaterThan(0)
   })
 
   test("the pipe carries no output, edit text, search pattern or prompt", async () => {
@@ -110,6 +112,61 @@ describe("OpenCode adapter plugin, offline", () => {
     expect(st.hookErrors).toBe(0)
     expect(st.sent + st.dropped).toBe(recs.length)
   })
+
+  test("the plugin source writes no file", () => {
+    const src = readFileSync(join(import.meta.dir, "..", "hint-adapter.ts"), "utf8")
+    expect(/writeFile|appendFile|createWriteStream|node:fs|Bun\.write/.test(src)).toBe(false)
+  })
+
+  for (const change of ["rule removed", "file added to the index"])
+    test(`exclusion changed during the session (${change}): no further write, events counted, no hook error`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), "hint-session-"))
+      try {
+        const sh = (cmd: string[], cwd = dir) => {
+          const r = Bun.spawnSync(cmd, { cwd, env: process.env })
+          if (r.exitCode !== 0) throw new Error(`${cmd.join(" ")}: ${r.stderr}`)
+        }
+        sh(["git", "init", "-q"])
+        writeFileSync(join(dir, "a.go"), "package a\n")
+        sh([BIN, "init"])
+        const real = Bun.spawnSync(["pwd", "-P"], { cwd: dir }).stdout.toString().trim()
+        const recs = events(real)
+        const saved = process.env.HINT_BIN
+        process.env.HINT_BIN = BIN
+        const handlers: Record<string, (ev: any) => Promise<void>> = {}
+        const ctx = { location: { directory: real, project: { directory: real, id: "p" } },
+          tool: { hook: async (n: string, fn: any) => ((handlers[n] = fn), { dispose: async () => {} }) } }
+        const cleanup: any = await adapter.setup(ctx)
+        if (saved === undefined) delete process.env.HINT_BIN
+        else process.env.HINT_BIN = saved
+        const st = stats().at(-1)
+        const spoolFile = join(real, ".hint", "state", "activity", "spool.jsonl")
+        const statsFile = join(real, ".hint", "state", "activity", "adapter-stats.json")
+        const count = () => (existsSync(spoolFile) ? readFileSync(spoolFile, "utf8").split("\n").filter((l) => l.trim()).length : 0)
+        const wait = async (cond: () => boolean) => {
+          for (let i = 0; i < 300 && !cond(); i++) await Bun.sleep(10)
+        }
+        await handlers[recs[0].hook](recs[0].event)
+        await handlers[recs[1].hook](recs[1].event)
+        await wait(() => count() === 1 && existsSync(statsFile))
+        expect(count()).toBe(1)
+        const statsBefore = readFileSync(statsFile, "utf8")
+        if (change === "rule removed") writeFileSync(join(real, ".git", "info", "exclude"), "")
+        else sh(["git", "add", "-f", ".hint/state/project.json"], real)
+        for (const r of recs.slice(2, 6)) await handlers[r.hook](r.event)
+        await wait(() => st.stopped)
+        expect(st.stopped).toBe(true)
+        for (const r of recs.slice(6)) await handlers[r.hook](r.event) // after the stop notice
+        await cleanup?.()
+        expect(count()).toBe(1)
+        expect(readFileSync(statsFile, "utf8")).toBe(statsBefore)
+        expect(st.hookErrors).toBe(0)
+        expect(st.dropped).toBe(recs.length - 6)
+        expect(st.childExit).toBe(4)
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    })
 
   test("hook latency for 1000 events: p95 under 5 ms", async () => {
     const one = events(PROJECT)

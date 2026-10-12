@@ -10,6 +10,12 @@
 // Safety rule: no hook throws, awaits the child, or changes the hook event. Without the
 // child (git-hint missing, project not initialized) the plugin drops and counts events.
 //
+// Store rule: the plugin never writes files. Its counters go through the child, which
+// checks the Git exclusion of .hint/ before every write. When the child stops (the
+// exclusion was removed or a file below .hint/ entered the Git index), it says so on its
+// stdout; the plugin then stops sending and counts the later events as dropped. The
+// counters always stay in memory (globalThis[Symbol.for("hint.opencode-adapter.stats")]).
+//
 // Environment (optional): HINT_BIN (path of git-hint; default "git-hint" on PATH),
 // HINT_DISABLE=1 (turn the adapter off).
 
@@ -69,13 +75,13 @@ function reduceAfter(ev: any) {
   return { ...base("tool.execute.after", ev), output: out }
 }
 
-type Stats = { sent: number; dropped: number; hookErrors: number; childExit: number | null }
+type Stats = { sent: number; dropped: number; hookErrors: number; childExit: number | null; stopped: boolean }
 const STATS_KEY = Symbol.for("hint.opencode-adapter.stats")
 
 export default {
   id: "hint-adapter",
   setup: async (ctx: any) => {
-    const stats: Stats = { sent: 0, dropped: 0, hookErrors: 0, childExit: null }
+    const stats: Stats = { sent: 0, dropped: 0, hookErrors: 0, childExit: null, stopped: false }
     ;((globalThis as any)[STATS_KEY] ??= []).push(stats)
     const dir = String(ctx?.location?.project?.directory ?? ctx?.location?.directory ?? "")
     const bin = process.env.HINT_BIN || "git-hint"
@@ -84,41 +90,54 @@ export default {
       if (dir && process.env.HINT_DISABLE !== "1") {
         child = Bun.spawn([bin, "adapter", "opencode", "--project", dir], {
           stdin: "pipe",
-          stdout: "ignore",
+          stdout: "pipe",
           stderr: "ignore",
         })
         child.exited.then((code: number) => {
           stats.childExit = code
         })
+        // read the child's notices in the background; never awaited by a hook
+        ;(async () => {
+          try {
+            const dec = new TextDecoder()
+            let buf = ""
+            for await (const chunk of child.stdout) {
+              buf += dec.decode(chunk, { stream: true })
+              if (buf.includes('"hint":"stopped"')) stats.stopped = true
+              if (buf.length > 4096) buf = buf.slice(-256)
+            }
+          } catch {}
+        })()
       }
     } catch {
       child = null
     }
 
-    // Counters go to the local store after each finished call, because a cleanup call at
-    // process exit is not guaranteed. Only when the store exists.
-    function writeStats() {
+    function write(line: string): boolean {
       try {
-        const fs = require("node:fs")
-        const p = require("node:path").join(dir, ".hint", "state", "activity")
-        if (!fs.existsSync(p)) return
-        fs.writeFileSync(require("node:path").join(p, "adapter-stats.json"), JSON.stringify(stats) + "\n", { mode: 0o600 })
-      } catch {}
+        child.stdin.write(line)
+        const r = child.stdin.flush()
+        if (r && typeof r.catch === "function") r.catch(() => {})
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    // Counters go to the child after each finished call (a cleanup call at process exit is
+    // not guaranteed); the child stores them only while .hint/ is excluded.
+    function writeStats() {
+      if (!child || stats.childExit !== null || stats.stopped) return
+      write(JSON.stringify({ hook: "hint.stats", stats }) + "\n")
     }
 
     function send(ev: Record<string, unknown>) {
-      if (!child || stats.childExit !== null) {
+      if (!child || stats.childExit !== null || stats.stopped) {
         stats.dropped++
         return
       }
-      try {
-        child.stdin.write(JSON.stringify(ev) + "\n")
-        const r = child.stdin.flush()
-        if (r && typeof r.catch === "function") r.catch(() => stats.dropped++)
-        stats.sent++
-      } catch {
-        stats.dropped++
-      }
+      if (write(JSON.stringify(ev) + "\n")) stats.sent++
+      else stats.dropped++
     }
 
     try {
@@ -144,11 +163,11 @@ export default {
     return async () => {
       try {
         if (child && stats.childExit === null) {
+          writeStats()
           child.stdin.end()
           await Promise.race([child.exited, new Promise((r) => setTimeout(r, 2000))])
         }
       } catch {}
-      writeStats()
     }
   },
 }

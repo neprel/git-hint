@@ -3,11 +3,13 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -800,3 +802,94 @@ func TestWrongReceiptDoesNotMarkExport(t *testing.T) {
 		})
 	}
 }
+
+// TestExclusionChangedDuringAdapterSession: the adapter writes the first call, then the
+// Git rules change (exclusion removed, or a .hint/ file enters the index), then a second
+// call arrives. The second record must not reach the spool; the child reports the stop
+// on stdout, counts the discarded record, keeps reading stdin and exits with 4.
+func TestExclusionChangedDuringAdapterSession(t *testing.T) {
+	cases := map[string]func(t *testing.T, shop string){
+		"rule removed": func(t *testing.T, shop string) {
+			if err := os.WriteFile(filepath.Join(shop, ".git", "info", "exclude"), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"file added to the index": func(t *testing.T, shop string) {
+			testkit.Git(t, shop, "add", "-f", ".hint/state/project.json")
+		},
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			shop, _ := setup(t)
+			s, _ := store.Open(shop)
+			spoolPath := s.Path("state", "activity", "spool.jsonl")
+			statsPath := s.Path("state", "activity", "adapter-stats.json")
+			pr, pw := io.Pipe()
+			var out, errb syncBuffer
+			done := make(chan int, 1)
+			go func() {
+				done <- Run([]string{"adapter", "opencode", "--project", shop},
+					&Env{Dir: shop, Stdin: pr, Stdout: &out, Stderr: &errb})
+			}()
+			call := func(id string) {
+				for _, hook := range []string{"tool.execute.before", "tool.execute.after"} {
+					b, _ := json.Marshal(map[string]any{"hook": hook, "t_wall_ms": time.Now().UnixMilli(),
+						"input":  map[string]any{"tool": "read", "sessionID": "s", "callID": id},
+						"output": map[string]any{"args": map[string]any{"filePath": filepath.Join(shop, "web/app.ts")}, "metadata": map[string]any{}, "output": "x"}})
+					if _, err := pw.Write(append(b, '\n')); err != nil {
+						t.Fatal(err)
+					}
+				}
+				stats, _ := json.Marshal(map[string]any{"hook": "hint.stats", "stats": map[string]any{"sent": 2, "dropped": 0}})
+				pw.Write(append(stats, '\n'))
+			}
+			lines := func() int {
+				b, _ := os.ReadFile(spoolPath)
+				return bytes.Count(b, []byte("\n"))
+			}
+			waitFor := func(cond func() bool) {
+				for i := 0; i < 200 && !cond(); i++ {
+					time.Sleep(10 * time.Millisecond)
+				}
+			}
+			call("c1")
+			waitFor(func() bool { _, err := os.Stat(statsPath); return lines() == 1 && err == nil })
+			if lines() != 1 {
+				t.Fatalf("first call not written: %d", lines())
+			}
+			statsBefore, _ := os.ReadFile(statsPath)
+			change(t, shop)
+			call("c2")
+			call("c3")
+			waitFor(func() bool { return strings.Contains(out.String(), `"stopped"`) })
+			pw.Close()
+			code := <-done
+			if code != 4 {
+				t.Fatalf("exit %d, want 4\n%s", code, errb.String())
+			}
+			if lines() != 1 {
+				t.Fatalf("spool grew after the exclusion broke: %d lines", lines())
+			}
+			if statsAfter, _ := os.ReadFile(statsPath); !bytes.Equal(statsBefore, statsAfter) {
+				t.Fatal("adapter-stats.json written after the exclusion broke")
+			}
+			if !strings.Contains(out.String(), `{"hint":"stopped","reason":"not_excluded"}`) ||
+				!strings.Contains(errb.String(), "written=1") || !strings.Contains(errb.String(), "discarded=2") {
+				t.Fatalf("stdout %q stderr %q", out.String(), errb.String())
+			}
+		})
+	}
+}
+
+// syncBuffer is a bytes.Buffer that a running command and the test can share.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+func (s *syncBuffer) String() string { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }

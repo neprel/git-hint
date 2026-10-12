@@ -528,9 +528,15 @@ func (s *Store) AppendLine(line []byte, elem ...string) error {
 	return f.Close()
 }
 
-// Appender appends lines to one file below `.hint/` (owner-only permissions). The Git
-// exclusion is checked once, when it is opened; the adapter uses it for its whole session.
-type Appender struct{ f *os.File }
+// Appender appends lines to one file below `.hint/` (owner-only permissions). It checks
+// the Git exclusion before every line, because the rules or the index can change during a
+// long session. After the first failed check it stops for good: no later line is written.
+type Appender struct {
+	f       *os.File
+	s       *Store
+	path    string
+	stopped error
+}
 
 // OpenAppend opens a file below `.hint/` for appending.
 func (s *Store) OpenAppend(elem ...string) (*Appender, error) {
@@ -545,17 +551,34 @@ func (s *Store) OpenAppend(elem ...string) (*Appender, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Appender{f: f}, nil
+	return &Appender{f: f, s: s, path: p}, nil
 }
 
-// Append writes one line in one write call (complete lines only; no partial record).
+// Append checks the exclusion, then writes one line in one write call (complete lines
+// only; no partial record). An exclusion error stops the appender permanently.
 func (a *Appender) Append(line []byte) error {
+	if a.stopped != nil {
+		return a.stopped
+	}
+	if err := a.s.CheckPath(a.path); err != nil {
+		a.stopped = err
+		a.f.Close()
+		return err
+	}
 	_, err := a.f.Write(append(line, '\n'))
 	return err
 }
 
+// Stopped returns the exclusion error that stopped the appender, or nil.
+func (a *Appender) Stopped() error { return a.stopped }
+
 // Close closes the file.
-func (a *Appender) Close() error { return a.f.Close() }
+func (a *Appender) Close() error {
+	if a.stopped != nil {
+		return nil // already closed
+	}
+	return a.f.Close()
+}
 
 // CleanCache removes `.hint/cache/` only. Mapping, keys and state stay.
 func (s *Store) CleanCache() error {
