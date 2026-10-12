@@ -58,6 +58,14 @@ func SpanID(key []byte, sourceTrace, sourceSpan string) (string, bool) {
 	return nonZero(key, "span", []string{t, sp}, 8), true
 }
 
+// SpanObservationID is the observation_id of an observation built from an OTLP span:
+// DeriveID(K, "event", source ID, T, S) with the source trace-id T and span-id S in
+// lowercase. The trace-id is part of the input, so equal span-ids in two traces give two
+// observations. Source values that are not valid W3C IDs are used as given, in lowercase.
+func SpanObservationID(key []byte, sourceID, sourceTrace, sourceSpan string) string {
+	return DeriveID(key, "event", sourceID, strings.ToLower(sourceTrace), strings.ToLower(sourceSpan))
+}
+
 // nonZero truncates the HMAC to n bytes. W3C forbids an all-zero ID; in that case (chance
 // 2^-64 for a span) the derivation repeats with the extra parts "1", "2", ... until non-zero.
 func nonZero(key []byte, domain string, parts []string, n int) string {

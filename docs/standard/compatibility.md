@@ -21,6 +21,7 @@ The activity part is **OpenTelemetry-compatible**: the observation model follows
 | OTLP / GenAI convention | HINT field | Rule |
 |---|---|---|
 | `traceId`, `spanId`, `parentSpanId` | `correlation.trace_id`, `span_id`, `parent_span_id` | HMAC with the project key ([hint-data](hint-data-v0.1.md) §4.1); W3C formats kept; a parent uses the trace-id of its span; source IDs are never exported; an invalid source ID gives a `missing` entry |
+| span identity (`traceId`, `spanId`) | `observation_id` | `DeriveID(K, "event", source_id, T, S)` with lowercase `T` and `S` ([hint-data](hint-data-v0.1.md) §4.1); spans of two traces with the same span-id give two observations |
 | `startTimeUnixNano`, `endTimeUnixNano` | `time.start`, `time.end` | RFC 3339 UTC; `clock: agent` |
 | `status.code` 0 / 1 / 2 | `outcome.status` `unknown` / `success` / `failure` | `status.message` is dropped (it can hold paths) |
 | `gen_ai.operation.name = execute_tool` with `gen_ai.tool.name` | `op` from the tool table: `read` → `READ`; `glob`, `grep` → `SEARCH`; `list` → `DISCOVER`; `edit`, `write`, `patch` → `EDIT_INTENT`; `bash` → `EXECUTE`; `task` → `DELEGATE`; other → `TOOL` | the tool name itself is not exported |

@@ -45,6 +45,7 @@ After a schema or generator change: `go run ./cmd/genexamples -root ../..`. The 
 | `TestFileAndAPIRoundTrip` | file mode and mock API mode give byte-identical documents; invalid documents get a `422` receipt |
 | `TestImportResolution` | client import validation gives the expected status and codes in file and API mode; a document that the client rejects also gets a `422` receipt |
 | `TestOTLPSpanMapping` | the OTLP mapping table gives valid observations without content and without source trace or span IDs; the ID mapping is deterministic, keeps parent links and changes with the key |
+| `TestSpanObservationIDIncludesTrace` | two traces with the same source span-id give two observations with different IDs; the document passes the duplicate rule |
 | `TestTraceAndSpanIDDerivation` | trace and span IDs keep the W3C formats, normalize case, differ by key and by trace, and reject invalid or all-zero source IDs |
 
 ## Libraries

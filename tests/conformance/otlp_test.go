@@ -98,7 +98,7 @@ func mapSpans(t *testing.T, key []byte, otlp map[string]any) (sources []any, obs
 			missing = append(missing, "correlation.session_id")
 		}
 		o := map[string]any{
-			"observation_id": hintconf.DeriveID(key, "event", srcID, str(sp["spanId"])), "class": "observation",
+			"observation_id": hintconf.SpanObservationID(key, srcID, rawTrace, str(sp["spanId"])), "class": "observation",
 			"op": op, "source": "otlp", "source_id": srcID, "precision": "exact",
 			"time":        map[string]any{"start": nanos(sp["startTimeUnixNano"]), "end": nanos(sp["endTimeUnixNano"]), "clock": "agent"},
 			"correlation": corr, "outcome": map[string]any{"status": status}, "missing": missing,
@@ -321,5 +321,53 @@ func TestTraceAndSpanIDDerivation(t *testing.T) {
 	}
 	if _, ok := hintconf.TraceID(k1, strings.Repeat("0", 32)); ok {
 		t.Error("all-zero source trace-id accepted")
+	}
+}
+
+// TestSpanObservationIDIncludesTrace maps two spans of different traces with the same
+// source span-id. They must give two observations with different IDs, and the document
+// must pass the duplicate_id rule. The case of the source IDs does not change the ID.
+func TestSpanObservationIDIncludesTrace(t *testing.T) {
+	key := seqKey()
+	span := func(trace string) map[string]any {
+		return map[string]any{"traceId": trace, "spanId": "00f067aa0ba902b7", "name": "invoke_agent example",
+			"startTimeUnixNano": "1791716400000000000", "endTimeUnixNano": "1791716401000000000",
+			"status":     map[string]any{"code": 1.0},
+			"attributes": []any{map[string]any{"key": "gen_ai.operation.name", "value": map[string]any{"stringValue": "invoke_agent"}}}}
+	}
+	otlp := map[string]any{"resource": map[string]any{"attributes": []any{}},
+		"spans": []any{span("4bf92f3577b34da6a3ce929d0e0e4736"), span("5bf92f3577b34da6a3ce929d0e0e4736")}}
+	sources, obs := mapSpans(t, key, otlp)
+	a, b := obs[0].(map[string]any), obs[1].(map[string]any)
+	if a["observation_id"] == b["observation_id"] {
+		t.Fatalf("two traces with the same span-id give one observation_id %v", a["observation_id"])
+	}
+	if a["correlation"].(map[string]any)["span_id"] == b["correlation"].(map[string]any)["span_id"] {
+		t.Errorf("two traces with the same span-id give one span_id")
+	}
+	srcID := sources[0].(map[string]any)["source_id"].(string)
+	if hintconf.SpanObservationID(key, srcID, "4BF92F3577B34DA6A3CE929D0E0E4736", "00F067AA0BA902B7") != a["observation_id"] {
+		t.Errorf("observation_id depends on the case of the source IDs")
+	}
+	payload := map[string]any{"observations": obs}
+	doc := map[string]any{
+		"hint_version": "0.1.0", "document_type": "activity_stream", "document_id": hintconf.DeriveID(key, "document", "same-span"),
+		"project_namespace": hintconf.NamespaceID(key), "repositories": []any{},
+		"producer": map[string]any{"tool": "hint-cli", "version": "0.1.0"}, "sources": sources,
+		"created_at": "2026-10-11T12:00:00Z",
+		"redaction": map[string]any{"policy_id": hintconf.DeriveID(key, "policy", "default"), "profile": "detailed",
+			"record_types": []any{"Observation"}, "free_text": "denied", "time_resolution_seconds": 0},
+		"payload": payload,
+	}
+	dg, _ := hintconf.Digest(payload)
+	doc["content_digest"] = dg
+	raw, _ := json.Marshal(doc)
+	dec, _ := hintconf.Decode(raw)
+	if err := schemas.Validate(dec); err != nil {
+		t.Fatalf("mapped document is invalid: %v", err)
+	}
+	plain, _ := hintconf.Plain(dec)
+	if fs := hintconf.Check(plain, nil); len(fs) > 0 {
+		t.Errorf("semantic findings: %v", fs)
 	}
 }

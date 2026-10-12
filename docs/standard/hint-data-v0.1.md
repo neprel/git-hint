@@ -99,6 +99,7 @@ A producer never exports a source trace-id or span-id. It pseudonymizes them wit
 - W3C forbids an all-zero ID. If a derived ID is all zeros, the producer repeats the derivation with the extra parts `"1"`, `"2"`, … until the ID is not all zeros.
 - Correlation is kept: equal source traces give equal `trace_id`s, and a `parent_span_id` equals the `span_id` of the parent span. The span derivation includes the trace-id, so equal span-ids in different traces give different `span_id`s.
 - The derivation is deterministic for one key. Another key gives unrelated IDs.
+- The `observation_id` of an observation built from a span is `DeriveID(K, "event", source_id, T, S)`. It includes the trace-id, so equal span-ids in two traces give two observations.
 - The source IDs stay in the local store. A trace-id that the agent propagates to other systems (for example through MCP `params._meta`) cannot be matched with the exported ID without `K`.
 
 ## 5. Values and evidence classes

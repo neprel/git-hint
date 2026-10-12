@@ -11,5 +11,6 @@ First draft. Not final; fields can change before the first release. The version 
 - Closed schemas without free-form strings. The privacy contract states that the schema checks the form of a value, not its origin, and lists the producer obligations.
 - HMAC-based opaque identifiers; contract identifiers shared across repositories only with contract evidence. Trace, span and parent span IDs are HMAC pseudonyms in the W3C formats; source IDs are never exported.
 - RFC 8785 canonical form; content and snapshot digests.
+- The `observation_id` of a span observation includes the source trace-id and span-id.
 - A plan has exactly one snapshot for each of its repositories (semantic rule `plan_snapshot_set`).
 - Client import validation with fixed order and result codes.

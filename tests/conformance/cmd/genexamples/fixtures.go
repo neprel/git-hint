@@ -591,6 +591,12 @@ func writeVectors(conf func(string) string) {
 		}
 		out = append(out, M{"key": v.key, "domain": v.trace, "parts": parts, "bytes": n, "id": got})
 	}
+	// observation_id of a span: the trace-id is part of the input (hint-data §4.1)
+	src := id("source", "otlp-receiver")
+	for _, t := range []string{tr, tr2} {
+		out = append(out, M{"key": "K1", "domain": "event", "parts": A{src, t, sp},
+			"id": hintconf.SpanObservationID(K1, src, t, sp)})
+	}
 	write(conf("vectors/ids-v0.1.json"), M{
 		"note": "Test keys only. Real project keys are random 32-byte secrets kept in the local store.",
 		"keys": M{"K1": hex.EncodeToString(K1), "K2": hex.EncodeToString(K2)}, "vectors": out})
