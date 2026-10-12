@@ -2,18 +2,19 @@
 
 HINT is a local client and an open data format. The client collects repository structure and AI coding agent activity, removes content and names, and exchanges documents with a HINT server. It validates the recommendations that the server returns, resolves their identifiers on the local machine and shows them to the user.
 
-The client is in development (version 0.1.0, not released). Platforms: macOS and Linux; Windows is not tested.
+The client is in development (version 0.1.0, not released). Platforms: macOS and Linux (arm64, amd64); Windows is deferred and not supported.
 
 ## Client
 
 ```sh
-go install github.com/neprel/git-hint/cmd/git-hint@latest
+go install github.com/neprel/git-hint/cmd/git-hint@latest     # or a release archive: docs/client/install.md
 git hint init && git hint collect --full
 git hint export --dry-run --privacy-report
 ```
 
 | Document | Content |
 |---|---|
+| [Install](docs/client/install.md) | release archives, checksum and provenance check, PATH, update, uninstall |
 | [User guide](docs/client/README.md) | install, first run, several repositories, OpenCode adapter, file and API mode, plans |
 | [Command reference](docs/client/commands.md) | commands, their effects (read, write, network), environment, local store |
 | [MCP server](docs/client/mcp.md) | `git hint mcp` for coding agents: tools, upload rule, limits, OpenCode configuration |

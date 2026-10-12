@@ -1,0 +1,159 @@
+name: release
+
+# A pushed SemVer tag builds, tests, attests and publishes a release. A manual run, or a
+# pull request that changes the release files, builds and tests the archives without
+# publishing (dry run).
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "tools/release/**"
+      - "scripts/release/**"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for a dry run, vX.Y.Z[-alpha|beta|rc|dev[.N]] (nothing is published)"
+        required: true
+        default: "v0.0.0-dev"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - id: v
+        name: Version
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+          INPUT: ${{ inputs.version }}
+        run: |
+          case "$EVENT" in
+          push) v="$TAG" ;;
+          workflow_dispatch) v="$INPUT" ;;
+          *) v="v0.0.0-dev" ;;
+          esac
+          echo "$v" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|dev)(\.(0|[1-9][0-9]*))?)?$' || { echo "not SemVer: $v"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Release notes exist
+        if: github.event_name == 'push'
+        env:
+          V: ${{ steps.v.outputs.version }}
+        run: test -s "docs/releases/$V.md"
+      - name: Git identity for test repositories
+        run: |
+          git config --global user.name "ci"
+          git config --global user.email "ci@example.invalid"
+      - run: go vet ./...
+      - run: go test ./...
+      - name: Build archives
+        env:
+          V: ${{ steps.v.outputs.version }}
+        run: go run ./tools/release build -version "$V" -out dist
+      - run: go run ./tools/release verify -dir dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, target: linux/amd64 }
+          - { runner: ubuntu-24.04-arm, target: linux/arm64 }
+          - { runner: macos-15, target: darwin/arm64 }
+          - { runner: macos-15-intel, target: darwin/amd64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+      - name: Clean-host smoke test
+        run: scripts/release/smoke.sh dist "${{ matrix.target }}"
+      - name: MCP Inspector check
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir x
+          tar -xzf dist/git-hint_*_"$(echo "$TARGET" | tr / _)".tar.gz -C x
+          scripts/release/inspector.sh x/git-hint_*
+
+  publish:
+    if: github.event_name == 'push'
+    needs: [build, smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "dist/*.tar.gz"
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.build.outputs.version }}
+        run: |
+          pre=""
+          case "$V" in *-*) pre="--prerelease" ;; esac
+          gh release create "$V" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "git-hint $V" \
+            --notes-file "docs/releases/$V.md" $pre
+
+  verify-published:
+    needs: [build, publish]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, target: linux/amd64 }
+          - { runner: ubuntu-24.04-arm, target: linux/arm64 }
+          - { runner: macos-15, target: darwin/arm64 }
+          - { runner: macos-15-intel, target: darwin/amd64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download, verify provenance, smoke test
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ needs.build.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          gh release download "$V" --repo "$GITHUB_REPOSITORY" --dir published
+          a=$(ls published/git-hint_*_"$(echo "$TARGET" | tr / _)".tar.gz)
+          gh attestation verify "$a" --repo "$GITHUB_REPOSITORY"
+          scripts/release/smoke.sh published "$TARGET"

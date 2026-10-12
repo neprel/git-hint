@@ -67,6 +67,9 @@ func (o *Options) defaults() {
 	}
 }
 
+// ProtocolVersions lists the MCP protocol versions that the server negotiates.
+func ProtocolVersions() []string { return append([]string{}, mcp.SupportedProtocolVersions()...) }
+
 // Instructions are sent to the client at initialization.
 const Instructions = `HINT measures repository structure and agent activity locally and exchanges
 content-free documents with a HINT server. Typical order: hint_status, hint_collect,

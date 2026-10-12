@@ -116,6 +116,21 @@ var extLang = map[string]string{
 	".graphql": "graphql", ".gql": "graphql",
 }
 
+// FileLevelLanguages lists the languages that the scan recognises by file name, sorted.
+// Only "go" also gets declarations and imports.
+func FileLevelLanguages() []string {
+	seen := map[string]bool{"dockerfile": true}
+	for _, l := range extLang {
+		seen[l] = true
+	}
+	out := make([]string, 0, len(seen))
+	for l := range seen {
+		out = append(out, l)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Language returns the HINT language of a repository path, or "" if unknown.
 func Language(p string) string {
 	base := path.Base(p)

@@ -11,9 +11,11 @@ Other documents: [command reference](commands.md), [MCP server](mcp.md), [privac
 - Git 2.30 or later on `PATH`.
 - Go 1.27 or later to build from source.
 - Optional: OpenCode 2.x for agent activity (the adapter is checked with OpenCode 2.0.26). Bun is part of OpenCode.
-- Platforms: macOS and Linux. Windows is not tested.
+- Platforms: macOS and Linux (arm64, amd64). Windows is deferred and not supported.
 
 ## 2. Install
+
+Release archives for macOS and Linux, checksum and provenance checks: [install](install.md). From source:
 
 ```sh
 go install github.com/neprel/git-hint/cmd/git-hint@latest
