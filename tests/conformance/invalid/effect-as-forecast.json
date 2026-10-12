@@ -1,0 +1,64 @@
+{
+  "content_digest": "sha256:235f227dddab7d35085d474740fcd90929eef5e831b2f1d63e11b4d1ef36c940",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "00bf74cf28ea82d4b909e07551a88e40",
+  "document_type": "effect_report",
+  "hint_version": "0.1.0",
+  "payload": {
+    "effects": [
+      {
+        "agent_configuration_id": "d641b43ed4903a944c730c8078869b93",
+        "class": "forecast",
+        "constraints_checked": [
+          "tests_unchanged_pass",
+          "public_api_unchanged"
+        ],
+        "control": {
+          "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+          "task_ids": [
+            "5fc32fd5d7116adf92b68368a9248d86",
+            "6f5fbc442f47709cd763ab1027de2ca5",
+            "fb8b8a0f5937998676d6944501d07f24"
+          ]
+        },
+        "effect_id": "e47a24d1e3d559640af53dccaf2a5130",
+        "estimate": {
+          "level": 0.9,
+          "lower": -5200,
+          "upper": 800
+        },
+        "evidence_level": "L4",
+        "method": "paired_difference_bootstrap",
+        "metric": "model_tokens",
+        "pairs": 3,
+        "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
+        "treatment": {
+          "snapshot_id": "4aabaf589b59a6dc86df50c259327749",
+          "task_ids": [
+            "37aa798ddb43d9991b55fee7d8a8d224",
+            "adde32acaa69160d16367283121c802b",
+            "7bccdfb32885f4dd7763dda230f8b634"
+          ]
+        },
+        "unit": "tokens"
+      }
+    ]
+  },
+  "producer": {
+    "tool": "hint-cli",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "detailed",
+    "record_types": [
+      "Effect"
+    ],
+    "time_resolution_seconds": 0
+  },
+  "repositories": [
+    "0a47f621aa46a0035f78c74eaae15d4c"
+  ]
+}

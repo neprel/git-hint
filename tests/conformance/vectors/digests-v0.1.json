@@ -1,0 +1,45 @@
+{
+  "vectors": [
+    {
+      "canonical": "{\"a\":1,\"b\":2}",
+      "digest": "sha256:43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777",
+      "value": {
+        "a": 1,
+        "b": 2
+      }
+    },
+    {
+      "canonical": "{\"interval\":{\"level\":0.9,\"lower\":-6000,\"upper\":-1500},\"point\":-3200}",
+      "digest": "sha256:ecfb6e1042953d8558b350f18a8cab40f9340261f9aa462fc22479566f1a9c69",
+      "value": {
+        "interval": {
+          "level": 0.9,
+          "lower": -6000,
+          "upper": -1500
+        },
+        "point": -3200
+      }
+    },
+    {
+      "canonical": "[1e+21,0.1,1,0,123456789.125]",
+      "digest": "sha256:318942eade5ea5e26b1bb1399c2ad9a341b3352bce06577c67e99f8424be8478",
+      "value": [
+        1e+21,
+        0.1,
+        1,
+        0,
+        123456789.125
+      ]
+    },
+    {
+      "canonical": "{\"precision\":\"exact\",\"state\":\"known\",\"unit\":\"bytes\",\"value\":0}",
+      "digest": "sha256:984aa71587b19a667e702174d181118beae4c5054d1282e8a0feb2c31ce874d5",
+      "value": {
+        "precision": "exact",
+        "state": "known",
+        "unit": "bytes",
+        "value": 0
+      }
+    }
+  ]
+}

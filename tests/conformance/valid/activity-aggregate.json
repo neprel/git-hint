@@ -1,0 +1,259 @@
+{
+  "content_digest": "sha256:f1d4648802472be3bfd50ba0fdf6029b1cebe55d30e5ff86c4f9cb1d2efe93c9",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "21d17f8e126fbce7a44535c5235fecbb",
+  "document_type": "activity_stream",
+  "hint_version": "0.1.0",
+  "payload": {
+    "metrics": [
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [],
+        "metric": "context_bytes",
+        "metric_id": "5112b8e8e05de7b86b05fb583afe7c53",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "bytes",
+        "value": {
+          "coverage": {
+            "covered": 2,
+            "total": 3
+          },
+          "known_part": 12217,
+          "precision": "exact",
+          "reason": "not_collected",
+          "state": "partial",
+          "unit": "bytes"
+        }
+      },
+      {
+        "class": "estimate",
+        "definition_version": "0.1.0",
+        "inputs": [],
+        "metric": "context_tokens",
+        "metric_id": "a0bc70ae5ff9b61fb8907eb8e9965258",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "tokens",
+        "value": {
+          "coverage": {
+            "covered": 2,
+            "total": 3
+          },
+          "known_part": 3054,
+          "precision": "estimated",
+          "reason": "not_collected",
+          "state": "partial",
+          "unit": "tokens"
+        }
+      },
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [],
+        "metric": "boundary_crossings",
+        "metric_id": "f5fb416c725bc034fc0a97e4d3a06710",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "count",
+        "value": {
+          "bounds": {
+            "lower": 0,
+            "upper": 2
+          },
+          "reason": "not_collected",
+          "state": "unknown",
+          "unit": "count"
+        }
+      },
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [],
+        "metric": "model_tokens",
+        "metric_id": "5aaba2df92b54cd5b93594ad60956364",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "tokens",
+        "value": {
+          "coverage": {
+            "covered": 1,
+            "total": 2
+          },
+          "known_part": 7808,
+          "precision": "exact",
+          "reason": "source_error",
+          "state": "partial",
+          "unit": "tokens"
+        }
+      },
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [],
+        "metric": "validation_failures",
+        "metric_id": "861a6e106d1891fd58f29b0c29b4defd",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "count",
+        "value": {
+          "method": "count_of_records",
+          "precision": "derived",
+          "state": "known",
+          "unit": "count",
+          "value": 1
+        }
+      },
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [],
+        "metric": "task_elapsed_seconds",
+        "metric_id": "41a5ebd8882c9ea1f474234344627bfb",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "seconds",
+        "value": {
+          "method": "clock_difference",
+          "precision": "derived",
+          "state": "known",
+          "unit": "seconds",
+          "value": 59
+        }
+      }
+    ],
+    "observations": []
+  },
+  "producer": {
+    "tool": "hint-cli",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "aggregate",
+    "record_types": [
+      "Metric"
+    ],
+    "time_resolution_seconds": 0
+  },
+  "repositories": [
+    "0a47f621aa46a0035f78c74eaae15d4c"
+  ],
+  "sources": [
+    {
+      "adapter": {
+        "name": "opencode-plugin",
+        "version": "0.1.0"
+      },
+      "agent": "opencode",
+      "agent_version": "2.0.26",
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "correlation.task_id",
+        "correlation.session_id",
+        "correlation.turn_id",
+        "correlation.tool_call_id",
+        "targets",
+        "outcome.status",
+        "outcome.exit_code",
+        "size",
+        "command_class",
+        "content_delivery"
+      ],
+      "coverage": {
+        "events_dropped": {
+          "method": "count_of_records",
+          "precision": "exact",
+          "state": "known",
+          "unit": "count",
+          "value": 0
+        },
+        "events_received": {
+          "method": "count_of_records",
+          "precision": "exact",
+          "state": "known",
+          "unit": "count",
+          "value": 9
+        }
+      },
+      "source_id": "6e26add502e72b3782263f6399adabe6",
+      "unavailable": [
+        "correlation.trace_id",
+        "correlation.span_id",
+        "correlation.parent_span_id",
+        "usage",
+        "coordination"
+      ]
+    },
+    {
+      "adapter": {
+        "name": "watcher",
+        "version": "0.1.0"
+      },
+      "agent": "none",
+      "agent_version": null,
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "targets"
+      ],
+      "coverage": {
+        "events_dropped": {
+          "bounds": {
+            "lower": 1,
+            "upper": null
+          },
+          "reason": "dropped",
+          "state": "unknown",
+          "unit": "count"
+        },
+        "events_received": {
+          "method": "count_of_records",
+          "precision": "exact",
+          "state": "known",
+          "unit": "count",
+          "value": 1
+        }
+      },
+      "source_id": "693b0551a65a349fa3332cf86dd56f42",
+      "unavailable": [
+        "correlation.session_id",
+        "correlation.task_id",
+        "outcome.exit_code"
+      ]
+    },
+    {
+      "adapter": {
+        "name": "other",
+        "version": "0.1.0"
+      },
+      "agent": "none",
+      "agent_version": null,
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "usage"
+      ],
+      "source_id": "fff0f1e7920adb57079b08467225bba0",
+      "unavailable": [
+        "targets"
+      ]
+    }
+  ]
+}

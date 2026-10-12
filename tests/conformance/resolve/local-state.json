@@ -1,0 +1,24 @@
+{
+  "ambiguous": [],
+  "now": "2026-10-12T00:00:00Z",
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "resolvable": [
+    "0a47f621aa46a0035f78c74eaae15d4c",
+    "15691a4d578603675d9bf3e9f59afb79",
+    "330be5a92917b74876c6b4bbcc1750f3",
+    "484863ed7a5516f4033f6ae5341be4ef",
+    "4be4313d87803f912e9dca9d3d1afc14",
+    "6a6962969353f0a8740de5fcba0de8a0",
+    "7b255b9a386ab159dfecb90c52db4e12",
+    "92692674365f0943bda5a5a5b7361b65",
+    "be61868d40ff0b3b6a1af8855a4e1c61",
+    "c5c5ece05ed2dad84893aa7f9782090a",
+    "f76bf6857ca4943a23d3cabf9025ff99"
+  ],
+  "snapshot_digests": {
+    "0a47f621aa46a0035f78c74eaae15d4c": "sha256:62f1027a8faa219687f014bcf3db320db1e96c6da667a90b5f91994d77cf56be"
+  },
+  "supported_versions": [
+    "0.1"
+  ]
+}

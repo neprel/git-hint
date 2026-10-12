@@ -1,0 +1,831 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:schema:v0.1:activity",
+  "title": "HINT v0.1 activity records",
+  "$defs": {
+    "Target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+        },
+        "scope_id": {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+        },
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start_line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "end_line": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "start_line",
+            "end_line"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "entity_id"
+          ]
+        },
+        {
+          "required": [
+            "scope_id"
+          ],
+          "not": {
+            "required": [
+              "range"
+            ]
+          }
+        }
+      ]
+    },
+    "Observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observation_id": {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+        },
+        "class": {
+          "const": "observation"
+        },
+        "op": {
+          "type": "string",
+          "enum": [
+            "SESSION",
+            "TURN",
+            "TOOL",
+            "READ",
+            "SEARCH",
+            "DISCOVER",
+            "EDIT_INTENT",
+            "FILE_MUTATION",
+            "EXECUTE",
+            "TEST",
+            "BUILD",
+            "VALIDATION",
+            "COMPACTION",
+            "USAGE",
+            "DELEGATE",
+            "REQUEST",
+            "RESPONSE",
+            "WAIT",
+            "ERROR",
+            "UNKNOWN"
+          ]
+        },
+        "ops_secondary": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "SESSION",
+              "TURN",
+              "TOOL",
+              "READ",
+              "SEARCH",
+              "DISCOVER",
+              "EDIT_INTENT",
+              "FILE_MUTATION",
+              "EXECUTE",
+              "TEST",
+              "BUILD",
+              "VALIDATION",
+              "COMPACTION",
+              "USAGE",
+              "DELEGATE",
+              "REQUEST",
+              "RESPONSE",
+              "WAIT",
+              "ERROR",
+              "UNKNOWN"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "otlp",
+            "native_hook",
+            "plugin",
+            "log",
+            "shell_parser",
+            "watcher",
+            "orchestrator",
+            "transport"
+          ]
+        },
+        "source_id": {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+        },
+        "precision": {
+          "enum": [
+            "exact",
+            "derived",
+            "inferred",
+            "estimated",
+            "unknown"
+          ]
+        },
+        "time": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.1:common#/$defs/Timestamp"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "end": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.1:common#/$defs/Timestamp"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "clock": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "collector",
+                "server",
+                "unknown"
+              ]
+            },
+            "clock_domain": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            }
+          },
+          "required": [
+            "start",
+            "end",
+            "clock"
+          ]
+        },
+        "correlation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "task_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            },
+            "session_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            },
+            "turn_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            },
+            "tool_call_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            },
+            "trace_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/TraceId"
+            },
+            "span_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/SpanId"
+            },
+            "parent_span_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/SpanId"
+            },
+            "parent_observation_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            }
+          }
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Target"
+          }
+        },
+        "outcome": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "success",
+                "failure",
+                "denied",
+                "cancelled",
+                "unknown"
+              ]
+            },
+            "exit_code": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "status"
+          ]
+        },
+        "size": {
+          "allOf": [
+            {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/Quantity"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "enum": [
+                    "bytes",
+                    "tokens"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "input_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.1:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            },
+            "output_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.1:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            },
+            "cache_read_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.1:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            },
+            "cache_write_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.1:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            },
+            "reasoning_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.1:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "input_tokens",
+            "output_tokens"
+          ]
+        },
+        "command_class": {
+          "type": "string",
+          "enum": [
+            "READ",
+            "WRITE",
+            "SEARCH",
+            "LIST",
+            "TEST",
+            "BUILD",
+            "VCS",
+            "PACKAGE",
+            "NETWORK",
+            "MIXED",
+            "UNKNOWN"
+          ]
+        },
+        "mutation_attribution": {
+          "type": "string",
+          "enum": [
+            "none",
+            "inferred",
+            "exact"
+          ]
+        },
+        "content_delivery": {
+          "type": "string",
+          "enum": [
+            "full",
+            "partial",
+            "unknown"
+          ]
+        },
+        "coordination": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sender": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            },
+            "recipient": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            },
+            "owning_repo": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            },
+            "request_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            },
+            "wait_evidence": {
+              "type": "string",
+              "enum": [
+                "blocking_wait_observed",
+                "reply_only",
+                "none"
+              ]
+            },
+            "conflict_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true
+            },
+            "concurrent_scope": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.1:common#/$defs/FieldName"
+          },
+          "uniqueItems": true
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_event_id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            },
+            "captured_at": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/Timestamp"
+            },
+            "valid_from": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/Timestamp"
+            },
+            "valid_to": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/Timestamp"
+            },
+            "transformations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "step": {
+                    "type": "string",
+                    "enum": [
+                      "normalize",
+                      "redact",
+                      "coarsen",
+                      "aggregate",
+                      "time_correction"
+                    ]
+                  },
+                  "tool": {
+                    "type": "string",
+                    "enum": [
+                      "hint-cli",
+                      "hint-server",
+                      "other"
+                    ]
+                  },
+                  "version": {
+                    "$ref": "urn:hint:schema:v0.1:common#/$defs/SemVer"
+                  }
+                },
+                "required": [
+                  "step",
+                  "tool",
+                  "version"
+                ]
+              }
+            }
+          },
+          "required": [
+            "captured_at"
+          ]
+        }
+      },
+      "required": [
+        "observation_id",
+        "class",
+        "op",
+        "source",
+        "source_id",
+        "precision",
+        "time",
+        "outcome",
+        "missing",
+        "provenance"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "watcher"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "const": "FILE_MUTATION"
+              },
+              "mutation_attribution": {
+                "enum": [
+                  "none",
+                  "inferred"
+                ]
+              }
+            },
+            "required": [
+              "mutation_attribution"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "FILE_MUTATION"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "mutation_attribution"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "shell_parser"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "precision": {
+                "enum": [
+                  "inferred",
+                  "unknown"
+                ]
+              },
+              "content_delivery": {
+                "enum": [
+                  "partial",
+                  "unknown"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "READ"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "content_delivery"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "USAGE"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "usage"
+            ]
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "op": {
+                  "const": "USAGE"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "usage"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "EXECUTE"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "command_class"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "DELEGATE",
+                  "REQUEST",
+                  "RESPONSE",
+                  "WAIT"
+                ]
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "coordination"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "WAIT"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coordination": {
+                "properties": {
+                  "wait_evidence": {
+                    "const": "blocking_wait_observed"
+                  }
+                },
+                "required": [
+                  "wait_evidence"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metric_id": {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+        },
+        "class": {
+          "type": "string",
+          "enum": [
+            "derived",
+            "estimate"
+          ]
+        },
+        "metric": {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/Metric"
+        },
+        "unit": {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/Unit"
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "task",
+                "session",
+                "turn",
+                "repository"
+              ]
+            },
+            "id": {
+              "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        "value": {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/Quantity"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true
+        },
+        "definition_version": {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/SemVer"
+        }
+      },
+      "required": [
+        "metric_id",
+        "class",
+        "metric",
+        "unit",
+        "scope",
+        "value",
+        "inputs",
+        "definition_version"
+      ],
+      "allOf": [
+        {
+          "$ref": "urn:hint:schema:v0.1:common#/$defs/MetricUnit"
+        },
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "derived"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "properties": {
+                  "precision": {
+                    "enum": [
+                      "exact",
+                      "derived"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "estimate"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "properties": {
+                  "precision": {
+                    "const": "estimated"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "A value computed locally from observations. It is not an observation, a forecast or an effect."
+    },
+    "ActivityPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Observation"
+          }
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Metric"
+          }
+        }
+      },
+      "required": [
+        "observations"
+      ]
+    }
+  }
+}

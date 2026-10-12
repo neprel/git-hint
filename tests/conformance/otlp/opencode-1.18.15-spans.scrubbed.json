@@ -1,0 +1,877 @@
+{
+ "resource": {
+  "attributes": [
+   {
+    "key": "deployment.environment.name",
+    "value": {
+     "stringValue": "latest"
+    }
+   },
+   {
+    "key": "opencode.client",
+    "value": {
+     "stringValue": "cli"
+    }
+   },
+   {
+    "key": "opencode.run",
+    "value": {
+     "stringValue": "48aedc7d"
+    }
+   },
+   {
+    "key": "service.instance.id",
+    "value": {
+     "stringValue": "48aedc7d"
+    }
+   },
+   {
+    "key": "service.name",
+    "value": {
+     "stringValue": "opencode"
+    }
+   },
+   {
+    "key": "telemetry.sdk.name",
+    "value": {
+     "stringValue": "@effect/opentelemetry"
+    }
+   },
+   {
+    "key": "telemetry.sdk.language",
+    "value": {
+     "stringValue": "nodejs"
+    }
+   },
+   {
+    "key": "service.version",
+    "value": {
+     "stringValue": "1.18.15"
+    }
+   }
+  ],
+  "droppedAttributesCount": 0
+ },
+ "spans": [
+  {
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "77e140a74af8109c",
+   "parentSpanId": "1ad082c5f6de37e6",
+   "name": "SessionProcessor.create",
+   "kind": 1,
+   "startTimeUnixNano": "1791701022824081875",
+   "endTimeUnixNano": "1791701022860671875",
+   "attributes": [],
+   "droppedAttributesCount": 0,
+   "events": [],
+   "droppedEventsCount": 0,
+   "status": {
+    "code": 1
+   },
+   "links": [],
+   "droppedLinksCount": 0,
+   "flags": 257
+  },
+  {
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "5a99dc915fed958d",
+   "parentSpanId": "ef98a0a3d039cf8c",
+   "name": "LLM.run",
+   "kind": 1,
+   "startTimeUnixNano": "1791701023477174541",
+   "endTimeUnixNano": "1791701023483253333",
+   "attributes": [],
+   "droppedAttributesCount": 0,
+   "events": [],
+   "droppedEventsCount": 0,
+   "status": {
+    "code": 1
+   },
+   "links": [],
+   "droppedLinksCount": 0,
+   "flags": 257
+  },
+  {
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "bc96c226fd26c228",
+   "parentSpanId": "0dcbed6e3c8e6730",
+   "name": "Permission.ask",
+   "kind": 1,
+   "startTimeUnixNano": "1791701023508813625",
+   "endTimeUnixNano": "1791701023509375791",
+   "attributes": [],
+   "droppedAttributesCount": 0,
+   "events": [],
+   "droppedEventsCount": 0,
+   "status": {
+    "code": 1
+   },
+   "links": [],
+   "droppedLinksCount": 0,
+   "flags": 257
+  },
+  {
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "4400fb6302635759",
+   "parentSpanId": "55f51bc8380eaeed",
+   "name": "Tool.execute",
+   "kind": 1,
+   "startTimeUnixNano": "1791701023506023250",
+   "endTimeUnixNano": "1791701023517090500",
+   "attributes": [
+    {
+     "key": "tool.name",
+     "value": {
+      "stringValue": "read"
+     }
+    },
+    {
+     "key": "session.id",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "message.id",
+     "value": {
+      "stringValue": "msg_129b3f866001PvwvFFfQq9yTA3"
+     }
+    },
+    {
+     "key": "tool.call_id",
+     "value": {
+      "stringValue": "call_f6a4db2471"
+     }
+    }
+   ],
+   "droppedAttributesCount": 0,
+   "events": [],
+   "droppedEventsCount": 0,
+   "status": {
+    "code": 1
+   },
+   "links": [],
+   "droppedLinksCount": 0,
+   "flags": 257
+  },
+  {
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "60544742e573d16a",
+   "parentSpanId": "518fccfebde3a0ea",
+   "name": "ai.toolCall",
+   "kind": 1,
+   "startTimeUnixNano": "1791701023505000000",
+   "endTimeUnixNano": "1791701023517231166",
+   "attributes": [
+    {
+     "key": "operation.name",
+     "value": {
+      "stringValue": "ai.toolCall session.llm"
+     }
+    },
+    {
+     "key": "resource.name",
+     "value": {
+      "stringValue": "session.llm"
+     }
+    },
+    {
+     "key": "ai.operationId",
+     "value": {
+      "stringValue": "ai.toolCall"
+     }
+    },
+    {
+     "key": "ai.telemetry.functionId",
+     "value": {
+      "stringValue": "session.llm"
+     }
+    },
+    {
+     "key": "ai.toolCall.name",
+     "value": {
+      "stringValue": "read"
+     }
+    },
+    {
+     "key": "ai.toolCall.id",
+     "value": {
+      "stringValue": "call_f6a4db2471"
+     }
+    },
+    {
+     "key": "ai.toolCall.args",
+     "value": {
+      "stringValue": "[redacted:len=159]"
+     }
+    },
+    {
+     "key": "session.id",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "ai.toolCall.result",
+     "value": {
+      "stringValue": "[redacted:len=733]"
+     }
+    }
+   ],
+   "droppedAttributesCount": 0,
+   "events": [],
+   "droppedEventsCount": 0,
+   "status": {
+    "code": 0
+   },
+   "links": [],
+   "droppedLinksCount": 0,
+   "flags": 257
+  },
+  {
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "ecbd6937b45d6c1c",
+   "parentSpanId": "518fccfebde3a0ea",
+   "name": "ai.streamText.doStream",
+   "kind": 1,
+   "startTimeUnixNano": "1791701023487000000",
+   "endTimeUnixNano": "1791701023521056208",
+   "attributes": [
+    {
+     "key": "operation.name",
+     "value": {
+      "stringValue": "ai.streamText.doStream session.llm"
+     }
+    },
+    {
+     "key": "resource.name",
+     "value": {
+      "stringValue": "session.llm"
+     }
+    },
+    {
+     "key": "ai.operationId",
+     "value": {
+      "stringValue": "ai.streamText.doStream"
+     }
+    },
+    {
+     "key": "ai.telemetry.functionId",
+     "value": {
+      "stringValue": "session.llm"
+     }
+    },
+    {
+     "key": "ai.model.provider",
+     "value": {
+      "stringValue": "mock.chat"
+     }
+    },
+    {
+     "key": "ai.model.id",
+     "value": {
+      "stringValue": "scripted"
+     }
+    },
+    {
+     "key": "ai.settings.maxOutputTokens",
+     "value": {
+      "intValue": 4096
+     }
+    },
+    {
+     "key": "ai.settings.maxRetries",
+     "value": {
+      "intValue": 0
+     }
+    },
+    {
+     "key": "ai.telemetry.metadata.userId",
+     "value": {
+      "stringValue": "user"
+     }
+    },
+    {
+     "key": "ai.telemetry.metadata.sessionId",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "ai.request.headers.x-session-affinity",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "ai.request.headers.X-Session-Id",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "ai.request.headers.User-Agent",
+     "value": {
+      "stringValue": "opencode/1.18.15"
+     }
+    },
+    {
+     "key": "ai.prompt.messages",
+     "value": {
+      "stringValue": "[redacted:len=10030]"
+     }
+    },
+    {
+     "key": "ai.prompt.tools",
+     "value": {
+      "stringValue": "[redacted:len=0]"
+     }
+    },
+    {
+     "key": "ai.prompt.toolChoice",
+     "value": {
+      "stringValue": "{\"type\":\"auto\"}"
+     }
+    },
+    {
+     "key": "gen_ai.system",
+     "value": {
+      "stringValue": "mock.chat"
+     }
+    },
+    {
+     "key": "gen_ai.request.model",
+     "value": {
+      "stringValue": "scripted"
+     }
+    },
+    {
+     "key": "gen_ai.request.max_tokens",
+     "value": {
+      "intValue": 4096
+     }
+    },
+    {
+     "key": "session.id",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "ai.response.msToFirstChunk",
+     "value": {
+      "doubleValue": 11.89237500000013
+     }
+    },
+    {
+     "key": "ai.response.msToFinish",
+     "value": {
+      "doubleValue": 30.204083000000082
+     }
+    },
+    {
+     "key": "ai.response.avgOutputTokensPerSecond",
+     "value": {
+      "doubleValue": 1655.4053304647541
+     }
+    },
+    {
+     "key": "ai.response.finishReason",
+     "value": {
+      "stringValue": "tool-calls"
+     }
+    },
+    {
+     "key": "ai.response.toolCalls",
+     "value": {
+      "stringValue": "[redacted:len=239]"
+     }
+    },
+    {
+     "key": "ai.response.id",
+     "value": {
+      "stringValue": "chatcmpl-9edefefa8afd"
+     }
+    },
+    {
+     "key": "ai.response.model",
+     "value": {
+      "stringValue": "scripted"
+     }
+    },
+    {
+     "key": "ai.response.timestamp",
+     "value": {
+      "stringValue": "2026-10-11T06:43:43.000Z"
+     }
+    },
+    {
+     "key": "ai.usage.inputTokens",
+     "value": {
+      "intValue": 1000
+     }
+    },
+    {
+     "key": "ai.usage.inputTokenDetails.noCacheTokens",
+     "value": {
+      "intValue": 800
+     }
+    },
+    {
+     "key": "ai.usage.inputTokenDetails.cacheReadTokens",
+     "value": {
+      "intValue": 200
+     }
+    },
+    {
+     "key": "ai.usage.outputTokens",
+     "value": {
+      "intValue": 50
+     }
+    },
+    {
+     "key": "ai.usage.outputTokenDetails.textTokens",
+     "value": {
+      "intValue": 50
+     }
+    },
+    {
+     "key": "ai.usage.outputTokenDetails.reasoningTokens",
+     "value": {
+      "intValue": 0
+     }
+    },
+    {
+     "key": "ai.usage.totalTokens",
+     "value": {
+      "intValue": 1050
+     }
+    },
+    {
+     "key": "ai.usage.reasoningTokens",
+     "value": {
+      "intValue": 0
+     }
+    },
+    {
+     "key": "ai.usage.cachedInputTokens",
+     "value": {
+      "intValue": 200
+     }
+    },
+    {
+     "key": "gen_ai.response.finish_reasons",
+     "value": {
+      "arrayValue": {
+       "values": [
+        {
+         "stringValue": "tool-calls"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "key": "gen_ai.response.id",
+     "value": {
+      "stringValue": "chatcmpl-9edefefa8afd"
+     }
+    },
+    {
+     "key": "gen_ai.response.model",
+     "value": {
+      "stringValue": "scripted"
+     }
+    },
+    {
+     "key": "gen_ai.usage.input_tokens",
+     "value": {
+      "intValue": 1000
+     }
+    },
+    {
+     "key": "gen_ai.usage.output_tokens",
+     "value": {
+      "intValue": 50
+     }
+    },
+    {
+     "key": "ai.response.text",
+     "value": {
+      "stringValue": "[redacted:len=0]"
+     }
+    },
+    {
+     "key": "ai.response.providerMetadata",
+     "value": {
+      "stringValue": "[redacted:len=11]"
+     }
+    }
+   ],
+   "droppedAttributesCount": 0,
+   "events": [
+    {
+     "attributes": [
+      {
+       "key": "ai.response.msToFirstChunk",
+       "value": {
+        "doubleValue": 11.89237500000013
+       }
+      }
+     ],
+     "name": "ai.stream.firstChunk",
+     "timeUnixNano": "1791701023499003291",
+     "droppedAttributesCount": 0
+    },
+    {
+     "attributes": [],
+     "name": "ai.stream.finish",
+     "timeUnixNano": "1791701023517287583",
+     "droppedAttributesCount": 0
+    }
+   ],
+   "droppedEventsCount": 0,
+   "status": {
+    "code": 0
+   },
+   "links": [],
+   "droppedLinksCount": 0,
+   "flags": 257
+  },
+  {
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "518fccfebde3a0ea",
+   "parentSpanId": "5a99dc915fed958d",
+   "name": "ai.streamText",
+   "kind": 1,
+   "startTimeUnixNano": "1791701023484000000",
+   "endTimeUnixNano": "1791701023521556583",
+   "attributes": [
+    {
+     "key": "operation.name",
+     "value": {
+      "stringValue": "ai.streamText session.llm"
+     }
+    },
+    {
+     "key": "resource.name",
+     "value": {
+      "stringValue": "session.llm"
+     }
+    },
+    {
+     "key": "ai.operationId",
+     "value": {
+      "stringValue": "ai.streamText"
+     }
+    },
+    {
+     "key": "ai.telemetry.functionId",
+     "value": {
+      "stringValue": "session.llm"
+     }
+    },
+    {
+     "key": "ai.model.provider",
+     "value": {
+      "stringValue": "mock.chat"
+     }
+    },
+    {
+     "key": "ai.model.id",
+     "value": {
+      "stringValue": "scripted"
+     }
+    },
+    {
+     "key": "ai.settings.maxOutputTokens",
+     "value": {
+      "intValue": 4096
+     }
+    },
+    {
+     "key": "ai.settings.maxRetries",
+     "value": {
+      "intValue": 0
+     }
+    },
+    {
+     "key": "ai.telemetry.metadata.userId",
+     "value": {
+      "stringValue": "user"
+     }
+    },
+    {
+     "key": "ai.telemetry.metadata.sessionId",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "ai.request.headers.x-session-affinity",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "ai.request.headers.X-Session-Id",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "ai.request.headers.User-Agent",
+     "value": {
+      "stringValue": "opencode/1.18.15"
+     }
+    },
+    {
+     "key": "ai.prompt",
+     "value": {
+      "stringValue": "[redacted:len=10043]"
+     }
+    },
+    {
+     "key": "session.id",
+     "value": {
+      "stringValue": "ses_ed64c088effeq1oybyuDGLm1F6"
+     }
+    },
+    {
+     "key": "ai.response.finishReason",
+     "value": {
+      "stringValue": "tool-calls"
+     }
+    },
+    {
+     "key": "ai.response.text",
+     "value": {
+      "stringValue": "[redacted:len=0]"
+     }
+    },
+    {
+     "key": "ai.response.toolCalls",
+     "value": {
+      "stringValue": "[redacted:len=239]"
+     }
+    },
+    {
+     "key": "ai.response.providerMetadata",
+     "value": {
+      "stringValue": "[redacted:len=11]"
+     }
+    },
+    {
+     "key": "ai.usage.inputTokens",
+     "value": {
+      "intValue": 1000
+     }
+    },
+    {
+     "key": "ai.usage.inputTokenDetails.noCacheTokens",
+     "value": {
+      "intValue": 800
+     }
+    },
+    {
+     "key": "ai.usage.inputTokenDetails.cacheReadTokens",
+     "value": {
+      "intValue": 200
+     }
+    },
+    {
+     "key": "ai.usage.outputTokens",
+     "value": {
+      "intValue": 50
+     }
+    },
+    {
+     "key": "ai.usage.outputTokenDetails.textTokens",
+     "value": {
+      "intValue": 50
+     }
+    },
+    {
+     "key": "ai.usage.outputTokenDetails.reasoningTokens",
+     "value": {
+      "intValue": 0
+     }
+    },
+    {
+     "key": "ai.usage.totalTokens",
+     "value": {
+      "intValue": 1050
+     }
+    },
+    {
+     "key": "ai.usage.reasoningTokens",
+     "value": {
+      "intValue": 0
+     }
+    },
+    {
+     "key": "ai.usage.cachedInputTokens",
+     "value": {
+      "intValue": 200
+     }
+    }
+   ],
+   "droppedAttributesCount": 0,
+   "events": [],
+   "droppedEventsCount": 0,
+   "status": {
+    "code": 0
+   },
+   "links": [],
+   "droppedLinksCount": 0,
+   "flags": 257
+  }
+ ],
+ "logRecords": [
+  {
+   "severityNumber": 9,
+   "severityText": "Info",
+   "timeUnixNano": "1791701023509348250",
+   "observedTimeUnixNano": "1791701023509348250",
+   "attributes": [
+    {
+     "key": "fiberId",
+     "value": {
+      "intValue": 17016
+     }
+    }
+   ],
+   "body": {
+    "arrayValue": {
+     "values": [
+      {
+       "stringValue": "evaluated"
+      },
+      {
+       "stringValue": "{\"permission\":\"read\",\"pattern\":\"[canary:dir_name]/secret_notes.txt\",\"action\":{\"permission\":\"read\",\"pattern\":\"*\",\"action\":\"allow\"}}"
+      }
+     ]
+    }
+   },
+   "droppedAttributesCount": 0,
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "bc96c226fd26c228"
+  },
+  {
+   "severityNumber": 9,
+   "severityText": "Info",
+   "timeUnixNano": "1791701023624916000",
+   "observedTimeUnixNano": "1791701023624916000",
+   "attributes": [
+    {
+     "key": "fiberId",
+     "value": {
+      "intValue": 17083
+     }
+    }
+   ],
+   "body": {
+    "arrayValue": {
+     "values": [
+      {
+       "stringValue": "evaluated"
+      },
+      {
+       "stringValue": "{\"permission\":\"read\",\"pattern\":\"py/calc.py\",\"action\":{\"permission\":\"read\",\"pattern\":\"*\",\"action\":\"allow\"}}"
+      }
+     ]
+    }
+   },
+   "droppedAttributesCount": 0,
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "8d760a0e72b79523"
+  },
+  {
+   "severityNumber": 9,
+   "severityText": "Info",
+   "timeUnixNano": "1791701023749842666",
+   "observedTimeUnixNano": "1791701023749842666",
+   "attributes": [
+    {
+     "key": "fiberId",
+     "value": {
+      "intValue": 17147
+     }
+    }
+   ],
+   "body": {
+    "arrayValue": {
+     "values": [
+      {
+       "stringValue": "evaluated"
+      },
+      {
+       "stringValue": "{\"permission\":\"bash\",\"pattern\":\"cat [canary:dir_name]/secret_notes.txt\",\"action\":{\"permission\":\"bash\",\"pattern\":\"*\",\"action\":\"allow\"}}"
+      }
+     ]
+    }
+   },
+   "droppedAttributesCount": 0,
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "13008d85aca95ad6"
+  },
+  {
+   "severityNumber": 9,
+   "severityText": "Info",
+   "timeUnixNano": "1791701023879059750",
+   "observedTimeUnixNano": "1791701023879059750",
+   "attributes": [
+    {
+     "key": "fiberId",
+     "value": {
+      "intValue": 17219
+     }
+    }
+   ],
+   "body": {
+    "arrayValue": {
+     "values": [
+      {
+       "stringValue": "evaluated"
+      },
+      {
+       "stringValue": "{\"permission\":\"bash\",\"pattern\":\"sed -n '1,3p' py/calc.py\",\"action\":{\"permission\":\"bash\",\"pattern\":\"*\",\"action\":\"allow\"}}"
+      }
+     ]
+    }
+   },
+   "droppedAttributesCount": 0,
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "9ac72a1b4a64b338"
+  },
+  {
+   "severityNumber": 9,
+   "severityText": "Info",
+   "timeUnixNano": "1791701023994466250",
+   "observedTimeUnixNano": "1791701023994466250",
+   "attributes": [
+    {
+     "key": "fiberId",
+     "value": {
+      "intValue": 17291
+     }
+    }
+   ],
+   "body": {
+    "arrayValue": {
+     "values": [
+      {
+       "stringValue": "evaluated"
+      },
+      {
+       "stringValue": "{\"permission\":\"bash\",\"pattern\":\"head -n 2 go/calc.go\",\"action\":{\"permission\":\"bash\",\"pattern\":\"*\",\"action\":\"allow\"}}"
+      }
+     ]
+    }
+   },
+   "droppedAttributesCount": 0,
+   "traceId": "9008278bf68cc18bae8327a67123f9ac",
+   "spanId": "b73077a00e6fdccf"
+  }
+ ]
+}

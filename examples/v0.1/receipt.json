@@ -1,0 +1,38 @@
+{
+  "content_digest": "sha256:5ed3e9cd7667c95a676e448b59f0c712125e31929fb4ad4f91323a22d4a80fd4",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "f73de5eb6a2a4a99e7cc62823a4f45ef",
+  "document_type": "receipt",
+  "hint_version": "0.1.0",
+  "payload": {
+    "accepted": [
+      {
+        "content_digest": "sha256:a7266b00cd068a80312462638b99bbbdde293ab5fe704b1273e05a268f29269b",
+        "document_id": "76fda6ecdf7e4d6cd00aa2d41cfc003f"
+      },
+      {
+        "content_digest": "sha256:e418ece3879b01cb3922723c05cf2d8aa2dba2e0c0bbbbb80bf8b9bd5698ccb5",
+        "document_id": "21d17f8e126fbce7a44535c5235fecbb"
+      }
+    ],
+    "rejected": [
+      {
+        "code": "schema_invalid",
+        "document_id": null
+      }
+    ]
+  },
+  "producer": {
+    "tool": "hint-server",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "detailed",
+    "record_types": [],
+    "time_resolution_seconds": 0
+  },
+  "repositories": []
+}

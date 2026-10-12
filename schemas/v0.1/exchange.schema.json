@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:schema:v0.1:exchange",
+  "title": "HINT v0.1 exchange receipts",
+  "$defs": {
+    "ReceiptPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "document_id": {
+                "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+              },
+              "content_digest": {
+                "$ref": "urn:hint:schema:v0.1:common#/$defs/Digest"
+              }
+            },
+            "required": [
+              "document_id",
+              "content_digest"
+            ]
+          }
+        },
+        "rejected": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "document_id": {
+                "oneOf": [
+                  {
+                    "$ref": "urn:hint:schema:v0.1:common#/$defs/OpaqueId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "unsupported_version",
+                  "schema_invalid",
+                  "digest_mismatch",
+                  "namespace_mismatch",
+                  "policy_violation",
+                  "content_forbidden",
+                  "reference_unresolved",
+                  "duplicate",
+                  "too_large"
+                ]
+              }
+            },
+            "required": [
+              "document_id",
+              "code"
+            ]
+          }
+        }
+      },
+      "required": [
+        "accepted",
+        "rejected"
+      ]
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "note": "Synthetic OTLP/JSON spans in the OpenTelemetry GenAI conventions (development status, schema_url gen-ai-dev/1.42.0-dev). Content attributes carry canary values; the mapping must drop them.",
+  "resource": {"attributes": [
+    {"key": "service.name", "value": {"stringValue": "example-agent"}},
+    {"key": "service.version", "value": {"stringValue": "3.1.0"}},
+    {"key": "host.name", "value": {"stringValue": "build01.example.invalid"}},
+    {"key": "user.email", "value": {"stringValue": "dev@example.invalid"}}
+  ]},
+  "spans": [
+    {"traceId": "4bf92f3577b34da6a3ce929d0e0e4736", "spanId": "00f067aa0ba902b7", "name": "invoke_agent example",
+     "startTimeUnixNano": "1791716400000000000", "endTimeUnixNano": "1791716460000000000", "status": {"code": 1},
+     "attributes": [
+       {"key": "gen_ai.operation.name", "value": {"stringValue": "invoke_agent"}},
+       {"key": "gen_ai.conversation.id", "value": {"stringValue": "conv-HINTCANARY_ARG_2b8c44"}},
+       {"key": "gen_ai.input.messages", "value": {"stringValue": "HINTCANARY_PROMPT_9d1e07 fix the test"}}]},
+    {"traceId": "4bf92f3577b34da6a3ce929d0e0e4736", "spanId": "a3ce929d0e0e4736", "parentSpanId": "00f067aa0ba902b7",
+     "name": "chat model", "startTimeUnixNano": "1791716401000000000", "endTimeUnixNano": "1791716402500000000",
+     "status": {"code": 1},
+     "attributes": [
+       {"key": "gen_ai.operation.name", "value": {"stringValue": "chat"}},
+       {"key": "gen_ai.conversation.id", "value": {"stringValue": "conv-HINTCANARY_ARG_2b8c44"}},
+       {"key": "gen_ai.usage.input_tokens", "value": {"intValue": "7710"}},
+       {"key": "gen_ai.usage.output_tokens", "value": {"intValue": "0"}},
+       {"key": "gen_ai.output.messages", "value": {"stringValue": "HINTCANARY_TOOLOUT_5a6f32"}}]},
+    {"traceId": "4bf92f3577b34da6a3ce929d0e0e4736", "spanId": "b7ad6b7169203331", "parentSpanId": "00f067aa0ba902b7",
+     "name": "execute_tool read", "startTimeUnixNano": "1791716403000000000", "endTimeUnixNano": "1791716403015000000",
+     "status": {"code": 1},
+     "attributes": [
+       {"key": "gen_ai.operation.name", "value": {"stringValue": "execute_tool"}},
+       {"key": "gen_ai.tool.name", "value": {"stringValue": "read"}},
+       {"key": "gen_ai.tool.call.id", "value": {"stringValue": "call_HINTCANARY_ARG_2b8c44"}},
+       {"key": "gen_ai.conversation.id", "value": {"stringValue": "conv-HINTCANARY_ARG_2b8c44"}},
+       {"key": "gen_ai.tool.call.arguments", "value": {"stringValue": "{\"path\":\"canary_dir_e1d2/main.go\"}"}},
+       {"key": "gen_ai.tool.call.result", "value": {"stringValue": "package main // HINTCANARY_REPO_7f3a91"}}],
+     "events": [{"name": "gen_ai.content", "attributes": [{"key": "body", "value": {"stringValue": "HINTCANARY_REPO_7f3a91"}}]}]},
+    {"traceId": "4bf92f3577b34da6a3ce929d0e0e4736", "spanId": "c0ffee00c0ffee01", "parentSpanId": "00f067aa0ba902b7",
+     "name": "execute_tool bash", "startTimeUnixNano": "1791716404000000000", "endTimeUnixNano": "1791716409000000000",
+     "status": {"code": 2, "message": "exit status 1: /home/dev/canary_dir_e1d2/run.sh failed"},
+     "attributes": [
+       {"key": "gen_ai.operation.name", "value": {"stringValue": "execute_tool"}},
+       {"key": "gen_ai.tool.name", "value": {"stringValue": "bash"}},
+       {"key": "gen_ai.tool.call.id", "value": {"stringValue": "call_2"}},
+       {"key": "gen_ai.tool.call.arguments", "value": {"stringValue": "go test ./canary_dir_e1d2/... HINTCANARY_ARG_2b8c44"}}],
+     "links": [{"traceId": "5bf92f3577b34da6a3ce929d0e0e4736", "spanId": "1111111111111111",
+                "attributes": [{"key": "note", "value": {"stringValue": "HINTCANARY_PROMPT_9d1e07"}}]}]},
+    {"traceId": "4bf92f3577b34da6a3ce929d0e0e4736", "spanId": "d00dfeedd00dfeed", "parentSpanId": "00f067aa0ba902b7",
+     "name": "custom.step", "startTimeUnixNano": "1791716410000000000", "endTimeUnixNano": "1791716410100000000",
+     "status": {"code": 0}, "attributes": [{"key": "canarySymbolQ7", "value": {"stringValue": "x"}}]}
+  ]
+}

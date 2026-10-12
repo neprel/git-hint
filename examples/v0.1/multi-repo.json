@@ -1,0 +1,185 @@
+{
+  "content_digest": "sha256:fa734a355cb24e2c8d90153788d630ade13dc76c45cda53d990812d8fe342d86",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "5a4b753c584da3cef2c879b04a13a0cd",
+  "document_type": "repository_snapshot",
+  "hint_version": "0.1.0",
+  "payload": {
+    "entities": [
+      {
+        "entity_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "id_stability": "stable",
+        "kind": "repository",
+        "language": null,
+        "parent_id": null,
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "declared",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "dc387bfc651e0569b18859a5de698688",
+        "id_stability": "stable",
+        "kind": "contract",
+        "language": null,
+        "parent_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "declared",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "f6636262ad9c148b009aba4f08a3bd29",
+        "id_stability": "stable",
+        "kind": "file",
+        "language": "proto",
+        "parent_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "b249a33895908c1ccd0640ecc343c761",
+        "id_stability": "stable",
+        "kind": "file",
+        "language": "typescript",
+        "parent_id": "ba72e8cb271d6e1280c388163731f7a3",
+        "repo_id": "ba72e8cb271d6e1280c388163731f7a3",
+        "resolution": "syntax",
+        "snapshot_id": "cb15596e1d4ec564076b9a622bd7fc04"
+      },
+      {
+        "entity_id": "ba72e8cb271d6e1280c388163731f7a3",
+        "id_stability": "stable",
+        "kind": "repository",
+        "language": null,
+        "parent_id": null,
+        "repo_id": "ba72e8cb271d6e1280c388163731f7a3",
+        "resolution": "declared",
+        "snapshot_id": "cb15596e1d4ec564076b9a622bd7fc04"
+      },
+      {
+        "entity_id": "dc387bfc651e0569b18859a5de698688",
+        "id_stability": "stable",
+        "kind": "contract",
+        "language": null,
+        "parent_id": "ba72e8cb271d6e1280c388163731f7a3",
+        "repo_id": "ba72e8cb271d6e1280c388163731f7a3",
+        "resolution": "declared",
+        "snapshot_id": "cb15596e1d4ec564076b9a622bd7fc04"
+      }
+    ],
+    "relations": [
+      {
+        "evidence": "idl",
+        "kind": "contains",
+        "relation_id": "126a406c57600e5ceebd119a9565a0ea",
+        "resolution": "declared",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "0a47f621aa46a0035f78c74eaae15d4c",
+        "target": "dc387bfc651e0569b18859a5de698688"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "725e9013aea9168dfabf70f9cf7260b8",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "0a47f621aa46a0035f78c74eaae15d4c",
+        "target": "f6636262ad9c148b009aba4f08a3bd29"
+      },
+      {
+        "contract_evidence": "idl_definition",
+        "evidence": "idl",
+        "kind": "contract_ref",
+        "relation_id": "81243768bcbe03d6e962f47f9985c820",
+        "resolution": "declared",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "f6636262ad9c148b009aba4f08a3bd29",
+        "target": "dc387bfc651e0569b18859a5de698688"
+      },
+      {
+        "contract_evidence": "idl_definition",
+        "evidence": "idl",
+        "kind": "contract_ref",
+        "relation_id": "0a309ecf8e4ab05763f55b43b6b1819a",
+        "resolution": "declared",
+        "snapshot_id": "cb15596e1d4ec564076b9a622bd7fc04",
+        "source": "b249a33895908c1ccd0640ecc343c761",
+        "target": "dc387bfc651e0569b18859a5de698688"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "14ccede2afc9ce7f53caa0089b690653",
+        "resolution": "syntax",
+        "snapshot_id": "cb15596e1d4ec564076b9a622bd7fc04",
+        "source": "ba72e8cb271d6e1280c388163731f7a3",
+        "target": "b249a33895908c1ccd0640ecc343c761"
+      },
+      {
+        "evidence": "idl",
+        "kind": "contains",
+        "relation_id": "3641beb8e1482f0c423c68d9ab8a2525",
+        "resolution": "declared",
+        "snapshot_id": "cb15596e1d4ec564076b9a622bd7fc04",
+        "source": "ba72e8cb271d6e1280c388163731f7a3",
+        "target": "dc387bfc651e0569b18859a5de698688"
+      }
+    ],
+    "snapshots": [
+      {
+        "captured_at": "2026-10-11T12:00:00Z",
+        "commit_ref": "201679d0ec37fe2a7a092d9fed0e1c93",
+        "digest": "sha256:da77fd0dd2bbc74d9b906ea3ddea5574b4dc32bc68e236cc0cc1c0d4ad72b284",
+        "languages": [
+          "proto",
+          "typescript"
+        ],
+        "parent_snapshot_ids": [],
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "scanner": {
+          "name": "hint-scan",
+          "version": "0.1.0"
+        },
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "worktree_state": "clean"
+      },
+      {
+        "captured_at": "2026-10-11T12:00:00Z",
+        "commit_ref": "1599542bf3957f6ee9c606dd20086e9f",
+        "digest": "sha256:9a3a3bdbc4009423493b4c695a375c078bb97fd08388c82cf9778a1be6e3c6e3",
+        "languages": [
+          "proto",
+          "typescript"
+        ],
+        "parent_snapshot_ids": [],
+        "repo_id": "ba72e8cb271d6e1280c388163731f7a3",
+        "scanner": {
+          "name": "hint-scan",
+          "version": "0.1.0"
+        },
+        "snapshot_id": "cb15596e1d4ec564076b9a622bd7fc04",
+        "worktree_state": "clean"
+      }
+    ]
+  },
+  "producer": {
+    "tool": "hint-cli",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "detailed",
+    "record_types": [
+      "Snapshot",
+      "Entity",
+      "Relation"
+    ],
+    "time_resolution_seconds": 0
+  },
+  "repositories": [
+    "0a47f621aa46a0035f78c74eaae15d4c",
+    "ba72e8cb271d6e1280c388163731f7a3"
+  ]
+}

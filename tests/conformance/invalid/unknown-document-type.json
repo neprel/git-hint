@@ -1,0 +1,331 @@
+{
+  "content_digest": "sha256:a7266b00cd068a80312462638b99bbbdde293ab5fe704b1273e05a268f29269b",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "76fda6ecdf7e4d6cd00aa2d41cfc003f",
+  "document_type": "repository_dump",
+  "hint_version": "0.1.0",
+  "payload": {
+    "constraints": [
+      {
+        "blocks_destructive": true,
+        "check": "deterministic",
+        "constraint_id": "8bf8d537854d94f6abc2f8477dc6a88d",
+        "kind": "api_compatibility",
+        "scope": [
+          "f76bf6857ca4943a23d3cabf9025ff99"
+        ],
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      }
+    ],
+    "entities": [
+      {
+        "entity_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "id_stability": "stable",
+        "kind": "repository",
+        "language": null,
+        "parent_id": null,
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "declared",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "15691a4d578603675d9bf3e9f59afb79",
+        "id_stability": "stable",
+        "kind": "directory",
+        "language": null,
+        "parent_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "330be5a92917b74876c6b4bbcc1750f3",
+        "id_stability": "stable",
+        "kind": "directory",
+        "language": null,
+        "parent_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "484863ed7a5516f4033f6ae5341be4ef",
+        "features": {
+          "fan_in": {
+            "reason": "not_collected",
+            "state": "unknown",
+            "unit": "count"
+          },
+          "lines": {
+            "method": "scanner",
+            "precision": "exact",
+            "state": "known",
+            "unit": "lines",
+            "value": 410
+          },
+          "size_bytes": {
+            "method": "file_size",
+            "precision": "exact",
+            "state": "known",
+            "unit": "bytes",
+            "value": 12000
+          }
+        },
+        "id_stability": "stable",
+        "kind": "file",
+        "language": "go",
+        "parent_id": "330be5a92917b74876c6b4bbcc1750f3",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "4be4313d87803f912e9dca9d3d1afc14",
+        "id_stability": "stable",
+        "kind": "file",
+        "language": "go",
+        "parent_id": "15691a4d578603675d9bf3e9f59afb79",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "6a6962969353f0a8740de5fcba0de8a0",
+        "id_stability": "stable",
+        "kind": "function",
+        "language": "go",
+        "parent_id": "c5c5ece05ed2dad84893aa7f9782090a",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "7b255b9a386ab159dfecb90c52db4e12",
+        "id_stability": "stable",
+        "kind": "function",
+        "language": "go",
+        "parent_id": "4be4313d87803f912e9dca9d3d1afc14",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "92692674365f0943bda5a5a5b7361b65",
+        "id_stability": "snapshot_local",
+        "kind": "block",
+        "language": "go",
+        "parent_id": "f76bf6857ca4943a23d3cabf9025ff99",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "be61868d40ff0b3b6a1af8855a4e1c61",
+        "id_stability": "stable",
+        "kind": "function",
+        "language": "go",
+        "parent_id": "c5c5ece05ed2dad84893aa7f9782090a",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "c5c5ece05ed2dad84893aa7f9782090a",
+        "id_stability": "stable",
+        "kind": "file",
+        "language": "go",
+        "parent_id": "330be5a92917b74876c6b4bbcc1750f3",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      },
+      {
+        "entity_id": "f76bf6857ca4943a23d3cabf9025ff99",
+        "features": {
+          "cyclomatic": {
+            "method": "scanner",
+            "precision": "exact",
+            "state": "known",
+            "unit": "count",
+            "value": 7
+          },
+          "parameters": {
+            "method": "scanner",
+            "precision": "exact",
+            "state": "known",
+            "unit": "count",
+            "value": 2
+          }
+        },
+        "flags": [
+          "public_api"
+        ],
+        "id_stability": "stable",
+        "kind": "function",
+        "language": "go",
+        "parent_id": "484863ed7a5516f4033f6ae5341be4ef",
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+      }
+    ],
+    "relations": [
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "14fa07fce6aed1932e9cc1a461a9b177",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "0a47f621aa46a0035f78c74eaae15d4c",
+        "target": "15691a4d578603675d9bf3e9f59afb79"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "1f2542d3d30fbb913e72644e4893a826",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "f76bf6857ca4943a23d3cabf9025ff99",
+        "target": "92692674365f0943bda5a5a5b7361b65"
+      },
+      {
+        "confidence": 0.9,
+        "evidence": "tree_sitter",
+        "kind": "calls",
+        "relation_id": "2376e56de4615df967c4dc3478d2ed12",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "f76bf6857ca4943a23d3cabf9025ff99",
+        "target": "be61868d40ff0b3b6a1af8855a4e1c61"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "2531e5c0eb99fbf444df49a4872497ce",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "484863ed7a5516f4033f6ae5341be4ef",
+        "target": "f76bf6857ca4943a23d3cabf9025ff99"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "324c74901d5f82c39f31564533131dbe",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "15691a4d578603675d9bf3e9f59afb79",
+        "target": "4be4313d87803f912e9dca9d3d1afc14"
+      },
+      {
+        "evidence": "compiler",
+        "kind": "calls",
+        "relation_id": "55c94566a1090a173dc664c6c16dc9b1",
+        "resolution": "type_checked",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "7b255b9a386ab159dfecb90c52db4e12",
+        "target": "be61868d40ff0b3b6a1af8855a4e1c61"
+      },
+      {
+        "evidence": "compiler",
+        "kind": "imports",
+        "relation_id": "72b63d556919d3ccc46d42591862e88d",
+        "resolution": "compiler",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "4be4313d87803f912e9dca9d3d1afc14",
+        "target": "330be5a92917b74876c6b4bbcc1750f3"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "82801d0a9c1d949429339e37b7e1f709",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "c5c5ece05ed2dad84893aa7f9782090a",
+        "target": "be61868d40ff0b3b6a1af8855a4e1c61"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "9be7ace829883ab56bb6096526fc5a50",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "c5c5ece05ed2dad84893aa7f9782090a",
+        "target": "6a6962969353f0a8740de5fcba0de8a0"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "aa84b61d6576fcf618d74b3e7f7cd00f",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "4be4313d87803f912e9dca9d3d1afc14",
+        "target": "7b255b9a386ab159dfecb90c52db4e12"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "d77961c7847674a7951d4d4816feb2a9",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "330be5a92917b74876c6b4bbcc1750f3",
+        "target": "484863ed7a5516f4033f6ae5341be4ef"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "d82a7704996d442f4a6070981e364c35",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "0a47f621aa46a0035f78c74eaae15d4c",
+        "target": "330be5a92917b74876c6b4bbcc1750f3"
+      },
+      {
+        "evidence": "tree_sitter",
+        "kind": "contains",
+        "relation_id": "ec71b76a0fcbe52e68eaaa72e096678a",
+        "resolution": "syntax",
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "source": "330be5a92917b74876c6b4bbcc1750f3",
+        "target": "c5c5ece05ed2dad84893aa7f9782090a"
+      }
+    ],
+    "snapshots": [
+      {
+        "captured_at": "2026-10-11T12:00:00Z",
+        "commit_ref": "201679d0ec37fe2a7a092d9fed0e1c93",
+        "digest": "sha256:62f1027a8faa219687f014bcf3db320db1e96c6da667a90b5f91994d77cf56be",
+        "languages": [
+          "go"
+        ],
+        "parent_snapshot_ids": [],
+        "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+        "scanner": {
+          "name": "hint-scan",
+          "version": "0.1.0"
+        },
+        "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba",
+        "worktree_state": "clean"
+      }
+    ]
+  },
+  "producer": {
+    "tool": "hint-cli",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "detailed",
+    "record_types": [
+      "Snapshot",
+      "Entity",
+      "Relation",
+      "PolicyConstraint"
+    ],
+    "time_resolution_seconds": 0
+  },
+  "repositories": [
+    "0a47f621aa46a0035f78c74eaae15d4c"
+  ]
+}

@@ -1,0 +1,195 @@
+{
+  "content_digest": "sha256:9690ebe9001ae60eae4f8fc4b16093c467f44725ebff05213599c387db80e467",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "3e233d78d074160ff731c7cbe5bc1a20",
+  "document_type": "change_set",
+  "hint_version": "0.1.0",
+  "payload": {
+    "after_snapshot": {
+      "digest": "sha256:6026a4c727e6ce66a4ee20bb2131b68b0f384bde7e6e9a6b2243c93981994e3c",
+      "snapshot_id": "4aabaf589b59a6dc86df50c259327749"
+    },
+    "before_snapshot": {
+      "digest": "sha256:62f1027a8faa219687f014bcf3db320db1e96c6da667a90b5f91994d77cf56be",
+      "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+    },
+    "changes": [
+      {
+        "after": [
+          "cded1e8dd6d93858a7d43c7fa20ea251"
+        ],
+        "before": [
+          "484863ed7a5516f4033f6ae5341be4ef"
+        ],
+        "change_id": "4932dc429da3cd4a706fd6892f04c984",
+        "level": "artifact",
+        "magnitude": {
+          "lines_added": {
+            "method": "git_diff",
+            "precision": "exact",
+            "state": "known",
+            "unit": "lines",
+            "value": 3
+          },
+          "lines_deleted": {
+            "method": "git_diff",
+            "precision": "exact",
+            "state": "known",
+            "unit": "lines",
+            "value": 1
+          }
+        },
+        "match_method": "git_rename",
+        "operation": "RENAME",
+        "provenance": {
+          "source": "git_diff",
+          "tool": "hint-scan",
+          "version": "0.1.0"
+        }
+      },
+      {
+        "after": [
+          "be61868d40ff0b3b6a1af8855a4e1c61"
+        ],
+        "before": [
+          "be61868d40ff0b3b6a1af8855a4e1c61"
+        ],
+        "change_id": "d2d5a6b6ed250a4660d4e7bca38f215d",
+        "deltas": {
+          "control": "none",
+          "data": "none",
+          "signature": "none"
+        },
+        "level": "symbol",
+        "match_confidence": 1,
+        "match_method": "key",
+        "operation": "MOVE",
+        "provenance": {
+          "source": "entity_matcher",
+          "tool": "hint-scan",
+          "version": "0.1.0"
+        }
+      },
+      {
+        "after": [],
+        "before": [
+          "c5c5ece05ed2dad84893aa7f9782090a"
+        ],
+        "change_id": "93146c47288c5ec4f3d557ca3ae7e7ad",
+        "level": "artifact",
+        "match_method": "none",
+        "operation": "DELETE",
+        "provenance": {
+          "source": "entity_matcher",
+          "tool": "hint-scan",
+          "version": "0.1.0"
+        }
+      },
+      {
+        "after": [
+          "d8bee5f2a39399cb53b2c1eac1964700",
+          "d6e7e6a006493eccad18db5bf611b575"
+        ],
+        "before": [
+          "6a6962969353f0a8740de5fcba0de8a0"
+        ],
+        "candidates": [
+          {
+            "after": "d8bee5f2a39399cb53b2c1eac1964700",
+            "before": "6a6962969353f0a8740de5fcba0de8a0",
+            "score": 0.61
+          },
+          {
+            "after": "d6e7e6a006493eccad18db5bf611b575",
+            "before": "6a6962969353f0a8740de5fcba0de8a0",
+            "score": 0.58
+          }
+        ],
+        "change_id": "b3dfd6a7b72454b2289fc9598f62099c",
+        "level": "symbol",
+        "match_confidence": 0.61,
+        "match_method": "similarity",
+        "operation": "AMBIGUOUS",
+        "provenance": {
+          "source": "entity_matcher",
+          "tool": "hint-scan",
+          "version": "0.1.0"
+        }
+      },
+      {
+        "after": [
+          "f76bf6857ca4943a23d3cabf9025ff99"
+        ],
+        "before": [
+          "f76bf6857ca4943a23d3cabf9025ff99"
+        ],
+        "change_id": "84a9e2227f4a537bbf8adde947084647",
+        "deltas": {
+          "control": "changed",
+          "data": "none",
+          "dependency": {
+            "added": {
+              "method": "scanner",
+              "precision": "exact",
+              "state": "known",
+              "unit": "count",
+              "value": 1
+            },
+            "removed": {
+              "method": "scanner",
+              "precision": "exact",
+              "state": "known",
+              "unit": "count",
+              "value": 0
+            }
+          },
+          "signature": "compatible"
+        },
+        "level": "symbol",
+        "magnitude": {
+          "lines_added": {
+            "method": "git_diff",
+            "precision": "exact",
+            "state": "known",
+            "unit": "lines",
+            "value": 4
+          },
+          "lines_deleted": {
+            "method": "git_diff",
+            "precision": "exact",
+            "state": "known",
+            "unit": "lines",
+            "value": 2
+          }
+        },
+        "match_confidence": 1,
+        "match_method": "key",
+        "operation": "MODIFY",
+        "provenance": {
+          "source": "entity_matcher",
+          "tool": "hint-scan",
+          "version": "0.1.0"
+        },
+        "structural_similarity": 0.88
+      }
+    ],
+    "repo_id": "0a47f621aa46a0035f78c74eaae15d4c"
+  },
+  "producer": {
+    "tool": "hint-cli",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "detailed",
+    "record_types": [
+      "Change"
+    ],
+    "time_resolution_seconds": 0
+  },
+  "repositories": [
+    "0a47f621aa46a0035f78c74eaae15d4c"
+  ]
+}

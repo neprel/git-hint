@@ -1,0 +1,274 @@
+{
+  "content_digest": "sha256:4bc580e11659441d02a09ea4c9a5b2e309e482a752e369d3de5c082f529dd94b",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
+  "document_type": "recommendation_set",
+  "hint_version": "0.1.0",
+  "payload": {
+    "plans": [
+      {
+        "authorization_basis": "deterministic",
+        "break_even_horizon": {
+          "interval": {
+            "level": 0.9,
+            "lower": 57,
+            "upper": 131
+          },
+          "unbounded": false,
+          "unit": "tasks"
+        },
+        "created_at": "2026-10-11T12:00:00Z",
+        "decision": "recommend",
+        "expires_at": "2026-10-18T12:00:00Z",
+        "intervention_class": "REFACTOR_CODE",
+        "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
+        "plan_schema": "0.1.0",
+        "preconditions": [
+          {
+            "check": "snapshot_matches"
+          },
+          {
+            "check": "entities_resolve",
+            "targets": [
+              "484863ed7a5516f4033f6ae5341be4ef",
+              "f76bf6857ca4943a23d3cabf9025ff99",
+              "be61868d40ff0b3b6a1af8855a4e1c61"
+            ]
+          },
+          {
+            "check": "worktree_clean"
+          },
+          {
+            "check": "tests_pass",
+            "targets": [
+              "484863ed7a5516f4033f6ae5341be4ef"
+            ]
+          }
+        ],
+        "predictions": [
+          {
+            "class": "forecast",
+            "interval": {
+              "level": 0.9,
+              "lower": -6000,
+              "upper": -1500
+            },
+            "metric": "context_bytes",
+            "per": "task",
+            "point": -3200,
+            "probability_improvement": 0.86,
+            "unit": "bytes"
+          },
+          {
+            "class": "forecast",
+            "interval": {
+              "level": 0.9,
+              "lower": -4410,
+              "upper": -1903
+            },
+            "metric": "model_tokens",
+            "per": "task",
+            "point": -2963,
+            "probability_improvement": 0.97,
+            "unit": "tokens"
+          }
+        ],
+        "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+        "reasons": [
+          {
+            "code": "context_size",
+            "metric_ids": [
+              "5112b8e8e05de7b86b05fb583afe7c53"
+            ],
+            "observation_ids": [
+              "17a4a1afe0b5107233113a68aa275955"
+            ]
+          },
+          {
+            "code": "boundary_crossings",
+            "metric_ids": [
+              "f5fb416c725bc034fc0a97e4d3a06710"
+            ]
+          }
+        ],
+        "refactoring_cost_estimate": {
+          "interval": {
+            "level": 0.9,
+            "lower": 180000,
+            "upper": 320000
+          },
+          "unit": "tokens"
+        },
+        "repo_ids": [
+          "0a47f621aa46a0035f78c74eaae15d4c"
+        ],
+        "required_approvals": [
+          "owner"
+        ],
+        "risk_constraints": [
+          {
+            "deterministic": true,
+            "kind": "test",
+            "requirement": "tests_unchanged_pass"
+          },
+          {
+            "constraint_id": "8bf8d537854d94f6abc2f8477dc6a88d",
+            "deterministic": true,
+            "kind": "api",
+            "requirement": "public_api_unchanged"
+          }
+        ],
+        "simulation": {
+          "agent_configuration_id": "d641b43ed4903a944c730c8078869b93",
+          "calibration_status": "backtested",
+          "level": "L3",
+          "model_version": "0.1.0",
+          "out_of_distribution": false,
+          "task_distribution_id": "79b68893b9ac1dc0fbfa3007554877ee"
+        },
+        "snapshots": [
+          {
+            "digest": "sha256:62f1027a8faa219687f014bcf3db320db1e96c6da667a90b5f91994d77cf56be",
+            "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+            "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+          }
+        ],
+        "steps": [
+          {
+            "action": "SPLIT",
+            "depends_on": [],
+            "requires_approval": true,
+            "step_id": 1,
+            "support": "supported",
+            "targets": [
+              "ba3d20c9cfc82c9faed52c549df5b8c1"
+            ]
+          },
+          {
+            "action": "RUN_CHECKS",
+            "depends_on": [
+              1
+            ],
+            "requires_approval": false,
+            "step_id": 2,
+            "support": "supported",
+            "targets": [
+              "484863ed7a5516f4033f6ae5341be4ef"
+            ]
+          }
+        ],
+        "targets": [
+          "484863ed7a5516f4033f6ae5341be4ef",
+          "f76bf6857ca4943a23d3cabf9025ff99",
+          "be61868d40ff0b3b6a1af8855a4e1c61"
+        ],
+        "transformation": "SPLIT"
+      },
+      {
+        "created_at": "2026-10-11T12:00:00Z",
+        "decision": "refuse_uncertain",
+        "expires_at": "2026-10-18T12:00:00Z",
+        "intervention_class": "CONTEXT_ONLY",
+        "plan_id": "3a4890f785021a7c5734f35e83e0626d",
+        "plan_schema": "0.1.0",
+        "preconditions": [],
+        "predictions": [
+          {
+            "class": "forecast",
+            "interval": {
+              "level": 0.9,
+              "lower": -9001,
+              "upper": 2118
+            },
+            "metric": "model_tokens",
+            "per": "task",
+            "probability_improvement": 0.55,
+            "unit": "tokens"
+          }
+        ],
+        "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+        "reasons": [
+          {
+            "code": "low_adoption"
+          },
+          {
+            "code": "weak_evidence"
+          }
+        ],
+        "repo_ids": [
+          "0a47f621aa46a0035f78c74eaae15d4c"
+        ],
+        "required_approvals": [],
+        "risk_constraints": [],
+        "simulation": {
+          "agent_configuration_id": "d641b43ed4903a944c730c8078869b93",
+          "calibration_status": "uncalibrated",
+          "level": "L3",
+          "model_version": "0.1.0",
+          "out_of_distribution": false,
+          "task_distribution_id": "79b68893b9ac1dc0fbfa3007554877ee"
+        },
+        "snapshots": [
+          {
+            "digest": "sha256:62f1027a8faa219687f014bcf3db320db1e96c6da667a90b5f91994d77cf56be",
+            "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+            "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+          }
+        ],
+        "steps": [],
+        "targets": [],
+        "transformation": null
+      },
+      {
+        "created_at": "2026-10-11T12:00:00Z",
+        "decision": "collect_more_evidence",
+        "expires_at": "2026-10-18T12:00:00Z",
+        "intervention_class": "COLLECT_MORE_EVIDENCE",
+        "plan_id": "f8cf03c2f506dc404978d69d76324f7d",
+        "plan_schema": "0.1.0",
+        "preconditions": [],
+        "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+        "reasons": [
+          {
+            "code": "weak_evidence"
+          }
+        ],
+        "repo_ids": [
+          "0a47f621aa46a0035f78c74eaae15d4c"
+        ],
+        "required_approvals": [],
+        "risk_constraints": [],
+        "simulation": {
+          "level": "NONE"
+        },
+        "snapshots": [
+          {
+            "digest": "sha256:62f1027a8faa219687f014bcf3db320db1e96c6da667a90b5f91994d77cf56be",
+            "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+            "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+          }
+        ],
+        "steps": [],
+        "targets": [],
+        "transformation": null
+      }
+    ]
+  },
+  "producer": {
+    "tool": "hint-cli",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "detailed",
+    "record_types": [
+      "Plan"
+    ],
+    "time_resolution_seconds": 0
+  },
+  "repositories": [
+    "0a47f621aa46a0035f78c74eaae15d4c"
+  ]
+}

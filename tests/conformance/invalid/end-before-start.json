@@ -1,0 +1,792 @@
+{
+  "content_digest": "sha256:db94097ef0b1746eab48afc76394ffb128aed2bea353cb0101605fef13180dd7",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "21d17f8e126fbce7a44535c5235fecbb",
+  "document_type": "activity_stream",
+  "hint_version": "0.1.0",
+  "payload": {
+    "metrics": [
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [
+          "17a4a1afe0b5107233113a68aa275955",
+          "ab494964a217997f793cb477af1a8fba",
+          "8b94e48ad05759b694417005760f5743"
+        ],
+        "metric": "context_bytes",
+        "metric_id": "5112b8e8e05de7b86b05fb583afe7c53",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "bytes",
+        "value": {
+          "coverage": {
+            "covered": 2,
+            "total": 3
+          },
+          "known_part": 12217,
+          "precision": "exact",
+          "reason": "not_collected",
+          "state": "partial",
+          "unit": "bytes"
+        }
+      },
+      {
+        "class": "estimate",
+        "definition_version": "0.1.0",
+        "inputs": [
+          "17a4a1afe0b5107233113a68aa275955",
+          "ab494964a217997f793cb477af1a8fba",
+          "8b94e48ad05759b694417005760f5743"
+        ],
+        "metric": "context_tokens",
+        "metric_id": "a0bc70ae5ff9b61fb8907eb8e9965258",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "tokens",
+        "value": {
+          "coverage": {
+            "covered": 2,
+            "total": 3
+          },
+          "known_part": 3054,
+          "precision": "estimated",
+          "reason": "not_collected",
+          "state": "partial",
+          "unit": "tokens"
+        }
+      },
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [
+          "17a4a1afe0b5107233113a68aa275955",
+          "ab494964a217997f793cb477af1a8fba",
+          "8b94e48ad05759b694417005760f5743"
+        ],
+        "metric": "boundary_crossings",
+        "metric_id": "f5fb416c725bc034fc0a97e4d3a06710",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "count",
+        "value": {
+          "bounds": {
+            "lower": 0,
+            "upper": 2
+          },
+          "reason": "not_collected",
+          "state": "unknown",
+          "unit": "count"
+        }
+      },
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [
+          "23a0814c73d0bda0c55c90fca55b513b",
+          "6014e3050e1dac2f5ccc2e6d6223f667"
+        ],
+        "metric": "model_tokens",
+        "metric_id": "5aaba2df92b54cd5b93594ad60956364",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "tokens",
+        "value": {
+          "coverage": {
+            "covered": 1,
+            "total": 2
+          },
+          "known_part": 7808,
+          "precision": "exact",
+          "reason": "source_error",
+          "state": "partial",
+          "unit": "tokens"
+        }
+      },
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [
+          "e271929bd1ba5b858b2104fe1f7e474e"
+        ],
+        "metric": "validation_failures",
+        "metric_id": "861a6e106d1891fd58f29b0c29b4defd",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "count",
+        "value": {
+          "method": "count_of_records",
+          "precision": "derived",
+          "state": "known",
+          "unit": "count",
+          "value": 1
+        }
+      },
+      {
+        "class": "derived",
+        "definition_version": "0.1.0",
+        "inputs": [
+          "e733750f82689fbe67082e5ab2f3d9e5"
+        ],
+        "metric": "task_elapsed_seconds",
+        "metric_id": "41a5ebd8882c9ea1f474234344627bfb",
+        "scope": {
+          "id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "kind": "task"
+        },
+        "unit": "seconds",
+        "value": {
+          "method": "clock_difference",
+          "precision": "derived",
+          "state": "known",
+          "unit": "seconds",
+          "value": 59
+        }
+      }
+    ],
+    "observations": [
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "d64b3f7dcad8b817501482ba931ec804",
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "turn_id": "c97dfd14c404d5bb2a6ecf7c7ce40312"
+        },
+        "missing": [],
+        "observation_id": "e733750f82689fbe67082e5ab2f3d9e5",
+        "op": "SESSION",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "0fe2fe768562d2f797921b91da1f42c8",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:59Z",
+          "start": "2026-10-11T11:00:00Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "d64b3f7dcad8b817501482ba931ec804",
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "turn_id": "c97dfd14c404d5bb2a6ecf7c7ce40312"
+        },
+        "missing": [],
+        "observation_id": "10f4f7979d984fad394b81032eb07515",
+        "op": "TURN",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "2655efa452bfc27b1c76ce929a97b968",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:58Z",
+          "start": "2026-10-11T11:00:01Z"
+        }
+      },
+      {
+        "class": "observation",
+        "content_delivery": "full",
+        "correlation": {
+          "session_id": "d64b3f7dcad8b817501482ba931ec804",
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "tool_call_id": "6fc8a736076743cb9cc4ab12602b6bf8",
+          "turn_id": "c97dfd14c404d5bb2a6ecf7c7ce40312"
+        },
+        "missing": [],
+        "observation_id": "17a4a1afe0b5107233113a68aa275955",
+        "op": "READ",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "977d3350288b42c1b4e21c059c1f51be",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "size": {
+          "method": "plugin_output_length",
+          "precision": "exact",
+          "state": "known",
+          "unit": "bytes",
+          "value": 12000
+        },
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "targets": [
+          {
+            "entity_id": "484863ed7a5516f4033f6ae5341be4ef"
+          }
+        ],
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:01Z",
+          "start": "2026-10-11T11:00:02.120Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "d64b3f7dcad8b817501482ba931ec804",
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "turn_id": "c97dfd14c404d5bb2a6ecf7c7ce40312"
+        },
+        "missing": [
+          "targets"
+        ],
+        "observation_id": "ab494964a217997f793cb477af1a8fba",
+        "op": "SEARCH",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "26110499bfa73854cbbadeba35b34e3f",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "size": {
+          "method": "plugin_output_length",
+          "precision": "exact",
+          "state": "known",
+          "unit": "bytes",
+          "value": 217
+        },
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "targets": [],
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:03.010Z",
+          "start": "2026-10-11T11:00:03Z"
+        }
+      },
+      {
+        "class": "observation",
+        "command_class": "UNKNOWN",
+        "correlation": {
+          "session_id": "d64b3f7dcad8b817501482ba931ec804",
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "turn_id": "c97dfd14c404d5bb2a6ecf7c7ce40312"
+        },
+        "missing": [],
+        "observation_id": "22f4d41be535b2aacbbe046b58f21241",
+        "op": "EXECUTE",
+        "outcome": {
+          "exit_code": 0,
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "a91397131c27e1e0cd09d566e96213a2",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:05Z",
+          "start": "2026-10-11T11:00:04Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "d64b3f7dcad8b817501482ba931ec804",
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "turn_id": "c97dfd14c404d5bb2a6ecf7c7ce40312"
+        },
+        "missing": [],
+        "observation_id": "e271929bd1ba5b858b2104fe1f7e474e",
+        "op": "TEST",
+        "outcome": {
+          "exit_code": 1,
+          "status": "failure"
+        },
+        "precision": "inferred",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "e47a58bca9cd7d402a27781763649e40",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "shell_parser",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "targets": [
+          {
+            "scope_id": "330be5a92917b74876c6b4bbcc1750f3"
+          }
+        ],
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:12Z",
+          "start": "2026-10-11T11:00:06Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "d64b3f7dcad8b817501482ba931ec804",
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "turn_id": "c97dfd14c404d5bb2a6ecf7c7ce40312"
+        },
+        "missing": [],
+        "observation_id": "97e0f987f26a071f8e6d61e138b83d12",
+        "op": "EDIT_INTENT",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "9d4581a7623951cc883048af9b476a3b",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "targets": [
+          {
+            "entity_id": "484863ed7a5516f4033f6ae5341be4ef",
+            "range": {
+              "end_line": 14,
+              "start_line": 10
+            }
+          }
+        ],
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:13.050Z",
+          "start": "2026-10-11T11:00:13Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {},
+        "missing": [
+          "correlation.session_id",
+          "correlation.task_id"
+        ],
+        "mutation_attribution": "none",
+        "observation_id": "f30d1ab1777f60def65a213c2da4cc86",
+        "op": "FILE_MUTATION",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "bbdc392861f9a7b28da39a1121958c9f",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "watcher",
+        "source_id": "693b0551a65a349fa3332cf86dd56f42",
+        "targets": [
+          {
+            "entity_id": "484863ed7a5516f4033f6ae5341be4ef"
+          }
+        ],
+        "time": {
+          "clock": "collector",
+          "end": "2026-10-11T11:00:13.060Z",
+          "start": "2026-10-11T11:00:13.060Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "d64b3f7dcad8b817501482ba931ec804",
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "turn_id": "c97dfd14c404d5bb2a6ecf7c7ce40312"
+        },
+        "missing": [],
+        "observation_id": "23a0814c73d0bda0c55c90fca55b513b",
+        "op": "USAGE",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "e911d7ea8269fd4473bd3b4880a7c144",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "transport",
+        "source_id": "fff0f1e7920adb57079b08467225bba0",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:02.900Z",
+          "start": "2026-10-11T11:00:02Z"
+        },
+        "usage": {
+          "cache_read_tokens": {
+            "reason": "not_supported",
+            "state": "unknown",
+            "unit": "tokens"
+          },
+          "input_tokens": {
+            "method": "model_server_usage",
+            "precision": "exact",
+            "state": "known",
+            "unit": "tokens",
+            "value": 7710
+          },
+          "output_tokens": {
+            "method": "model_server_usage",
+            "precision": "exact",
+            "state": "known",
+            "unit": "tokens",
+            "value": 98
+          }
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "d64b3f7dcad8b817501482ba931ec804",
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f",
+          "turn_id": "c97dfd14c404d5bb2a6ecf7c7ce40312"
+        },
+        "missing": [
+          "usage"
+        ],
+        "observation_id": "6014e3050e1dac2f5ccc2e6d6223f667",
+        "op": "USAGE",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "unknown",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "a797328be2704381360f337fa951a347",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "transport",
+        "source_id": "fff0f1e7920adb57079b08467225bba0",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:15Z",
+          "start": "2026-10-11T11:00:14Z"
+        },
+        "usage": {
+          "input_tokens": {
+            "reason": "source_error",
+            "state": "unknown",
+            "unit": "tokens"
+          },
+          "output_tokens": {
+            "reason": "source_error",
+            "state": "unknown",
+            "unit": "tokens"
+          }
+        }
+      },
+      {
+        "class": "observation",
+        "content_delivery": "unknown",
+        "correlation": {
+          "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f"
+        },
+        "missing": [
+          "correlation.session_id",
+          "time.start",
+          "size"
+        ],
+        "observation_id": "8b94e48ad05759b694417005760f5743",
+        "op": "READ",
+        "outcome": {
+          "status": "unknown"
+        },
+        "precision": "derived",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "8d0714f62078d840214741a5d74d18b9",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "size": {
+          "reason": "not_collected",
+          "state": "unknown",
+          "unit": "bytes"
+        },
+        "source": "log",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "targets": [
+          {
+            "entity_id": "484863ed7a5516f4033f6ae5341be4ef"
+          }
+        ],
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:16Z",
+          "start": null
+        }
+      }
+    ]
+  },
+  "producer": {
+    "tool": "hint-cli",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "detailed",
+    "record_types": [
+      "Observation",
+      "Metric"
+    ],
+    "time_resolution_seconds": 0
+  },
+  "repositories": [
+    "0a47f621aa46a0035f78c74eaae15d4c"
+  ],
+  "sources": [
+    {
+      "adapter": {
+        "name": "opencode-plugin",
+        "version": "0.1.0"
+      },
+      "agent": "opencode",
+      "agent_version": "2.0.26",
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "correlation.task_id",
+        "correlation.session_id",
+        "correlation.turn_id",
+        "correlation.tool_call_id",
+        "targets",
+        "outcome.status",
+        "outcome.exit_code",
+        "size",
+        "command_class",
+        "content_delivery"
+      ],
+      "coverage": {
+        "events_dropped": {
+          "method": "count_of_records",
+          "precision": "exact",
+          "state": "known",
+          "unit": "count",
+          "value": 0
+        },
+        "events_received": {
+          "method": "count_of_records",
+          "precision": "exact",
+          "state": "known",
+          "unit": "count",
+          "value": 9
+        }
+      },
+      "source_id": "6e26add502e72b3782263f6399adabe6",
+      "unavailable": [
+        "correlation.trace_id",
+        "correlation.span_id",
+        "correlation.parent_span_id",
+        "usage",
+        "coordination"
+      ]
+    },
+    {
+      "adapter": {
+        "name": "watcher",
+        "version": "0.1.0"
+      },
+      "agent": "none",
+      "agent_version": null,
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "targets"
+      ],
+      "coverage": {
+        "events_dropped": {
+          "bounds": {
+            "lower": 1,
+            "upper": null
+          },
+          "reason": "dropped",
+          "state": "unknown",
+          "unit": "count"
+        },
+        "events_received": {
+          "method": "count_of_records",
+          "precision": "exact",
+          "state": "known",
+          "unit": "count",
+          "value": 1
+        }
+      },
+      "source_id": "693b0551a65a349fa3332cf86dd56f42",
+      "unavailable": [
+        "correlation.session_id",
+        "correlation.task_id",
+        "outcome.exit_code"
+      ]
+    },
+    {
+      "adapter": {
+        "name": "other",
+        "version": "0.1.0"
+      },
+      "agent": "none",
+      "agent_version": null,
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "usage"
+      ],
+      "source_id": "fff0f1e7920adb57079b08467225bba0",
+      "unavailable": [
+        "targets"
+      ]
+    }
+  ]
+}

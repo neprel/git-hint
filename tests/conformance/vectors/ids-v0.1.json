@@ -1,0 +1,139 @@
+{
+  "keys": {
+    "K1": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "K2": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+  },
+  "note": "Test keys only. Real project keys are random 32-byte secrets kept in the local store.",
+  "vectors": [
+    {
+      "domain": "namespace",
+      "id": "7f30be062b9db832c0b0ae90d03d8e8a",
+      "key": "K1",
+      "parts": []
+    },
+    {
+      "domain": "namespace",
+      "id": "afdfb0da32759b6974d38f13483b1fad",
+      "key": "K2",
+      "parts": []
+    },
+    {
+      "domain": "repo",
+      "id": "0a47f621aa46a0035f78c74eaae15d4c",
+      "key": "K1",
+      "parts": [
+        "shopkit"
+      ]
+    },
+    {
+      "domain": "repo",
+      "id": "923f960f08d6c5396c4006fb13d6ea3e",
+      "key": "K2",
+      "parts": [
+        "shopkit"
+      ]
+    },
+    {
+      "domain": "repo",
+      "id": "11b7bd43260410faff79870971165991",
+      "key": "K1",
+      "parts": [
+        "shop-kit"
+      ]
+    },
+    {
+      "domain": "file",
+      "id": "484863ed7a5516f4033f6ae5341be4ef",
+      "key": "K1",
+      "parts": [
+        "0a47f621aa46a0035f78c74eaae15d4c",
+        "billing/ledger.go"
+      ]
+    },
+    {
+      "domain": "file",
+      "id": "cded1e8dd6d93858a7d43c7fa20ea251",
+      "key": "K1",
+      "parts": [
+        "0a47f621aa46a0035f78c74eaae15d4c",
+        "billing/ledger_core.go"
+      ]
+    },
+    {
+      "domain": "symbol",
+      "id": "f76bf6857ca4943a23d3cabf9025ff99",
+      "key": "K1",
+      "parts": [
+        "0a47f621aa46a0035f78c74eaae15d4c",
+        "go",
+        "shopkit/billing.Apply"
+      ]
+    },
+    {
+      "domain": "contract",
+      "id": "dc387bfc651e0569b18859a5de698688",
+      "key": "K1",
+      "parts": [
+        "idl_service",
+        "shopkit.billing.v1.BillingService"
+      ]
+    },
+    {
+      "domain": "contract",
+      "id": "0b36efecd9508d76de273dbc57a86cb0",
+      "key": "K2",
+      "parts": [
+        "idl_service",
+        "shopkit.billing.v1.BillingService"
+      ]
+    },
+    {
+      "bytes": 16,
+      "domain": "trace",
+      "id": "96e1d92aa68886245e2973dd7f442b78",
+      "key": "K1",
+      "parts": [
+        "4bf92f3577b34da6a3ce929d0e0e4736"
+      ]
+    },
+    {
+      "bytes": 16,
+      "domain": "trace",
+      "id": "764b32b3c65bf1002eff245ca8d3ba1d",
+      "key": "K2",
+      "parts": [
+        "4bf92f3577b34da6a3ce929d0e0e4736"
+      ]
+    },
+    {
+      "bytes": 8,
+      "domain": "span",
+      "id": "7dff95bdb1ac3448",
+      "key": "K1",
+      "parts": [
+        "4bf92f3577b34da6a3ce929d0e0e4736",
+        "00f067aa0ba902b7"
+      ]
+    },
+    {
+      "bytes": 8,
+      "domain": "span",
+      "id": "91366c6ec3f172b0",
+      "key": "K2",
+      "parts": [
+        "4bf92f3577b34da6a3ce929d0e0e4736",
+        "00f067aa0ba902b7"
+      ]
+    },
+    {
+      "bytes": 8,
+      "domain": "span",
+      "id": "02ee841689e9d8d9",
+      "key": "K1",
+      "parts": [
+        "5bf92f3577b34da6a3ce929d0e0e4736",
+        "00f067aa0ba902b7"
+      ]
+    }
+  ]
+}

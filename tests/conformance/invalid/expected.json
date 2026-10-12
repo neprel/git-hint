@@ -1,0 +1,387 @@
+{
+  "aggregate-with-observations.json": {
+    "base": "activity-trace.json",
+    "code": "policy_violation",
+    "level": "semantic"
+  },
+  "ambiguous-without-candidates.json": {
+    "base": "change-set.json",
+    "code": "change",
+    "level": "schema"
+  },
+  "break-even-negative.json": {
+    "base": "recommendation.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "coarse-with-seconds.json": {
+    "base": "activity-trace.json",
+    "code": "time_resolution",
+    "level": "semantic"
+  },
+  "content-assistant-answer.json": {
+    "base": "activity-trace.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-author-email.json": {
+    "base": "single-repo.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-branch-name.json": {
+    "base": "single-repo.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-commit-message.json": {
+    "base": "change-set.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-env-var.json": {
+    "base": "activity-trace.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-free-reason.json": {
+    "base": "recommendation.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-hostname.json": {
+    "base": "activity-trace.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-identifier-name.json": {
+    "base": "single-repo.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-package-name.json": {
+    "base": "multi-repo.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-path-as-id.json": {
+    "base": "single-repo.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-policy-field-name.json": {
+    "base": "export-policy.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-prompt.json": {
+    "base": "activity-trace.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-remote-url.json": {
+    "base": "single-repo.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-shell-command.json": {
+    "base": "activity-trace.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-source-code.json": {
+    "base": "single-repo.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-step-command.json": {
+    "base": "recommendation.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-terminal-output.json": {
+    "base": "activity-trace.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "content-version-label.json": {
+    "base": "single-repo.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "contract-by-name-match.json": {
+    "base": "multi-repo.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "contract-without-evidence.json": {
+    "base": "multi-repo.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "cost-estimate-negative.json": {
+    "base": "recommendation.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "dangling-relation.json": {
+    "base": "single-repo.json",
+    "code": "dangling_reference",
+    "level": "semantic"
+  },
+  "derived-metric-estimated.json": {
+    "base": "activity-trace.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "digest-mismatch.json": {
+    "base": "single-repo.json",
+    "code": "digest_mismatch",
+    "level": "semantic"
+  },
+  "duplicate-entity.json": {
+    "base": "single-repo.json",
+    "code": "duplicate_id",
+    "level": "semantic"
+  },
+  "effect-as-forecast.json": {
+    "base": "effect-report.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "effect-not-l4.json": {
+    "base": "effect-report.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "end-before-start.json": {
+    "base": "activity-trace.json",
+    "code": "time_order",
+    "level": "semantic"
+  },
+  "expires-before-created.json": {
+    "base": "recommendation.json",
+    "code": "time_order",
+    "level": "semantic"
+  },
+  "forecast-claims-l4.json": {
+    "base": "recommendation.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "free-text-allowed-claim.json": {
+    "base": "single-repo.json",
+    "code": "envelope",
+    "level": "schema"
+  },
+  "interval-order.json": {
+    "base": "recommendation.json",
+    "code": "interval_order",
+    "level": "semantic"
+  },
+  "matched-without-confidence.json": {
+    "base": "change-set.json",
+    "code": "change",
+    "level": "schema"
+  },
+  "metric-input-dangling.json": {
+    "base": "activity-trace.json",
+    "code": "dangling_reference",
+    "level": "semantic"
+  },
+  "metric-unit-mismatch.json": {
+    "base": "activity-trace.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "move-with-two-targets.json": {
+    "base": "change-set.json",
+    "code": "change",
+    "level": "schema"
+  },
+  "partial-with-full-coverage.json": {
+    "base": "activity-trace.json",
+    "code": "coverage_inconsistent",
+    "level": "semantic"
+  },
+  "plan-namespace-mismatch.json": {
+    "base": "recommendation.json",
+    "code": "namespace_mismatch",
+    "level": "semantic"
+  },
+  "plan-snapshot-extra.json": {
+    "base": "recommendation.json",
+    "code": "plan_snapshot_set",
+    "level": "semantic"
+  },
+  "plan-snapshot-missing.json": {
+    "base": "recommendation.json",
+    "code": "plan_snapshot_set",
+    "level": "semantic"
+  },
+  "plan-snapshot-repeated.json": {
+    "base": "recommendation.json",
+    "code": "plan_snapshot_set",
+    "level": "semantic"
+  },
+  "quantity-count-fractional.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "quantity-known-without-value.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_state",
+    "level": "schema"
+  },
+  "quantity-negative-bound.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "quantity-negative-change-magnitude.json": {
+    "base": "change-set.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "quantity-negative-feature.json": {
+    "base": "single-repo.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "quantity-negative-known-part.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "quantity-negative-size.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "quantity-negative-usage.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "quantity-partial-with-total.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_state",
+    "level": "schema"
+  },
+  "quantity-ratio-above-one.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_range",
+    "level": "schema"
+  },
+  "quantity-unknown-with-zero.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_state",
+    "level": "schema"
+  },
+  "quantity-unknown-without-reason.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_state",
+    "level": "schema"
+  },
+  "read-without-delivery.json": {
+    "base": "activity-trace.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "record-type-not-declared.json": {
+    "base": "activity-trace.json",
+    "code": "record_type_not_declared",
+    "level": "semantic"
+  },
+  "refactor-without-transformation.json": {
+    "base": "recommendation.json",
+    "code": "plan",
+    "level": "schema"
+  },
+  "refusal-with-steps.json": {
+    "base": "recommendation.json",
+    "code": "plan",
+    "level": "schema"
+  },
+  "remove-probabilistic.json": {
+    "base": "recommendation.json",
+    "code": "plan",
+    "level": "schema"
+  },
+  "remove-without-owner.json": {
+    "base": "recommendation.json",
+    "code": "plan",
+    "level": "schema"
+  },
+  "repository-not-declared.json": {
+    "base": "change-set.json",
+    "code": "repository_not_declared",
+    "level": "semantic"
+  },
+  "shell-parser-exact.json": {
+    "base": "activity-trace.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "shell-parser-full-delivery.json": {
+    "base": "activity-trace.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "snapshot-digest-mismatch.json": {
+    "base": "single-repo.json",
+    "code": "snapshot_digest_mismatch",
+    "level": "semantic"
+  },
+  "source-not-declared.json": {
+    "base": "activity-trace.json",
+    "code": "dangling_reference",
+    "level": "semantic"
+  },
+  "step-cycle.json": {
+    "base": "recommendation.json",
+    "code": "step_graph",
+    "level": "semantic"
+  },
+  "step-target-outside-plan.json": {
+    "base": "recommendation.json",
+    "code": "dangling_reference",
+    "level": "semantic"
+  },
+  "timestamp-with-offset.json": {
+    "base": "single-repo.json",
+    "code": "format",
+    "level": "schema"
+  },
+  "unknown-document-type.json": {
+    "base": "single-repo.json",
+    "code": "envelope",
+    "level": "schema"
+  },
+  "unsorted-entities.json": {
+    "base": "single-repo.json",
+    "code": "unsorted",
+    "level": "semantic"
+  },
+  "unsupported-minor-version.json": {
+    "base": "single-repo.json",
+    "code": "version",
+    "level": "schema"
+  },
+  "usage-zero-without-state.json": {
+    "base": "activity-trace.json",
+    "code": "quantity_state",
+    "level": "schema"
+  },
+  "watcher-exact-attribution.json": {
+    "base": "activity-trace.json",
+    "code": "evidence",
+    "level": "schema"
+  },
+  "zero-trace-id.json": {
+    "base": "activity-trace.json",
+    "code": "format",
+    "level": "schema"
+  }
+}

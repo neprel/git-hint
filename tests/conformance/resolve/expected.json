@@ -1,0 +1,192 @@
+{
+  "accept.json": {
+    "expected": {
+      "document": "accepted",
+      "plans": [
+        {
+          "codes": [],
+          "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
+          "status": "accept"
+        },
+        {
+          "codes": [],
+          "plan_id": "3a4890f785021a7c5734f35e83e0626d",
+          "status": "render_only"
+        },
+        {
+          "codes": [],
+          "plan_id": "f8cf03c2f506dc404978d69d76324f7d",
+          "status": "render_only"
+        }
+      ]
+    },
+    "local": "local-state.json"
+  },
+  "ambiguous-id.json": {
+    "expected": {
+      "document": "accepted",
+      "plans": [
+        {
+          "codes": [
+            "ambiguous_id"
+          ],
+          "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
+          "status": "reject"
+        },
+        {
+          "codes": [],
+          "plan_id": "3a4890f785021a7c5734f35e83e0626d",
+          "status": "render_only"
+        },
+        {
+          "codes": [],
+          "plan_id": "f8cf03c2f506dc404978d69d76324f7d",
+          "status": "render_only"
+        }
+      ]
+    },
+    "local": "local-state-ambiguous.json"
+  },
+  "expired.json": {
+    "expected": {
+      "document": "accepted",
+      "plans": [
+        {
+          "codes": [
+            "expired"
+          ],
+          "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
+          "status": "reject"
+        },
+        {
+          "codes": [],
+          "plan_id": "3a4890f785021a7c5734f35e83e0626d",
+          "status": "render_only"
+        },
+        {
+          "codes": [],
+          "plan_id": "f8cf03c2f506dc404978d69d76324f7d",
+          "status": "render_only"
+        }
+      ]
+    },
+    "local": "local-state.json"
+  },
+  "namespace-mismatch.json": {
+    "expected": {
+      "document": "namespace_mismatch",
+      "plans": null
+    },
+    "local": "local-state.json"
+  },
+  "plan-snapshot-extra.json": {
+    "expected": {
+      "document": "plan_snapshot_set",
+      "plans": null
+    },
+    "local": "local-state.json"
+  },
+  "plan-snapshot-missing.json": {
+    "expected": {
+      "document": "plan_snapshot_set",
+      "plans": null
+    },
+    "local": "local-state.json"
+  },
+  "plan-snapshot-repeated.json": {
+    "expected": {
+      "document": "plan_snapshot_set",
+      "plans": null
+    },
+    "local": "local-state.json"
+  },
+  "snapshot-mismatch.json": {
+    "expected": {
+      "document": "accepted",
+      "plans": [
+        {
+          "codes": [
+            "snapshot_mismatch"
+          ],
+          "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
+          "status": "reject"
+        },
+        {
+          "codes": [],
+          "plan_id": "3a4890f785021a7c5734f35e83e0626d",
+          "status": "render_only"
+        },
+        {
+          "codes": [],
+          "plan_id": "f8cf03c2f506dc404978d69d76324f7d",
+          "status": "render_only"
+        }
+      ]
+    },
+    "local": "local-state.json"
+  },
+  "tampered.json": {
+    "expected": {
+      "document": "digest_mismatch",
+      "plans": null
+    },
+    "local": "local-state.json"
+  },
+  "unresolved-id.json": {
+    "expected": {
+      "document": "accepted",
+      "plans": [
+        {
+          "codes": [
+            "unresolved_id"
+          ],
+          "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
+          "status": "reject"
+        },
+        {
+          "codes": [],
+          "plan_id": "3a4890f785021a7c5734f35e83e0626d",
+          "status": "render_only"
+        },
+        {
+          "codes": [],
+          "plan_id": "f8cf03c2f506dc404978d69d76324f7d",
+          "status": "render_only"
+        }
+      ]
+    },
+    "local": "local-state.json"
+  },
+  "unsupported-step.json": {
+    "expected": {
+      "document": "accepted",
+      "plans": [
+        {
+          "codes": [
+            "unsupported_step"
+          ],
+          "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
+          "status": "partial"
+        },
+        {
+          "codes": [],
+          "plan_id": "3a4890f785021a7c5734f35e83e0626d",
+          "status": "render_only"
+        },
+        {
+          "codes": [],
+          "plan_id": "f8cf03c2f506dc404978d69d76324f7d",
+          "status": "render_only"
+        }
+      ]
+    },
+    "local": "local-state.json"
+  },
+  "unsupported-version.json": {
+    "expected": {
+      "document": "unsupported_version",
+      "plans": null
+    },
+    "local": "local-state.json"
+  }
+}
