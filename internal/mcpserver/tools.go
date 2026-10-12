@@ -51,6 +51,7 @@ func (h *handlers) register(s *mcp.Server) {
 		Description: "Side effect: none. Evidence and uncertainty of a validated recommendation: reason codes, evidence counts, simulation level, calibration, forecasts, local collection coverage."}, h.evidence)
 	add(s, &mcp.Tool{Name: "hint_compare", Annotations: ro,
 		Description: "Side effect: none. Side-by-side alternatives (no change, context only, refactor, ownership change) when the recommendation supplies more than one; otherwise available=false."}, h.compare)
+	h.registerNav(s, ro)
 }
 
 func (h *handlers) open() (*store.Store, error) {

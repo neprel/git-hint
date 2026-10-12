@@ -86,8 +86,7 @@ func mustCall(t *testing.T, cs *mcp.ClientSession, name string, args any) map[st
 	return m
 }
 
-var toolNames = []string{"hint_status", "hint_collect", "hint_export_preview", "hint_recommend", "hint_plan",
-	"hint_import_recommendation", "hint_changes", "hint_evidence", "hint_compare"}
+var toolNames = mcpserver.ToolNames
 
 func TestListToolsAndSideEffects(t *testing.T) {
 	shop, _ := project_(t)
@@ -111,7 +110,8 @@ func TestListToolsAndSideEffects(t *testing.T) {
 	if len(got) != len(toolNames) {
 		t.Errorf("unexpected tools: %d", len(got))
 	}
-	for _, n := range []string{"hint_status", "hint_export_preview", "hint_changes", "hint_evidence", "hint_compare"} {
+	for _, n := range []string{"hint_status", "hint_export_preview", "hint_changes", "hint_evidence", "hint_compare",
+		"hint_find_definition", "hint_importers", "hint_file_outline"} {
 		if !got[n].Annotations.ReadOnlyHint {
 			t.Errorf("%s must be read-only", n)
 		}
@@ -492,5 +492,110 @@ func TestInterruptedUploadIsQueued(t *testing.T) {
 	}
 	if _, err := os.Stat(s.Path("state", "exports", "history.jsonl")); !os.IsNotExist(err) {
 		t.Fatal("an interrupted upload was marked as exported")
+	}
+}
+
+func TestNavigationToolsReadTheLocalIndex(t *testing.T) {
+	shop, _ := project_(t)
+	gh(t, shop, "collect", "--full")
+	s, _ := store.Open(shop)
+	before := listState(t, s.Path())
+	cs := session(t, mcpserver.Options{Dir: shop})
+	defs := func(name string) []any {
+		m := mustCall(t, cs, "hint_find_definition", map[string]any{"name": name})
+		if m["side_effect"] != "none" {
+			t.Fatalf("%v", m)
+		}
+		return m["definitions"].([]any)
+	}
+	d := defs("Rate")
+	if len(d) != 1 {
+		t.Fatalf("Rate: %v", d)
+	}
+	r := d[0].(map[string]any)
+	if r["path"] != "canary_dir_e1d2/billing/ledger.go" || r["line"].(float64) != 7 || r["kind"] != "function" || r["repository"] != "shop" {
+		t.Fatalf("Rate: %v", r)
+	}
+	if m := defs("CanaryLedgerK3.Apply"); len(m) != 1 || m[0].(map[string]any)["kind"] != "method" {
+		t.Fatalf("method: %v", m)
+	}
+	if m := defs("billing.Rate"); len(m) != 1 {
+		t.Fatalf("qualified: %v", m)
+	}
+	if m := defs("NoSuchName"); len(m) != 0 {
+		t.Fatalf("unknown: %v", m)
+	}
+	imp := mustCall(t, cs, "hint_importers", map[string]any{"package": "canary_dir_e1d2/billing"})
+	if imp["package_found"] != true || len(imp["importers"].([]any)) != 1 || imp["importers"].([]any)[0].(map[string]any)["path"] != "cmd/shop/main.go" {
+		t.Fatalf("importers: %v", imp)
+	}
+	if m := mustCall(t, cs, "hint_importers", map[string]any{"package": "web"}); m["package_found"] != true || len(m["importers"].([]any)) != 0 {
+		t.Fatalf("no importers: %v", m)
+	}
+	ol := mustCall(t, cs, "hint_file_outline", map[string]any{"path": "canary_dir_e1d2/billing/ledger.go"})
+	var names []string
+	for _, x := range ol["declarations"].([]any) {
+		names = append(names, x.(map[string]any)["qualified_name"].(string))
+	}
+	want := "canary_dir_e1d2/billing.Rate,canary_dir_e1d2/billing.CanaryLedgerK3,canary_dir_e1d2/billing.CanaryLedgerK3.Apply,canary_dir_e1d2/billing.canarySymbolQ7"
+	if ol["file_found"] != true || strings.Join(names, ",") != want || ol["language"] != "go" {
+		t.Fatalf("outline: %v", ol)
+	}
+	if m := mustCall(t, cs, "hint_file_outline", map[string]any{"path": "web/missing.ts"}); m["file_found"] != false {
+		t.Fatalf("missing file: %v", m)
+	}
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"hint_find_definition", map[string]any{"name": "Rate; rm -rf /"}},
+		{"hint_find_definition", map[string]any{"name": ""}},
+		{"hint_file_outline", map[string]any{"path": "../../etc/passwd"}},
+		{"hint_file_outline", map[string]any{"path": "/etc/passwd"}},
+		{"hint_importers", map[string]any{"package": "../x"}},
+		{"hint_find_definition", map[string]any{"name": "Rate", "repository": "nope"}},
+	} {
+		if _, errText := call(t, cs, c.tool, c.args); !strings.Contains(errText, "invalid_argument") {
+			t.Errorf("%s %v: want invalid_argument, got %q", c.tool, c.args, errText)
+		}
+	}
+	if after := listState(t, s.Path()); after != before {
+		t.Fatal("a navigation tool changed the store")
+	}
+	// before any snapshot: a clear code
+	shop2, _ := project_(t)
+	cs2 := session(t, mcpserver.Options{Dir: shop2})
+	if _, errText := call(t, cs2, "hint_find_definition", map[string]any{"name": "Rate"}); !strings.Contains(errText, "no_snapshot") {
+		t.Fatalf("want no_snapshot: %q", errText)
+	}
+}
+
+func listState(t *testing.T, dir string) string {
+	var b strings.Builder
+	_ = filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
+		if err == nil && !fi.IsDir() {
+			b.WriteString(p + fi.ModTime().String() + "\n")
+		}
+		return nil
+	})
+	return b.String()
+}
+
+func TestToolAllowlist(t *testing.T) {
+	shop, _ := project_(t)
+	only := []string{"hint_find_definition", "hint_importers", "hint_file_outline"}
+	cs := session(t, mcpserver.Options{Dir: shop, Tools: only})
+	var got []string
+	for tool, err := range cs.Tools(context.Background(), nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, tool.Name)
+	}
+	if strings.Join(got, ",") != "hint_file_outline,hint_find_definition,hint_importers" {
+		t.Fatalf("tools: %v", got)
+	}
+	if _, errText := call(t, cs, "hint_collect", map[string]any{}); errText == "" {
+		t.Fatal("a tool outside the allowlist ran")
 	}
 }

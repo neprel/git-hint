@@ -28,6 +28,13 @@ Every tool description starts with its side effect. Every result carries `side_e
 | `hint_changes` | optional `limit` | changes between the last two snapshots, with local names | none |
 | `hint_evidence` | optional `recommendation_id` | reason codes and evidence counts, simulation level, calibration, forecasts, warnings, local collection coverage | none |
 | `hint_compare` | optional `recommendation_id` | alternatives by intervention class; `available: false` when the recommendation offers one class only | none |
+| `hint_find_definition` | `name` (for example `Rate`, `tax.Rate`, `Cart.Total`), optional `repository` | file, line, kind and qualified name of each matching declaration | none |
+| `hint_importers` | `package` (directory relative to the repository root), optional `repository` | files that import the package | none |
+| `hint_file_outline` | `path`, optional `repository` | declarations of the file with kinds and lines | none |
+
+The three navigation tools answer from the local index of the last collected snapshot. They read no file content and write nothing. Declarations exist for Go only; other languages are at file level. Lines can be out of date after edits; `hint_collect` refreshes the index.
+
+`git hint mcp --tools <names>` serves only the listed tools (comma-separated), for example a read-only navigation set: `--tools hint_find_definition,hint_importers,hint_file_outline`.
 
 No tool runs a shell command, changes source files, or executes a plan step. A successful tool call is not an accepted change: review the plan and run the checks before any code change.
 

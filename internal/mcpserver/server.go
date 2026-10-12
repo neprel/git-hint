@@ -39,6 +39,8 @@ type Options struct {
 	NetworkTimeout   time.Duration
 	MaxMarkdownBytes int
 	MaxListItems     int
+	// Tools limits the served tools to these names (empty: all tools).
+	Tools []string
 }
 
 func (o *Options) defaults() {
@@ -79,8 +81,22 @@ func New(o Options) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "git-hint", Title: "HINT", Version: version.Version},
 		&mcp.ServerOptions{Instructions: Instructions, InitializedHandler: h.initialized})
 	h.register(s)
+	if len(o.Tools) > 0 {
+		var drop []string
+		for _, n := range ToolNames {
+			if !slices.Contains(o.Tools, n) {
+				drop = append(drop, n)
+			}
+		}
+		s.RemoveTools(drop...)
+	}
 	return s
 }
+
+// ToolNames lists every tool of the server.
+var ToolNames = []string{"hint_status", "hint_collect", "hint_export_preview", "hint_recommend", "hint_plan",
+	"hint_import_recommendation", "hint_changes", "hint_evidence", "hint_compare",
+	"hint_find_definition", "hint_importers", "hint_file_outline"}
 
 // Run serves MCP on the given streams until the client disconnects or ctx ends.
 func Run(ctx context.Context, o Options, in io.ReadCloser, out io.WriteCloser) error {

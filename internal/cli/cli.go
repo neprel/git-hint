@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -647,12 +648,23 @@ func cmdCache(e *Env, args []string) int {
 func cmdMCP(e *Env, args []string) int {
 	fs := flags(e, "mcp", "stdio MCP server; stdout carries MCP messages only")
 	dir := fs.String("project", e.Dir, "project directory")
+	tools := fs.String("tools", "", "comma-separated tool names to serve (default: all)")
 	if fs.Parse(args) != nil {
 		return 2
 	}
+	var only []string
+	for _, t := range strings.Split(*tools, ",") {
+		if t = strings.TrimSpace(t); t == "" {
+			continue
+		}
+		if !slices.Contains(mcpserver.ToolNames, t) {
+			return fail(e, fmt.Errorf("unknown tool %q", t))
+		}
+		only = append(only, t)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	err := mcpserver.Run(ctx, mcpserver.Options{Dir: *dir, Now: e.Now, Stderr: e.Stderr},
+	err := mcpserver.Run(ctx, mcpserver.Options{Dir: *dir, Now: e.Now, Stderr: e.Stderr, Tools: only},
 		io.NopCloser(e.Stdin), nopWriteCloser{e.Stdout})
 	if err != nil && ctx.Err() == nil {
 		fmt.Fprintln(e.Stderr, "git hint mcp: session ended:", classifyForStderr(err))
