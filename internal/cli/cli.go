@@ -1,0 +1,646 @@
+// Package cli implements the git-hint command line. Git runs it as `git hint` when the
+// git-hint executable is on PATH.
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/neprel/git-hint/internal/api"
+	"github.com/neprel/git-hint/internal/project"
+	"github.com/neprel/git-hint/internal/store"
+	"github.com/neprel/git-hint/internal/version"
+)
+
+// Env is the process environment of one invocation (replaceable in tests).
+type Env struct {
+	Dir    string
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+	Now    func() time.Time
+	// IsTerminal reports whether stdin is interactive (for the export approval prompt).
+	IsTerminal func() bool
+}
+
+type command struct {
+	name    string
+	effects string // what the command reads, writes and sends
+	summary string
+	run     func(e *Env, args []string) int
+}
+
+var commands []command
+
+func init() {
+	commands = []command{
+		{"init", "writes local state; no network", "Create the local project store, the key and the repository list.", cmdInit},
+		{"status", "reads local state; no network", "Show repositories, snapshots, adapters, queued packages and the privacy profile.", cmdStatus},
+		{"collect", "reads the work trees; writes local state; no network", "Scan the repositories and store a new snapshot when they changed.", cmdCollect},
+		{"changes", "reads local state; no network", "Show the changes between the last two snapshots.", cmdChanges},
+		{"observe", "reads local state; no network", "Show how agent activity is collected.", cmdObserve},
+		{"export", "reads local state; writes files; no network", "Build, validate and write an export package (file mode).", cmdExport},
+		{"recommend", "reads local state; SENDS the package to the configured server", "Send the approved package and fetch the recommendations.", cmdRecommend},
+		{"plan", "reads local state and work trees; writes a local Markdown plan; no network", "Validate a recommendation and render the local plan.", cmdPlan},
+		{"cache", "removes .hint/cache/ only; no network", "`cache clean`: delete rebuildable data. Mapping, keys and state stay.", cmdCache},
+		{"doctor", "reads local state and tools; no network", "Check Git, the store, the key, schemas, adapters and optional indexers.", cmdDoctor},
+		{"adapter", "writes .opencode/plugins/ (install); no network", "`adapter install opencode`: install the OpenCode adapter plugin.", cmdAdapter},
+		{"mcp", "—", "Start the MCP server (not available in this version).", cmdMCP},
+		{"version", "no effects", "Print the version.", cmdVersion},
+	}
+}
+
+// Run executes one command and returns the exit code.
+func Run(args []string, e *Env) int {
+	if e.Now == nil {
+		e.Now = time.Now
+	}
+	if e.IsTerminal == nil {
+		e.IsTerminal = func() bool { return false }
+	}
+	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		usage(e.Stdout)
+		return 0
+	}
+	for _, c := range commands {
+		if c.name == args[0] {
+			return c.run(e, args[1:])
+		}
+	}
+	fmt.Fprintf(e.Stderr, "git hint: unknown command %q\n\n", args[0])
+	usage(e.Stderr)
+	return 2
+}
+
+func usage(w io.Writer) {
+	fmt.Fprintf(w, "usage: git hint <command> [options]\n\nHINT collects repository structure and agent activity, removes content and\nnames, and exchanges canonical documents with a HINT server.\n\nCommands:\n")
+	for _, c := range commands {
+		fmt.Fprintf(w, "  %-10s %s\n  %-10s [%s]\n", c.name, c.summary, "", c.effects)
+	}
+	fmt.Fprintf(w, "\nRun `git hint <command> -h` for the options of a command.\n")
+}
+
+func flags(e *Env, name, effects string) *flag.FlagSet {
+	fs := flag.NewFlagSet("git hint "+name, flag.ContinueOnError)
+	fs.SetOutput(e.Stderr)
+	fs.Usage = func() {
+		fmt.Fprintf(e.Stderr, "usage: git hint %s [options]   [%s]\n", name, effects)
+		fs.PrintDefaults()
+	}
+	return fs
+}
+
+func fail(e *Env, err error) int {
+	fmt.Fprintf(e.Stderr, "git hint: %v\n", err)
+	return 1
+}
+
+func open(e *Env) (*store.Store, error) { return store.Open(e.Dir) }
+
+// ---------------------------------------------------------------------------
+
+type repoFlags []string
+
+func (r *repoFlags) String() string     { return strings.Join(*r, ",") }
+func (r *repoFlags) Set(v string) error { *r = append(*r, v); return nil }
+
+func cmdInit(e *Env, args []string) int {
+	fs := flags(e, "init", "writes local state; no network")
+	var repos repoFlags
+	fs.Var(&repos, "repo", "add another repository: PATH or PATH=NAME (repeatable)")
+	server := fs.String("server", "", "HINT server base URL (https; http only for a loopback host)")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	var opt store.InitOptions
+	for _, r := range repos {
+		p, n, _ := strings.Cut(r, "=")
+		opt.Repos = append(opt.Repos, store.Repo{Path: p, Name: n})
+	}
+	if *server != "" {
+		if _, err := api.New(*server); err != nil {
+			return fail(e, err)
+		}
+		opt.ServerURL = *server
+	}
+	s, created, err := store.Init(e.Dir, opt)
+	if err != nil {
+		return fail(e, err)
+	}
+	kf, _ := s.KeyFile()
+	if created {
+		fmt.Fprintf(e.Stdout, "Created the HINT store in %s\n", s.Path())
+	} else {
+		fmt.Fprintf(e.Stdout, "Updated the HINT store in %s\n", s.Path())
+	}
+	fmt.Fprintf(e.Stdout, "Project namespace: %s\nKey file (outside the work tree): %s\n.hint/ is ignored by Git.\n", s.Cfg.ProjectNamespace, kf)
+	for _, r := range s.Cfg.Repos {
+		fmt.Fprintf(e.Stdout, "Repository %s: %s\n", r.Name, s.RepoRoot(r))
+	}
+	if s.Cfg.ServerURL != "" {
+		fmt.Fprintf(e.Stdout, "Server: %s\n", s.Cfg.ServerURL)
+	}
+	fmt.Fprintf(e.Stdout, "Next: git hint collect --full\n")
+	return 0
+}
+
+func cmdStatus(e *Env, args []string) int {
+	fs := flags(e, "status", "reads local state; no network")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	w := e.Stdout
+	fmt.Fprintf(w, "Project namespace: %s\n", s.Cfg.ProjectNamespace)
+	fmt.Fprintf(w, "Privacy profile: %s (time resolution %d s), exported record types: %s\n",
+		s.Cfg.Policy.Profile, s.Cfg.Policy.TimeResolutionSeconds, strings.Join(s.Cfg.Policy.RecordTypes, ", "))
+	fmt.Fprintf(w, "Server: %s\n", orNone(serverURL(s, "")))
+	if err := s.CheckExcluded(); err != nil {
+		fmt.Fprintf(w, "WARNING: %v\n", err)
+	}
+	for _, r := range s.Cfg.Repos {
+		l, err := project.LoadLatest(s, s.RepoID(r))
+		switch {
+		case err != nil:
+			fmt.Fprintf(w, "Repository %s: error %v\n", r.Name, err)
+		case l == nil:
+			fmt.Fprintf(w, "Repository %s: no snapshot (run git hint collect --full)\n", r.Name)
+		default:
+			fmt.Fprintf(w, "Repository %s: snapshot %s at %s, %d entities, %d relations, languages %s, work tree %s\n",
+				r.Name, l.Record.SnapshotID[:12], l.Record.CapturedAt, len(l.Entities), len(l.Relations),
+				orNone(strings.Join(l.Record.Languages, " ")), l.Record.WorktreeState)
+		}
+	}
+	obs, bad, err := project.ReadSpool(s)
+	if err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintf(w, "Activity spool: %d observations", len(obs))
+	if bad > 0 {
+		fmt.Fprintf(w, ", %d unreadable lines", bad)
+	}
+	fmt.Fprintln(w)
+	adapterStatus(e, s)
+	q, _ := project.Queued(s)
+	fmt.Fprintf(w, "Queued packages: %d\n", len(q))
+	return 0
+}
+
+func adapterStatus(e *Env, s *store.Store) {
+	plugin := filepath.Join(s.Root, ".opencode", "plugins", "hint-adapter.ts")
+	if _, err := os.Stat(plugin); err == nil {
+		fmt.Fprintf(e.Stdout, "OpenCode adapter: installed (%s)\n", plugin)
+	} else {
+		fmt.Fprintf(e.Stdout, "OpenCode adapter: not installed (git hint adapter install opencode)\n")
+	}
+	var st struct{ Sent, Dropped, HookErrors int }
+	if b, err := os.ReadFile(s.Path("state", "activity", "adapter-stats.json")); err == nil && json.Unmarshal(b, &st) == nil {
+		fmt.Fprintf(e.Stdout, "OpenCode adapter counters (last session): sent %d, dropped %d, hook errors %d\n", st.Sent, st.Dropped, st.HookErrors)
+	}
+}
+
+func cmdCollect(e *Env, args []string) int {
+	fs := flags(e, "collect", "reads the work trees; writes local state; no network")
+	full := fs.Bool("full", false, "ignore the scan cache and build a full baseline")
+	asJSON := fs.Bool("json", false, "print the result as JSON")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	res, err := project.Collect(s, project.CollectOptions{Full: *full, Now: e.Now})
+	if err != nil {
+		return fail(e, err)
+	}
+	if *asJSON {
+		type row struct {
+			Repo       string `json:"repo"`
+			SnapshotID string `json:"snapshot_id"`
+			Changed    bool   `json:"changed"`
+			Entities   int    `json:"entities"`
+			Relations  int    `json:"relations"`
+			Mutations  int    `json:"mutations"`
+			Files      int    `json:"files"`
+			Parsed     int    `json:"parsed"`
+			Reused     int    `json:"reused"`
+			Millis     int64  `json:"duration_ms"`
+		}
+		var rows []row
+		for _, r := range res {
+			rows = append(rows, row{r.Name, r.Snapshot.Record.SnapshotID, r.Changed, len(r.Snapshot.Entities),
+				len(r.Snapshot.Relations), r.Mutations, r.Scan.Files, r.Scan.Parsed, r.Scan.Reused, r.Duration.Milliseconds()})
+		}
+		return writeJSON(e, rows)
+	}
+	for _, r := range res {
+		state := "unchanged"
+		if r.Changed {
+			state = "new snapshot"
+		}
+		fmt.Fprintf(e.Stdout, "%s: %s %s; %d files (%d parsed, %d from cache), %d entities, %d relations, %d file changes; %s\n",
+			r.Name, state, r.Snapshot.Record.SnapshotID[:12], r.Scan.Files, r.Scan.Parsed, r.Scan.Reused,
+			len(r.Snapshot.Entities), len(r.Snapshot.Relations), r.Mutations, r.Duration.Round(time.Millisecond))
+		if r.Scan.Unparsed > 0 {
+			fmt.Fprintf(e.Stdout, "  %d Go files could not be parsed; they are kept at file level\n", r.Scan.Unparsed)
+		}
+	}
+	return 0
+}
+
+func cmdChanges(e *Env, args []string) int {
+	fs := flags(e, "changes", "reads local state; no network")
+	format := fs.String("format", "text", "text (local names) or canonical (HINT change_set payload, no names)")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	for _, r := range s.Cfg.Repos {
+		cur, err := project.LoadLatest(s, s.RepoID(r))
+		if err != nil {
+			return fail(e, err)
+		}
+		if cur == nil || len(cur.Record.ParentSnapshotIDs) == 0 {
+			fmt.Fprintf(e.Stdout, "%s: no earlier snapshot\n", r.Name)
+			continue
+		}
+		prev, err := project.LoadSnapshot(s, cur.Record.RepoID, cur.Record.ParentSnapshotIDs[0])
+		if err != nil {
+			return fail(e, err)
+		}
+		cs, local := snapshotDiff(s, prev, cur)
+		if *format == "canonical" {
+			if rc := writeJSON(e, cs); rc != 0 {
+				return rc
+			}
+			continue
+		}
+		fmt.Fprintf(e.Stdout, "%s: %d changes from %s to %s\n", r.Name, len(local), prev.Record.SnapshotID[:12], cur.Record.SnapshotID[:12])
+		for _, c := range local {
+			conf := ""
+			if c.MatchConfidence != nil {
+				conf = fmt.Sprintf(" confidence %.2f", *c.MatchConfidence)
+			}
+			fmt.Fprintf(e.Stdout, "  %-9s %-8s %s -> %s (%s%s)\n", c.Operation, c.Level, orDash(c.BeforeNames), orDash(c.AfterNames), c.MatchMethod, conf)
+		}
+	}
+	return 0
+}
+
+func cmdObserve(e *Env, args []string) int {
+	fs := flags(e, "observe", "reads local state; no network")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintln(e.Stdout, "OpenCode: the adapter plugin starts `git-hint adapter opencode` itself; no receiver is needed.")
+	fmt.Fprintln(e.Stdout, "File changes: `git hint collect` records the files that changed since the last snapshot.")
+	fmt.Fprintln(e.Stdout, "Claude Code and Codex adapters are not available in this version.")
+	adapterStatus(e, s)
+	return 0
+}
+
+func cmdExport(e *Env, args []string) int {
+	fs := flags(e, "export", "reads local state; writes files; no network")
+	dry := fs.Bool("dry-run", false, "build and validate the package; write nothing")
+	report := fs.Bool("privacy-report", false, "print the privacy report")
+	out := fs.String("out", "", "output directory (default .hint/state/exports/<time>/)")
+	all := fs.Bool("all", false, "include observations that were already exported")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	now := e.Now()
+	p, err := project.BuildPackage(s, project.ExportOptions{All: *all, Now: now})
+	if err != nil {
+		return fail(e, err)
+	}
+	summary(e, p)
+	if *report {
+		privacyReport(e, p)
+	}
+	if *dry {
+		fmt.Fprintln(e.Stdout, "Dry run: nothing was written. The package is valid.")
+		return 0
+	}
+	dir := *out
+	if dir == "" {
+		dir = s.Path("state", "exports", now.UTC().Format("20060102T150405Z"))
+		if err := s.CheckExcluded(); err != nil {
+			return fail(e, err)
+		}
+	} else if !filepath.IsAbs(dir) {
+		dir = filepath.Join(e.Dir, dir)
+	}
+	files, err := project.WritePackage(p, dir)
+	if err != nil {
+		return fail(e, err)
+	}
+	if err := project.MarkExported(s, p, "file", "", now); err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintf(e.Stdout, "Wrote %d documents to %s\n", len(files), dir)
+	return 0
+}
+
+func summary(e *Env, p *project.Package) {
+	w := e.Stdout
+	fmt.Fprintf(w, "Package: %d documents, profile %s, time resolution %d s, policy %s\n", len(p.Docs), p.Report.Profile,
+		p.Report.TimeResolutionSeconds, p.Report.PolicyID)
+	for _, d := range p.Docs {
+		fmt.Fprintf(w, "  %-22s %s (%d bytes)\n", d.Type, d.File, len(d.Raw))
+	}
+	var rts []string
+	for k := range p.Report.Records {
+		rts = append(rts, k)
+	}
+	sort.Strings(rts)
+	for _, k := range rts {
+		fmt.Fprintf(w, "  records %-12s %d\n", k, p.Report.Records[k])
+	}
+}
+
+func privacyReport(e *Env, p *project.Package) {
+	w := e.Stdout
+	r := p.Report
+	fmt.Fprintln(w, "Privacy report")
+	fmt.Fprintln(w, "  Content: no field for source code, names, paths, prompts or outputs; every string is an ID, digest, time, version or enumeration (checked).")
+	fmt.Fprintf(w, "  Identifiers: HMAC pseudonyms under the project key; linkable across this project's exports, not across projects.\n")
+	fmt.Fprintf(w, "  Time span: %s to %s; resolution %s\n", orNone(r.TimeMin), orNone(r.TimeMax), resolution(r.TimeResolutionSeconds))
+	fmt.Fprintf(w, "  Exact entity features: %s\n", orNone(strings.Join(r.Features, ", ")))
+	var kinds []string
+	for k, n := range r.EntityKinds {
+		kinds = append(kinds, fmt.Sprintf("%s %d", k, n))
+	}
+	sort.Strings(kinds)
+	fmt.Fprintf(w, "  Graph granularity: %s\n", orNone(strings.Join(kinds, ", ")))
+	var ops []string
+	for k, n := range r.Ops {
+		ops = append(ops, fmt.Sprintf("%s %d", k, n))
+	}
+	sort.Strings(ops)
+	fmt.Fprintf(w, "  Observations: %s\n", orNone(strings.Join(ops, ", ")))
+	var rts []string
+	for k := range r.Fields {
+		rts = append(rts, k)
+	}
+	sort.Strings(rts)
+	for _, k := range rts {
+		fmt.Fprintf(w, "  Allowed fields %s: %s\n", k, strings.Join(r.Fields[k], ", "))
+	}
+	for _, n := range r.Notes {
+		fmt.Fprintf(w, "  Note: %s\n", n)
+	}
+}
+
+func resolution(s int) string {
+	if s == 0 {
+		return "as recorded"
+	}
+	return fmt.Sprintf("%d s", s)
+}
+
+func serverURL(s *store.Store, flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if v := os.Getenv("HINT_SERVER_URL"); v != "" {
+		return v
+	}
+	return s.Cfg.ServerURL
+}
+
+func cmdRecommend(e *Env, args []string) int {
+	fs := flags(e, "recommend", "reads local state; SENDS the package to the configured server")
+	yes := fs.Bool("yes", false, "approve sending without a prompt")
+	retry := fs.Bool("retry", false, "send queued packages again")
+	server := fs.String("server", "", "server base URL (default: configuration or HINT_SERVER_URL)")
+	all := fs.Bool("all", false, "include observations that were already exported")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	c, err := api.New(serverURL(s, *server))
+	if err != nil {
+		return fail(e, err)
+	}
+	now := e.Now()
+	ctx := context.Background()
+	var packages []*project.Package
+	var queueIDs []string
+	if *retry {
+		ids, err := project.Queued(s)
+		if err != nil {
+			return fail(e, err)
+		}
+		if len(ids) == 0 {
+			fmt.Fprintln(e.Stdout, "No queued packages.")
+			return 0
+		}
+		for _, id := range ids {
+			p, err := project.LoadQueued(s, id)
+			if err != nil {
+				return fail(e, err)
+			}
+			packages, queueIDs = append(packages, p), append(queueIDs, id)
+		}
+	} else {
+		p, err := project.BuildPackage(s, project.ExportOptions{All: *all, Now: now})
+		if err != nil {
+			return fail(e, err)
+		}
+		packages, queueIDs = []*project.Package{p}, []string{""}
+		summary(e, p)
+	}
+	n := 0
+	for _, p := range packages {
+		n += len(p.Docs)
+	}
+	if !*yes {
+		if !e.IsTerminal() {
+			return fail(e, fmt.Errorf("sending %d documents to %s needs approval; inspect them with `git hint export --dry-run --privacy-report`, then run again with --yes", n, c.Origin()))
+		}
+		fmt.Fprintf(e.Stdout, "Send %d documents to %s? [y/N] ", n, c.Origin())
+		var ans string
+		fmt.Fscanln(e.Stdin, &ans)
+		if a := strings.ToLower(strings.TrimSpace(ans)); a != "y" && a != "yes" {
+			fmt.Fprintln(e.Stdout, "Not sent.")
+			return 1
+		}
+	}
+	for i, p := range packages {
+		if err := project.Send(ctx, s, c, p, now); err != nil {
+			var q *project.ErrQueued
+			if errors.As(err, &q) && queueIDs[i] != "" {
+				_ = project.DropQueued(s, filepath.Base(q.Dir)) // the old entry is still queued
+			}
+			return fail(e, err)
+		}
+		if queueIDs[i] != "" {
+			if err := project.DropQueued(s, queueIDs[i]); err != nil {
+				return fail(e, err)
+			}
+		}
+	}
+	fmt.Fprintf(e.Stdout, "Sent %d documents to %s.\n", n, c.Origin())
+	raw, err := c.Recommendations(ctx, s.Cfg.ProjectNamespace)
+	if err != nil {
+		return fail(e, fmt.Errorf("fetch recommendations: %w", err))
+	}
+	path, err := project.SaveRecommendation(s, raw)
+	if err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintf(e.Stdout, "Saved the recommendation document: %s\nNext: git hint plan\n", path)
+	return 0
+}
+
+func cmdPlan(e *Env, args []string) int {
+	fs := flags(e, "plan", "reads local state and work trees; writes a local Markdown plan; no network")
+	from := fs.String("from", "", "recommendation_set file (default: the last one fetched by `git hint recommend`)")
+	out := fs.String("out", "", "Markdown output file (default .hint/state/recommendations/plan-<time>.md)")
+	asJSON := fs.Bool("json", false, "print the validation result as JSON")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	src := *from
+	if src == "" {
+		if src, err = project.LatestRecommendation(s); err != nil {
+			return fail(e, err)
+		}
+	} else if !filepath.IsAbs(src) {
+		src = filepath.Join(e.Dir, src)
+	}
+	raw, err := readLimited(src, project.MaxDocumentBytes)
+	if err != nil {
+		return fail(e, err)
+	}
+	now := e.Now()
+	cur, err := project.CurrentState(s, now)
+	if err != nil {
+		return fail(e, err)
+	}
+	im, err := project.Import(raw, cur)
+	if err != nil {
+		return fail(e, err)
+	}
+	md := project.Render(im, cur, filepath.Base(src))
+	dst := *out
+	if dst == "" {
+		dst = s.Path("state", "recommendations", "plan-"+now.UTC().Format("20060102T150405Z")+".md")
+		if err := s.WriteState([]byte(md), "state", "recommendations", filepath.Base(dst)); err != nil {
+			return fail(e, err)
+		}
+	} else {
+		if !filepath.IsAbs(dst) {
+			dst = filepath.Join(e.Dir, dst)
+		}
+		if err := os.WriteFile(dst, []byte(md), 0o600); err != nil {
+			return fail(e, err)
+		}
+	}
+	if *asJSON {
+		writeJSON(e, map[string]any{"result": im.Result, "markdown": dst})
+	} else {
+		fmt.Fprintf(e.Stdout, "Document: %s\n", im.Result.Document)
+		for _, p := range im.Result.Plans {
+			fmt.Fprintf(e.Stdout, "  plan %s: %s %s\n", p.PlanID[:12], p.Status, strings.Join(p.Codes, ","))
+		}
+		fmt.Fprintf(e.Stdout, "Markdown plan: %s\n", dst)
+	}
+	if im.Result.Document != "accepted" {
+		return 1
+	}
+	return 0
+}
+
+func readLimited(p string, max int64) ([]byte, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	return b, nil // Import reports too_large for len > max
+}
+
+func cmdCache(e *Env, args []string) int {
+	if len(args) != 1 || args[0] != "clean" {
+		fmt.Fprintln(e.Stderr, "usage: git hint cache clean   [removes .hint/cache/ only; no network]")
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	if err := s.CleanCache(); err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintf(e.Stdout, "Removed %s. Mapping, keys and state are unchanged.\n", s.Path("cache"))
+	return 0
+}
+
+func cmdMCP(e *Env, args []string) int {
+	fmt.Fprintln(e.Stderr, "git hint mcp: the MCP server is not available in this version.")
+	return 2
+}
+
+func cmdVersion(e *Env, args []string) int {
+	fmt.Fprintf(e.Stdout, "git-hint %s (HINT data standard %s)\n", version.Version, version.SpecVersion)
+	return 0
+}
+
+func writeJSON(e *Env, v any) int {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintln(e.Stdout, string(b))
+	return 0
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
+}
+
+func orDash(l []string) string {
+	if len(l) == 0 {
+		return "—"
+	}
+	return strings.Join(l, ", ")
+}

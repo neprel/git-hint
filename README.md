@@ -2,7 +2,23 @@
 
 HINT is a local client and an open data format. The client collects repository structure and AI coding agent activity, removes content and names, and exchanges documents with a HINT server. It validates the recommendations that the server returns, resolves their identifiers on the local machine and shows them to the user.
 
-The client is not released yet. This repository currently publishes the data contract.
+The client is in development (version 0.1.0, not released). Platforms: macOS and Linux; Windows is not tested.
+
+## Client
+
+```sh
+go install github.com/neprel/git-hint/cmd/git-hint@latest
+git hint init && git hint collect --full
+git hint export --dry-run --privacy-report
+```
+
+| Document | Content |
+|---|---|
+| [User guide](docs/client/README.md) | install, first run, several repositories, OpenCode adapter, file and API mode, plans |
+| [Command reference](docs/client/commands.md) | commands, their effects (read, write, network), environment, local store |
+| [Privacy and data audit](docs/client/privacy.md) | what stays local, what leaves, how it is enforced and tested |
+| [Troubleshooting](docs/client/troubleshooting.md) | messages and actions |
+| [Third-party notices](THIRD_PARTY_NOTICES.md) | licenses of included components |
 
 ## HINT data standard (draft v0.1)
 
@@ -20,7 +36,7 @@ Status: draft; not final.
 The client and the server exchange the same documents in two modes ([exchange](docs/standard/exchange-v0.1.md)):
 
 - **File mode.** The client writes documents to files. The user moves them to the server and moves the returned recommendation files back.
-- **API mode.** The client sends documents to `POST /hint/v0.1/documents` and fetches recommendations from the server. Set the server base URL in the client configuration. There is no default server.
+- **API mode.** The client sends documents to `POST /hint/v0.1/documents` and fetches recommendations from the server. Set the server base URL with `git hint init --server <url>` or `HINT_SERVER_URL`. There is no default server.
 
 The user inspects and approves every export before it leaves the machine ([privacy](docs/standard/privacy-v0.1.md) §6).
 

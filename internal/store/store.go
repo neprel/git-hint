@@ -1,0 +1,432 @@
+// Package store manages the local HINT store `.hint/` of a project.
+//
+// Layout (in the root of the primary repository):
+//
+//	.hint/cache/   rebuildable data (scan cache); removed by `git hint cache clean`
+//	.hint/state/   project configuration, snapshots, identity mapping, activity spool,
+//	               export history, queued packages, imported recommendations
+//
+// The identity key is not in the working tree. It lives in the user configuration
+// directory (or HINT_KEY_DIR) and `.hint/state/project.json` names it by a random key ID.
+// Coding agents read the working tree and can send it to a model provider; the key can
+// reverse exported identifiers, the mapping only holds names that the agent already sees.
+package store
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/neprel/git-hint/internal/hint"
+)
+
+// Dir is the store directory name in the project root.
+const Dir = ".hint"
+
+// FormatVersion is the version of the local store layout.
+const FormatVersion = 1
+
+// Repo is one repository of the project.
+type Repo struct {
+	Name string `json:"name"` // local name; input of the repository ID, never exported
+	Path string `json:"path"` // relative to the project root, or absolute
+}
+
+// Policy is the export allowlist (privacy-v0.1 §5).
+type Policy struct {
+	Profile               string              `json:"profile"` // detailed, coarse, aggregate
+	TimeResolutionSeconds int                 `json:"time_resolution_seconds"`
+	RecordTypes           []string            `json:"record_types"`
+	Fields                map[string][]string `json:"fields,omitempty"` // empty: every field of the record type
+}
+
+// Config is `.hint/state/project.json`.
+type Config struct {
+	FormatVersion    int    `json:"format_version"`
+	KeyID            string `json:"key_id"`
+	ProjectNamespace string `json:"project_namespace"`
+	Repos            []Repo `json:"repos"`
+	ServerURL        string `json:"server_url,omitempty"`
+	Policy           Policy `json:"policy"`
+}
+
+// Store is an opened project store.
+type Store struct {
+	Root string // project root (primary repository root)
+	Cfg  Config
+	key  []byte
+}
+
+// DefaultPolicy exports repository structure, changes and activity with every field.
+func DefaultPolicy() Policy {
+	return Policy{Profile: "detailed", TimeResolutionSeconds: 0,
+		RecordTypes: []string{"Snapshot", "Entity", "Relation", "PolicyConstraint", "Change", "Observation", "Metric"}}
+}
+
+// Path joins elements below `.hint/`.
+func (s *Store) Path(elem ...string) string {
+	return filepath.Join(append([]string{s.Root, Dir}, elem...)...)
+}
+
+// Key returns the project HMAC key.
+func (s *Store) Key() []byte { return s.key }
+
+// RepoRoot returns the absolute root of a configured repository.
+func (s *Store) RepoRoot(r Repo) string {
+	if filepath.IsAbs(r.Path) {
+		return r.Path
+	}
+	return filepath.Join(s.Root, r.Path)
+}
+
+// RepoID returns the opaque repository ID.
+func (s *Store) RepoID(r Repo) string { return hint.RepoID(s.key, r.Name) }
+
+// KeyDir is the directory of project keys: HINT_KEY_DIR, else <user config>/git-hint/keys.
+func KeyDir() (string, error) {
+	if d := os.Getenv("HINT_KEY_DIR"); d != "" {
+		return d, nil
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "git-hint", "keys"), nil
+}
+
+func keyPath(id string) (string, error) {
+	d, err := KeyDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, id+".key"), nil
+}
+
+// GitTopLevel returns the root of the Git work tree that contains dir.
+func GitTopLevel(dir string) (string, error) {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", fmt.Errorf("%s is not inside a Git work tree", dir)
+	}
+	return filepath.Clean(strings.TrimSpace(string(out))), nil
+}
+
+// InitOptions are the inputs of `git hint init`.
+type InitOptions struct {
+	Repos     []Repo // additional repositories; the primary repository is always added
+	ServerURL string
+}
+
+// Init creates the store in the Git work tree that contains dir. It is idempotent for an
+// existing store: it adds new repositories and keeps the key.
+func Init(dir string, opt InitOptions) (*Store, bool, error) {
+	root, err := GitTopLevel(dir)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := ensureExcludeEntry(root); err != nil {
+		return nil, false, err
+	}
+	s := &Store{Root: root}
+	created := false
+	if b, err := os.ReadFile(s.Path("state", "project.json")); err == nil {
+		if err := json.Unmarshal(b, &s.Cfg); err != nil {
+			return nil, false, fmt.Errorf("project.json: %w", err)
+		}
+		if s.key, err = readKey(s.Cfg.KeyID); err != nil {
+			return nil, false, err
+		}
+	} else {
+		created = true
+		id := make([]byte, 16)
+		if _, err := rand.Read(id); err != nil {
+			return nil, false, err
+		}
+		s.Cfg = Config{FormatVersion: FormatVersion, KeyID: hex.EncodeToString(id), Policy: DefaultPolicy(),
+			Repos: []Repo{{Name: filepath.Base(root), Path: "."}}}
+		if s.key, err = newKey(s.Cfg.KeyID); err != nil {
+			return nil, false, err
+		}
+		s.Cfg.ProjectNamespace = hint.NamespaceID(s.key)
+	}
+	for _, r := range opt.Repos {
+		if err := s.addRepo(r); err != nil {
+			return nil, false, err
+		}
+	}
+	if opt.ServerURL != "" {
+		s.Cfg.ServerURL = opt.ServerURL
+	}
+	if err := s.SaveConfig(); err != nil {
+		return nil, false, err
+	}
+	return s, created, nil
+}
+
+func (s *Store) addRepo(r Repo) error {
+	abs := r.Path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(s.Root, abs)
+	}
+	top, err := GitTopLevel(abs)
+	if err != nil {
+		return err
+	}
+	if r.Name == "" {
+		r.Name = filepath.Base(top)
+	}
+	for _, x := range s.Cfg.Repos {
+		if filepath.Clean(s.RepoRoot(x)) == top {
+			return nil // already configured
+		}
+		if x.Name == r.Name {
+			return fmt.Errorf("repository name %q is already used; choose another name with --name", r.Name)
+		}
+	}
+	if rel, err := filepath.Rel(s.Root, top); err == nil {
+		r.Path = rel
+	} else {
+		r.Path = top
+	}
+	s.Cfg.Repos = append(s.Cfg.Repos, r)
+	return nil
+}
+
+// Open finds the store from dir upwards and loads it.
+func Open(dir string) (*Store, error) {
+	d, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p := filepath.Join(d, Dir, "state", "project.json")
+		if b, err := os.ReadFile(p); err == nil {
+			s := &Store{Root: d}
+			if err := json.Unmarshal(b, &s.Cfg); err != nil {
+				return nil, fmt.Errorf("%s: %w", p, err)
+			}
+			if s.Cfg.FormatVersion != FormatVersion {
+				return nil, fmt.Errorf("store format %d is not supported (want %d)", s.Cfg.FormatVersion, FormatVersion)
+			}
+			if s.key, err = readKey(s.Cfg.KeyID); err != nil {
+				return nil, err
+			}
+			return s, nil
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return nil, errors.New("no HINT project here; run `git hint init` in the repository root")
+		}
+		d = parent
+	}
+}
+
+func newKey(id string) ([]byte, error) {
+	p, err := keyPath(id)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return nil, err
+	}
+	k := make([]byte, 32)
+	if _, err := rand.Read(k); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("key: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.Write(k); err != nil {
+		return nil, err
+	}
+	return k, f.Sync()
+}
+
+func readKey(id string) ([]byte, error) {
+	p, err := keyPath(id)
+	if err != nil {
+		return nil, err
+	}
+	k, err := os.ReadFile(p)
+	if err != nil {
+		return nil, fmt.Errorf("project key %s not found (%v); the key is not in the working tree, see `git hint doctor`", id, err)
+	}
+	if len(k) != 32 {
+		return nil, fmt.Errorf("project key %s has %d bytes, want 32", p, len(k))
+	}
+	return k, nil
+}
+
+// KeyFile returns the path of the project key file.
+func (s *Store) KeyFile() (string, error) { return keyPath(s.Cfg.KeyID) }
+
+// SaveConfig writes project.json.
+func (s *Store) SaveConfig() error {
+	b, err := json.MarshalIndent(s.Cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return s.WriteState(append(b, '\n'), "state", "project.json")
+}
+
+// ---------------------------------------------------------------------------
+// Git exclusion: `.hint/` must never be committed.
+// ---------------------------------------------------------------------------
+
+// ensureExcludeEntry adds `.hint/` to .git/info/exclude unless Git already ignores it.
+func ensureExcludeEntry(root string) error {
+	if ignored(root) {
+		return nil
+	}
+	out, err := exec.Command("git", "-C", root, "rev-parse", "--git-path", "info/exclude").Output()
+	if err != nil {
+		return fmt.Errorf("git: %w", err)
+	}
+	p := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(root, p)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	old, _ := os.ReadFile(p)
+	if len(old) > 0 && !bytes.HasSuffix(old, []byte("\n")) {
+		old = append(old, '\n')
+	}
+	if err := os.WriteFile(p, append(old, []byte("# HINT local store\n/"+Dir+"/\n")...), 0o644); err != nil {
+		return err
+	}
+	if !ignored(root) {
+		return errors.New(".hint/ is still not ignored by Git after adding it to info/exclude")
+	}
+	return nil
+}
+
+func ignored(root string) bool {
+	return exec.Command("git", "-C", root, "check-ignore", "-q", Dir+"/state/project.json").Run() == nil
+}
+
+// ErrNotExcluded is returned when a write would put `.hint/` at risk of a commit.
+var ErrNotExcluded = errors.New(".hint/ is not ignored by Git; run `git hint init` again or add .hint/ to .gitignore")
+
+// CheckExcluded fails closed when Git does not ignore `.hint/`.
+func (s *Store) CheckExcluded() error {
+	if !ignored(s.Root) {
+		return ErrNotExcluded
+	}
+	return nil
+}
+
+// WriteState writes a file below `.hint/` atomically with owner-only permissions. It
+// checks the Git exclusion first.
+func (s *Store) WriteState(data []byte, elem ...string) error {
+	if err := s.CheckExcluded(); err != nil {
+		return err
+	}
+	p := s.Path(elem...)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), p)
+}
+
+// WriteJSON writes v as indented JSON below `.hint/`.
+func (s *Store) WriteJSON(v any, elem ...string) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return s.WriteState(append(b, '\n'), elem...)
+}
+
+// ReadJSON reads a JSON file below `.hint/`.
+func (s *Store) ReadJSON(v any, elem ...string) error {
+	b, err := os.ReadFile(s.Path(elem...))
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
+
+// AppendLine appends one line to a file below `.hint/` (owner-only permissions).
+func (s *Store) AppendLine(line []byte, elem ...string) error {
+	if err := s.CheckExcluded(); err != nil {
+		return err
+	}
+	p := s.Path(elem...)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// Appender appends lines to one file below `.hint/` (owner-only permissions). The Git
+// exclusion is checked once, when it is opened; the adapter uses it for its whole session.
+type Appender struct{ f *os.File }
+
+// OpenAppend opens a file below `.hint/` for appending.
+func (s *Store) OpenAppend(elem ...string) (*Appender, error) {
+	if err := s.CheckExcluded(); err != nil {
+		return nil, err
+	}
+	p := s.Path(elem...)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	return &Appender{f: f}, nil
+}
+
+// Append writes one line in one write call (complete lines only; no partial record).
+func (a *Appender) Append(line []byte) error {
+	_, err := a.f.Write(append(line, '\n'))
+	return err
+}
+
+// Close closes the file.
+func (a *Appender) Close() error { return a.f.Close() }
+
+// CleanCache removes `.hint/cache/` only. Mapping, keys and state stay.
+func (s *Store) CleanCache() error {
+	return os.RemoveAll(s.Path("cache"))
+}

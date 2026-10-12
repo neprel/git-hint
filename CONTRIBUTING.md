@@ -23,7 +23,15 @@ HINT does not copy code that it has no right to use.
 
 ## 3. Tests
 
-Tests run without an AI agent or a model: unit tests with synthetic data, recorded and scrubbed fixtures, mock events and deterministic replay. Run the conformance suite as described in [`tests/conformance/README.md`](tests/conformance/README.md).
+Tests run without an AI agent or a model: unit tests with synthetic data, recorded and scrubbed fixtures, mock events and deterministic replay.
+
+```sh
+go vet ./... && go test ./...              # client
+(cd tests/conformance && go test ./...)    # data standard and the client against the reference checker
+adapters/opencode/test/run.sh              # OpenCode plugin with the real client binary (needs bun)
+```
+
+Check macOS first, then Linux (for example in the `golang` Docker image). See [`tests/conformance/README.md`](tests/conformance/README.md) for the independent Python check.
 
 ## 4. Scope
 

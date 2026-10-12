@@ -1,0 +1,18 @@
+{
+  "format_version": 1,
+  "key_id": "written by git hint init",
+  "project_namespace": "written by git hint init",
+  "repos": [
+    { "name": "shop", "path": "." },
+    { "name": "shop-web", "path": "../shop-web" }
+  ],
+  "server_url": "https://hint.example.org",
+  "policy": {
+    "profile": "coarse",
+    "time_resolution_seconds": 3600,
+    "record_types": ["Snapshot", "Entity", "Relation", "Change", "Observation"],
+    "fields": {
+      "Entity": ["entity_id", "kind", "parent_id", "repo_id", "snapshot_id", "id_stability", "language", "resolution"]
+    }
+  }
+}
