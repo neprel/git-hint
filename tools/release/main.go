@@ -128,8 +128,9 @@ func cmdBuild(args []string) error {
 	var sec int64
 	fmt.Sscan(epoch, &sec)
 	when := time.Unix(sec, 0).UTC()
-	if st, _ := git("status", "--porcelain", "--untracked-files=all", "--ignored"); st != "" {
-		fmt.Fprintln(os.Stderr, "release: the work tree differs from the commit; the build uses the commit's files only")
+	if st, _ := git("status", "--porcelain", "--untracked-files=all"); st != "" {
+		fmt.Fprintf(os.Stderr, "release: %d changed or untracked paths in the work tree are not used; the build uses the commit's files only\n",
+			len(strings.Split(st, "\n")))
 	}
 	// The build never reads the work tree: tracked changes, untracked and ignored files
 	// stay out. It extracts the commit's tree into a new directory and builds there.
