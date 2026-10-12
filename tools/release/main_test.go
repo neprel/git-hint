@@ -84,7 +84,8 @@ func TestSumsAndVerify(t *testing.T) {
 }
 
 func TestVersionAndTargetRules(t *testing.T) {
-	for v, ok := range map[string]bool{"v0.1.0": true, "v1.2.3-rc.1": true, "0.1.0": false, "v1.2": false, "v01.2.3": false, "v1.2.3;rm": false} {
+	for v, ok := range map[string]bool{"v0.1.0": true, "v1.2.3-rc.1": true, "v0.0.0-dev": true, "v0.0.0-ci": false, "v1.0.0-rc.01": false,
+		"0.1.0": false, "v1.2": false, "v01.2.3": false, "v1.2.3;rm": false} {
 		if semver.MatchString(v) != ok {
 			t.Errorf("%s: want %v", v, ok)
 		}
@@ -92,4 +93,28 @@ func TestVersionAndTargetRules(t *testing.T) {
 	if err := cmdBuild([]string{"-version", "v0.1.0", "-out", filepath.Join(t.TempDir(), "d"), "-targets", "windows/amd64", "-allow-dirty"}); err == nil || !strings.Contains(err.Error(), "not a release target") {
 		t.Fatalf("a Windows target: %v", err)
 	}
+}
+
+func TestVersionPatternMatchesSchema(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "schemas", "v0.1", "common.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Defs map[string]struct {
+			Pattern string `json:"pattern"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	for name, d := range s.Defs {
+		if strings.Contains(d.Pattern, "alpha|beta|rc|dev") {
+			if "^v"+strings.TrimPrefix(d.Pattern, "^") != semver.String() {
+				t.Fatalf("release version pattern %s differs from schema %s pattern %s", semver, name, d.Pattern)
+			}
+			return
+		}
+	}
+	t.Fatal("no version pattern in the schema")
 }

@@ -18,7 +18,7 @@ scripts/release/smoke.sh dist                             # this machine's platf
 |---|---|---|
 | `ci` | push to `main`, pull request | format, vet, tests (Linux amd64 and arm64, macOS), race test of the MCP server, conformance suite, OpenCode plugin tests, release build and smoke test |
 | `release` (manual) | `workflow_dispatch` with a version | build, verify, smoke test and MCP Inspector check on four native runners; publishes nothing |
-| `release` (tag) | push of a tag `vX.Y.Z[-pre]` | the same, then build provenance attestation, GitHub release with `docs/releases/<tag>.md` as notes, then download, provenance check and smoke test of the published archives on the four runners |
+| `release` (tag) | push of a tag `vX.Y.Z` or `vX.Y.Z-<label>[.N]` with label alpha, beta, rc or dev (the pre-release forms that the HINT data standard allows in a producer version) | the same, then build provenance attestation, GitHub release with `docs/releases/<tag>.md` as notes, then download, provenance check and smoke test of the published archives on the four runners |
 
 All actions are pinned to commit SHAs. Jobs have read-only permissions; only the publish job can write releases and attestations, with the built-in token.
 

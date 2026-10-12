@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "SemVer version for a dry run (nothing is published)"
+        description: "Version for a dry run, vX.Y.Z[-alpha|beta|rc|dev[.N]] (nothing is published)"
         required: true
-        default: "v0.0.0-dryrun"
+        default: "v0.0.0-dev"
 
 permissions:
   contents: read
@@ -48,9 +48,9 @@ jobs:
           case "$EVENT" in
           push) v="$TAG" ;;
           workflow_dispatch) v="$INPUT" ;;
-          *) v="v0.0.0-dryrun" ;;
+          *) v="v0.0.0-dev" ;;
           esac
-          echo "$v" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$' || { echo "not SemVer: $v"; exit 1; }
+          echo "$v" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|dev)(\.(0|[1-9][0-9]*))?)?$' || { echo "not SemVer: $v"; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Release notes exist
         if: github.event_name == 'push'

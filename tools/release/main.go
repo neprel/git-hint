@@ -82,7 +82,11 @@ type Artifact struct {
 	Size   int64  `json:"size"`
 }
 
-var semver = regexp.MustCompile(`^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(-[0-9A-Za-z.-]+)?$`)
+// semver is "v" plus the version pattern of the HINT data standard (common.schema.json,
+// producer version): a pre-release is alpha, beta, rc or dev with an optional number. The
+// client writes its version into every document, so another pre-release tag would make
+// every export invalid. TestVersionPatternMatchesSchema keeps the two in step.
+var semver = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|dev)(\.(0|[1-9][0-9]*))?)?$`)
 
 func cmdBuild(args []string) error {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
