@@ -130,7 +130,7 @@ func (h *handlers) latest(s *store.Store, repo string) ([]repoSnap, []SnapshotRe
 		refs = append(refs, SnapshotRef{Repo: r.Name, SnapshotID: l.Record.SnapshotID, CapturedAt: l.Record.CapturedAt})
 	}
 	if !found {
-		return nil, nil, toolErr("invalid_argument")
+		return nil, nil, toolErr("unknown_repository")
 	}
 	return out, refs, nil
 }

@@ -58,7 +58,7 @@ The rule is in `.hint/state/project.json` (`mcp.upload`). No tool can change it.
 - Collection and plan validation stop after 10 minutes, network operations after 5 minutes. A cancelled or stopped operation leaves the local state as it was, or complete.
 - Writing tools take a project lock. A second writer gets `busy`; CLI commands wait for the lock.
 - The Markdown text in a result is limited to 64 KiB (the file is complete); change lists to 500 entries per repository.
-- Tool errors carry a code and a fixed sentence, never a file name, a path or source text: `not_initialized`, `not_excluded`, `key_location`, `busy`, `cancelled`, `timeout`, `no_snapshot`, `policy_invalid`, `document_invalid`, `server_unconfigured`, `network_queued`, `server_rejected`, `receipt_invalid`, `recommendation_missing`, `invalid_argument`, `path_not_allowed`, `too_large`, `internal`.
+- Tool errors carry a code and a fixed sentence, never a file name, a path or source text: `not_initialized`, `not_excluded`, `key_location`, `busy`, `cancelled`, `timeout`, `no_snapshot`, `policy_invalid`, `document_invalid`, `server_unconfigured`, `network_queued`, `server_rejected`, `receipt_invalid`, `recommendation_missing`, `invalid_argument`, `unknown_repository`, `path_not_allowed`, `too_large`, `internal`.
 - `task_id` is stored only as an opaque ID on file-change observations. Do not invent one.
 
 ## 6. Client configuration

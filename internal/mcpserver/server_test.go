@@ -578,10 +578,25 @@ func TestNavigationToolsReadTheLocalIndex(t *testing.T) {
 		{"hint_file_outline", map[string]any{"path": "../../etc/passwd"}},
 		{"hint_file_outline", map[string]any{"path": "/etc/passwd"}},
 		{"hint_importers", map[string]any{"package": "../x"}},
-		{"hint_find_definition", map[string]any{"name": "Rate", "repository": "nope"}},
 	} {
 		if _, errText := call(t, cs, c.tool, c.args); !strings.Contains(errText, "invalid_argument") {
 			t.Errorf("%s %v: want invalid_argument, got %q", c.tool, c.args, errText)
+		}
+	}
+	// an unknown repository name gets its own code, a hint to omit the argument, and no
+	// answer from another repository
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"hint_find_definition", map[string]any{"name": "Rate", "repository": "nope"}},
+		{"hint_importers", map[string]any{"package": "billing", "repository": "."}},
+		{"hint_file_outline", map[string]any{"path": "billing/ledger.go", "repository": "shop-copy"}},
+	} {
+		_, errText := call(t, cs, c.tool, c.args)
+		if !strings.Contains(errText, "unknown_repository") || !strings.Contains(errText, "Omit the optional repository argument") ||
+			strings.Contains(errText, "nope") || strings.Contains(errText, "shop-copy") {
+			t.Errorf("%s %v: want unknown_repository, got %q", c.tool, c.args, errText)
 		}
 	}
 	if after := listState(t, s.Path()); after != before {

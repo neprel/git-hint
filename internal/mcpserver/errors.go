@@ -37,6 +37,7 @@ var messages = map[string]string{
 	"receipt_invalid":        "The server answer did not confirm the sent documents. The export is not marked as done.",
 	"recommendation_missing": "No stored recommendation matches. Call hint_recommend or hint_import_recommendation first.",
 	"invalid_argument":       "An argument is not valid.",
+	"unknown_repository":     "No repository of this project has that name. Omit the optional repository argument to use all repositories.",
 	"path_not_allowed":       "The path is outside the project repositories, is or crosses a symbolic link, or the file exists and is not a HINT plan.",
 	"too_large":              "The input is larger than the limit.",
 	"internal":               "The operation failed. The user can run the matching `git hint` command for details.",
