@@ -429,6 +429,15 @@ func TestOutdatedPlanIsRejected(t *testing.T) {
 	if r := must(t, run(t, shop, "", "plan", "--json")); !strings.Contains(r.stdout, "snapshot_mismatch") {
 		t.Fatalf("outdated plan not rejected after collect: %s", r.stdout)
 	}
+	// file mode: the same document from a file gives the same rejection
+	s, _ := store.Open(shop)
+	saved, _ := project.LatestRecommendation(s)
+	f := filepath.Join(t.TempDir(), "old.hint.json")
+	b, _ := os.ReadFile(saved)
+	_ = os.WriteFile(f, b, 0o600)
+	if r := must(t, run(t, shop, "", "plan", "--json", "--from", f)); !strings.Contains(r.stdout, "snapshot_mismatch") {
+		t.Fatalf("outdated plan not rejected in file mode: %s", r.stdout)
+	}
 }
 
 func TestNetworkFailureKeepsRetryablePackage(t *testing.T) {
