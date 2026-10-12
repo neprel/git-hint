@@ -50,7 +50,7 @@ The rule is in `.hint/state/project.json` (`mcp.upload`). No tool can change it.
 
 ## 4. Paths
 
-- `output_path` must be a `.md` file inside a project repository, not below `.git/` or `.hint/`. An existing file is replaced only if it is an earlier HINT plan. Without `output_path`, the plan goes to `.hint/state/recommendations/`.
+- `output_path` must be a `.md` file inside a project repository, not below `.git/` or `.hint/`, with no symbolic link in the path (also a dangling one). An existing file is replaced only if it is an earlier HINT plan. The plan is written to a new temporary file and renamed into place; the write never follows a link. Without `output_path`, the plan goes to `.hint/state/recommendations/`.
 - `path` of `hint_import_recommendation` must be inside a project repository after symbolic links are resolved. The file limit is 16 MiB.
 
 ## 5. Limits and errors

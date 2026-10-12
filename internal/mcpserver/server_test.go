@@ -353,6 +353,31 @@ func TestImportRecommendationPathsAndLimits(t *testing.T) {
 	if readme, _ := os.ReadFile(filepath.Join(shop, "README.md")); string(readme) != "# not a plan\n" {
 		t.Fatal("a repository file was overwritten")
 	}
+	// a dangling link, a link to an outside file, and a linked directory whose target does
+	// not exist: each is refused and no file appears outside the project
+	ext := t.TempDir()
+	_ = os.Symlink(filepath.Join(ext, "created.md"), filepath.Join(shop, "dangling.md"))
+	testkit.WriteFile(t, ext, "plan.md", "# HINT recommendation plan\n")
+	_ = os.Symlink(filepath.Join(ext, "plan.md"), filepath.Join(shop, "linked-plan.md"))
+	_ = os.Symlink(filepath.Join(ext, "newdir"), filepath.Join(shop, "danglingdir"))
+	for _, out := range []string{"dangling.md", "linked-plan.md", "danglingdir/plan.md", filepath.Join(shop, "dangling.md")} {
+		if _, errText := call(t, cs, "hint_import_recommendation", map[string]any{"path": "incoming/rec.hint.json", "output_path": out}); !strings.Contains(errText, "path_not_allowed") {
+			t.Errorf("output %s: want path_not_allowed, got %q", out, errText)
+		}
+	}
+	if ents, _ := os.ReadDir(ext); len(ents) != 1 {
+		t.Fatalf("a file was created outside the project: %v", ents)
+	}
+	if b, _ := os.ReadFile(filepath.Join(ext, "plan.md")); string(b) != "# HINT recommendation plan\n" {
+		t.Fatal("a linked file outside the project was overwritten")
+	}
+	// a new plan file inside the repository is still allowed
+	if r := mustCall(t, cs, "hint_import_recommendation", map[string]any{"path": "incoming/rec.hint.json", "output_path": "plans/new.md"}); r["markdown_path"] == "" {
+		t.Fatalf("plan in repository: %v", r)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(shop, "plans")); len(ents) != 1 {
+		t.Fatalf("temporary files left: %v", ents)
+	}
 	// malformed JSON and an oversized file
 	testkit.WriteFile(t, shop, "incoming/bad.hint.json", "{not json")
 	if r := mustCall(t, cs, "hint_import_recommendation", map[string]any{"path": "incoming/bad.hint.json"}); r["document_result"] != "schema_invalid" {

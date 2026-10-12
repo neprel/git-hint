@@ -582,14 +582,14 @@ func (h *handlers) renderPlan(ctx context.Context, s *store.Store, tool, src, ou
 }
 
 // planPath checks the output path: default inside .hint/state/recommendations/, else a
-// .md file inside a project repository, not below .git/ or .hint/, and either new or an
-// earlier HINT plan.
+// .md file inside a project repository, not below .git/ or .hint/, with no symbolic link
+// in the path (a dangling link included), and either new or an earlier HINT plan.
 func (h *handlers) planPath(s *store.Store, output, stamp string) (string, error) {
 	if output == "" {
 		return s.Path("state", "recommendations", "plan-"+stamp+".md"), nil
 	}
 	p, ok := insideWorkspace(s, output)
-	if !ok || !strings.HasSuffix(strings.ToLower(p), ".md") {
+	if !ok || !strings.HasSuffix(strings.ToLower(p), ".md") || hasSymlink(p) {
 		return "", toolErr("path_not_allowed")
 	}
 	for _, part := range strings.Split(filepath.ToSlash(p), "/") {
@@ -597,24 +597,68 @@ func (h *handlers) planPath(s *store.Store, output, stamp string) (string, error
 			return "", toolErr("path_not_allowed")
 		}
 	}
-	if b, err := os.ReadFile(p); err == nil && !strings.HasPrefix(string(b), "# HINT recommendation plan") {
-		return "", toolErr("path_not_allowed")
-	} else if err == nil {
-		if fi, err := os.Lstat(p); err != nil || !fi.Mode().IsRegular() {
+	fi, err := os.Lstat(p)
+	if err == nil {
+		if !fi.Mode().IsRegular() {
 			return "", toolErr("path_not_allowed")
 		}
+		if b, err := os.ReadFile(p); err != nil || !strings.HasPrefix(string(b), "# HINT recommendation plan") {
+			return "", toolErr("path_not_allowed")
+		}
+	} else if !os.IsNotExist(err) {
+		return "", toolErr("path_not_allowed")
 	}
 	return p, nil
 }
 
+// hasSymlink reports whether p or one of its existing parent directories is a symbolic
+// link. insideWorkspace resolves the existing part of the path, so any link found here is
+// one that could not be resolved, such as a dangling link.
+func hasSymlink(p string) bool {
+	for cur := p; ; cur = filepath.Dir(cur) {
+		if fi, err := os.Lstat(cur); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+		if filepath.Dir(cur) == cur {
+			return false
+		}
+	}
+}
+
+// writePlan writes a plan outside the store without following links: it creates the
+// missing directories, checks again that the directory has no symbolic link, writes a new
+// temporary file (exclusive create) and renames it over the destination. A rename
+// replaces a link at the destination; it never writes through it.
 func writePlan(s *store.Store, dst string, md []byte) error {
 	if rel, err := filepath.Rel(s.Path(), dst); err == nil && !strings.HasPrefix(rel, "..") {
 		return s.WriteState(md, strings.Split(filepath.ToSlash(rel), "/")...)
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	dir := filepath.Dir(dst)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(dst, md, 0o644)
+	if hasSymlink(dir) {
+		return toolErr("path_not_allowed")
+	}
+	f, err := os.CreateTemp(dir, ".hint-plan-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, werr := f.Write(md)
+	if err := f.Chmod(0o644); werr == nil {
+		werr = err
+	}
+	if err := f.Close(); werr == nil {
+		werr = err
+	}
+	if werr == nil {
+		werr = os.Rename(tmp, dst)
+	}
+	if werr != nil {
+		_ = os.Remove(tmp)
+	}
+	return werr
 }
 
 // insideWorkspace resolves p (relative to the project root) and checks that it lies in a
