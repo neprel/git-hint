@@ -1,10 +1,16 @@
 name: release
 
-# A pushed SemVer tag builds, tests, attests and publishes a release. A manual run builds
-# and tests the archives of any SemVer version without publishing (dry run).
+# A pushed SemVer tag builds, tests, attests and publishes a release. A manual run, or a
+# pull request that changes the release files, builds and tests the archives without
+# publishing (dry run).
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "tools/release/**"
+      - "scripts/release/**"
   workflow_dispatch:
     inputs:
       version:
@@ -39,7 +45,11 @@ jobs:
           TAG: ${{ github.ref_name }}
           INPUT: ${{ inputs.version }}
         run: |
-          if [ "$EVENT" = push ]; then v="$TAG"; else v="$INPUT"; fi
+          case "$EVENT" in
+          push) v="$TAG" ;;
+          workflow_dispatch) v="$INPUT" ;;
+          *) v="v0.0.0-dryrun" ;;
+          esac
           echo "$v" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$' || { echo "not SemVer: $v"; exit 1; }
           echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Release notes exist
