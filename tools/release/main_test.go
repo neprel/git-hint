@@ -1,9 +1,13 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,21 +20,17 @@ func TestArchiveIsDeterministic(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("binary"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	wd, _ := os.Getwd()
-	if err := os.Chdir(filepath.Join(wd, "..", "..")); err != nil { // docFiles are repository files
-		t.Fatal(err)
-	}
-	defer os.Chdir(wd)
+	root := filepath.Join("..", "..") // docFiles are repository files
 	when := time.Unix(1700000000, 0).UTC()
 	lic := []namedFile{{"licenses/go/LICENSE", []byte("license")}}
 	a, b := filepath.Join(dir, "a.tar.gz"), filepath.Join(dir, "b.tar.gz")
-	if err := writeArchive(a, "x", bin, lic, when); err != nil {
+	if err := writeArchive(a, "x", root, bin, lic, when); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(bin, time.Now(), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeArchive(b, "x", bin, lic, when); err != nil {
+	if err := writeArchive(b, "x", root, bin, lic, when); err != nil {
 		t.Fatal(err)
 	}
 	ba, _ := os.ReadFile(a)
@@ -90,7 +90,7 @@ func TestVersionAndTargetRules(t *testing.T) {
 			t.Errorf("%s: want %v", v, ok)
 		}
 	}
-	if err := cmdBuild([]string{"-version", "v0.1.0", "-out", filepath.Join(t.TempDir(), "d"), "-targets", "windows/amd64", "-allow-dirty"}); err == nil || !strings.Contains(err.Error(), "not a release target") {
+	if err := cmdBuild([]string{"-version", "v0.1.0", "-out", filepath.Join(t.TempDir(), "d"), "-targets", "windows/amd64"}); err == nil || !strings.Contains(err.Error(), "not a release target") {
 		t.Fatalf("a Windows target: %v", err)
 	}
 }
@@ -117,4 +117,89 @@ func TestVersionPatternMatchesSchema(t *testing.T) {
 		}
 	}
 	t.Fatal("no version pattern in the schema")
+}
+
+// TestBuildUsesOnlyTheCommitsFiles builds from a clone with an untracked Go file, an
+// ignored Go file and a modified tracked file. None of them may reach the binary, and the
+// manifest names the clone's commit.
+func TestBuildUsesOnlyTheCommitsFiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the client")
+	}
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := filepath.Join(t.TempDir(), "clone")
+	if out, err := exec.Command("git", "clone", "-q", "--no-hardlinks", repo, clone).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v %s", err, out)
+	}
+	marker := func(name string) string {
+		return "package main\n\nimport \"os\"\n\nfunc init() {\n\tif os.Getenv(\"HINT_NEVER\") == \"x\" {\n\t\tprintln(\"" + name + "\")\n\t}\n}\n"
+	}
+	write := func(rel, body string, appendTo bool) {
+		p := filepath.Join(clone, rel)
+		flag := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+		if appendTo {
+			flag = os.O_WRONLY | os.O_APPEND
+		}
+		f, err := os.OpenFile(p, flag, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.WriteString(body)
+		f.Close()
+	}
+	write("cmd/git-hint/zz_untracked.go", marker("HINT_UNTRACKED_MARKER"), false)
+	write("cmd/git-hint/zz_ignored.go", marker("HINT_IGNORED_MARKER"), false)
+	write(".git/info/exclude", "\ncmd/git-hint/zz_ignored.go\n", true)
+	write("cmd/git-hint/main.go", "\nvar hintModifiedFlag bool\n\nfunc init() {\n\tif hintModifiedFlag {\n\t\tprintln(\"HINT_MODIFIED_MARKER\")\n\t}\n}\n", true)
+	if st, _ := exec.Command("git", "-C", clone, "status", "--porcelain", "--ignored").Output(); !bytes.Contains(st, []byte("!! cmd/git-hint/zz_ignored.go")) ||
+		!bytes.Contains(st, []byte("?? cmd/git-hint/zz_untracked.go")) {
+		t.Fatalf("test setup: %s", st)
+	}
+	head, _ := exec.Command("git", "-C", clone, "rev-parse", "HEAD").Output()
+	wd, _ := os.Getwd()
+	if err := os.Chdir(clone); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(wd)
+	out := filepath.Join(t.TempDir(), "dist")
+	if err := cmdBuild([]string{"-version", "v0.1.0", "-out", out, "-targets", "linux/amd64"}); err != nil {
+		t.Fatal(err)
+	}
+	var m Manifest
+	mb, _ := os.ReadFile(filepath.Join(out, "manifest.json"))
+	if err := json.Unmarshal(mb, &m); err != nil || m.Commit != strings.TrimSpace(string(head)) {
+		t.Fatalf("manifest commit %q, want %q (%v)", m.Commit, head, err)
+	}
+	f, err := os.Open(filepath.Join(out, m.Artifacts[0].File))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := tar.NewReader(zr)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			t.Fatal("no git-hint program in the archive")
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(h.Name, "/git-hint") {
+			continue
+		}
+		bin, _ := io.ReadAll(tr)
+		for _, mk := range []string{"HINT_UNTRACKED_MARKER", "HINT_IGNORED_MARKER", "HINT_MODIFIED_MARKER"} {
+			if bytes.Contains(bin, []byte(mk)) {
+				t.Errorf("%s reached the release binary", mk)
+			}
+		}
+		return
+	}
 }

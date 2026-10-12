@@ -702,8 +702,8 @@ func cmdVersion(e *Env, args []string) int {
 		if *asJSON {
 			return writeJSON(e, b)
 		}
-		fmt.Fprintf(e.Stdout, "git-hint %s (HINT data standard %s)\ncommit %s, %s, %s %s/%s\n", b.Version, b.Standard,
-			b.Commit, b.Date, b.GoVersion, b.OS, b.Arch)
+		fmt.Fprintf(e.Stdout, "git-hint %s (HINT data standard %s)\ncommit %s%s, %s, %s %s/%s (metadata: %s%s)\n", b.Version, b.Standard,
+			b.Commit, modifiedMark(b), b.Date, b.GoVersion, b.OS, b.Arch, b.Source, moduleNote(b))
 		return 0
 	}
 	c := capabilities(b)
@@ -712,7 +712,8 @@ func cmdVersion(e *Env, args []string) int {
 	}
 	w := e.Stdout
 	fmt.Fprintf(w, "git-hint %s (HINT data standard %s; reads %s)\n", b.Version, b.Standard, strings.Join(b.ReadsMinors, ", "))
-	fmt.Fprintf(w, "build: commit %s, %s, %s, %s/%s, cgo %v\n", b.Commit, b.Date, b.GoVersion, b.OS, b.Arch, b.CGO)
+	fmt.Fprintf(w, "build: commit %s%s, %s, %s, %s/%s, cgo %v (metadata: %s%s)\n", b.Commit, modifiedMark(b), b.Date, b.GoVersion, b.OS, b.Arch, b.CGO,
+		b.Source, moduleNote(b))
 	fmt.Fprintf(w, "platform %s/%s: %s\n", b.OS, b.Arch, c.Platform)
 	fmt.Fprintf(w, "structure: %s\n", c.Structure.Summary)
 	fmt.Fprintf(w, "file-level languages: %s\n", strings.Join(c.Structure.FileLevelLanguages, ", "))
@@ -726,6 +727,20 @@ func cmdVersion(e *Env, args []string) int {
 	}
 	fmt.Fprintf(w, "server: not needed for init, collect, export, plan or mcp; recommend needs a configured HINT server\n")
 	return 0
+}
+
+func modifiedMark(b version.Build) string {
+	if b.Modified {
+		return "+modified"
+	}
+	return ""
+}
+
+func moduleNote(b version.Build) string {
+	if b.ModuleVersion != "" {
+		return "; module " + b.ModuleVersion
+	}
+	return ""
 }
 
 // Capabilities is the `version --capabilities` report.

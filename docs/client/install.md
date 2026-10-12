@@ -61,11 +61,23 @@ The two version lines must be equal. `git hint --help` opens Git's manual page l
 
 ## 5. Build from source
 
+`git hint version` shows where its build data come from (`metadata:`). The data differ by install method:
+
+| Method | Version | Commit and date | `metadata:` |
+|---|---|---|---|
+| Release archive | release version | commit and commit time of the release | `release` |
+| `go build ./cmd/git-hint` in a Git checkout | `0.1.0-dev` (the source default) | from Git; `+modified` when the work tree has changes | `git` |
+| `go install github.com/neprel/git-hint/cmd/git-hint@v0.1.0` | the module version, `0.1.0` | `unknown`: Go records no commit for a module download | `go-install` |
+| `go install …@latest` before a tagged release, or `@<commit>` | `0.1.0-dev`; the Go pseudo-version is shown as `module v0.0.0-…` | `unknown`; the pseudo-version contains the commit time and a commit prefix | `go-install` |
+| `go build` without `.git` (for example from a source archive) | `0.1.0-dev` | `unknown` | `unstamped` |
+
+Limits: only release archives carry a verified commit, a checksum and provenance. A source build is as trustworthy as the source tree it comes from. A version that the HINT data standard does not accept (such as a Go pseudo-version) is never written into documents; the client writes `0.1.0-dev` instead.
+
 ```sh
-go install github.com/neprel/git-hint/cmd/git-hint@latest     # Go 1.27 or later
+go install github.com/neprel/git-hint/cmd/git-hint@v0.1.0     # Go 1.27 or later
 ```
 
-A source build reports the commit and time from the Go build information. Release archives are built with `go run ./tools/release build`; the same commit and Go version give byte-identical archives (see [releasing](releasing.md)).
+Release archives are built with `go run ./tools/release build` from the files of one commit only; the same commit and Go version give byte-identical archives (see [releasing](releasing.md)).
 
 ## 6. Update and uninstall
 

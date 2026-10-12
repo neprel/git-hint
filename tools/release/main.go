@@ -1,13 +1,15 @@
 // Command release builds the git-hint release archives. It is a maintainer tool; it is not
 // part of the git-hint binary.
 //
-//	go run ./tools/release build  -version v0.1.0 -out dist   # archives, SHA256SUMS, manifest.json
+//	go run ./tools/release build  -version v0.1.0 -out dist [-commit HEAD]   # archives, SHA256SUMS, manifest.json
 //	go run ./tools/release check  <binary>...                 # forbidden content in a binary
 //	go run ./tools/release verify -dir dist                   # checksums and manifest
 //
-// The build is pure Go (CGO_ENABLED=0), with -trimpath, an empty build ID and the commit
-// time as the version date and the archive time, so the same commit and Go version give
-// byte-identical archives.
+// The build uses only the files of the given commit: it extracts the commit's tree into a
+// new directory and builds there, so local changes, untracked and ignored files never
+// reach a release. It is pure Go (CGO_ENABLED=0), with -trimpath, an empty build ID and the
+// commit time as the version date and the archive time, so the same commit and Go version
+// give byte-identical archives.
 package main
 
 import (
@@ -93,7 +95,7 @@ func cmdBuild(args []string) error {
 	ver := fs.String("version", "", "release tag, for example v0.1.0")
 	out := fs.String("out", "dist", "output directory (must not exist)")
 	targets := fs.String("targets", strings.Join(Targets, ","), "comma-separated os/arch list")
-	dirty := fs.Bool("allow-dirty", false, "allow uncommitted changes (local tests only)")
+	rev := fs.String("commit", "HEAD", "commit to build; the build uses only the files of this commit")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -111,39 +113,49 @@ func cmdBuild(args []string) error {
 	if _, err := os.Stat(*out); err == nil {
 		return fmt.Errorf("%s exists", *out)
 	}
-	commit, err := git("rev-parse", "HEAD")
+	outAbs, err := filepath.Abs(*out)
 	if err != nil {
 		return err
 	}
-	if st, _ := git("status", "--porcelain", "--untracked-files=no"); st != "" && !*dirty {
-		return errors.New("the work tree has uncommitted changes")
+	commit, err := git("rev-parse", "--verify", *rev+"^{commit}")
+	if err != nil {
+		return fmt.Errorf("commit %q not found", *rev)
 	}
-	epoch, err := git("log", "-1", "--format=%ct", "HEAD")
+	epoch, err := git("log", "-1", "--format=%ct", commit)
 	if err != nil {
 		return err
 	}
 	var sec int64
 	fmt.Sscan(epoch, &sec)
 	when := time.Unix(sec, 0).UTC()
-	std, err := goOutput("run", "./tools/release/stdversion")
-	if err != nil {
-		return err
+	if st, _ := git("status", "--porcelain", "--untracked-files=all", "--ignored"); st != "" {
+		fmt.Fprintln(os.Stderr, "release: the work tree differs from the commit; the build uses the commit's files only")
 	}
-	m := Manifest{Name: "git-hint", Version: *ver, Commit: commit, Date: when.Format(time.RFC3339),
-		GoVersion: runtime.Version(), StandardVersion: std, Deferred: []string{"windows"}}
-	if err := os.MkdirAll(*out, 0o755); err != nil {
-		return err
-	}
+	// The build never reads the work tree: tracked changes, untracked and ignored files
+	// stay out. It extracts the commit's tree into a new directory and builds there.
 	tmp, err := os.MkdirTemp("", "git-hint-release-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
+	src := filepath.Join(tmp, "src")
+	if err := exportTree(commit, src); err != nil {
+		return err
+	}
+	std, err := goOutput(src, "run", "./tools/release/stdversion")
+	if err != nil {
+		return err
+	}
+	m := Manifest{Name: "git-hint", Version: *ver, Commit: commit, Date: when.Format(time.RFC3339),
+		GoVersion: runtime.Version(), StandardVersion: std, Deferred: []string{"windows"}}
+	if err := os.MkdirAll(outAbs, 0o755); err != nil {
+		return err
+	}
 	ldflags := strings.Join([]string{"-s", "-w", "-buildid=",
 		"-X", pkg + ".Version=" + strings.TrimPrefix(*ver, "v"),
 		"-X", pkg + ".Commit=" + commit,
 		"-X", pkg + ".Date=" + m.Date}, " ")
-	lic, err := licenseFiles()
+	lic, err := licenseFiles(src)
 	if err != nil {
 		return err
 	}
@@ -152,6 +164,7 @@ func cmdBuild(args []string) error {
 		t := goos + "/" + arch
 		bin := filepath.Join(tmp, goos+"_"+arch, "git-hint")
 		cmd := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags", ldflags, "-o", bin, "./cmd/git-hint")
+		cmd.Dir = src
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+arch, "GOFLAGS=-mod=readonly")
 		cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -162,10 +175,10 @@ func cmdBuild(args []string) error {
 		}
 		name := fmt.Sprintf("git-hint_%s_%s_%s", strings.TrimPrefix(*ver, "v"), goos, arch)
 		file := name + ".tar.gz"
-		if err := writeArchive(filepath.Join(*out, file), name, bin, lic, when); err != nil {
+		if err := writeArchive(filepath.Join(outAbs, file), name, src, bin, lic, when); err != nil {
 			return err
 		}
-		sum, size, err := hashFile(filepath.Join(*out, file))
+		sum, size, err := hashFile(filepath.Join(outAbs, file))
 		if err != nil {
 			return err
 		}
@@ -173,14 +186,14 @@ func cmdBuild(args []string) error {
 	}
 	sort.Slice(m.Artifacts, func(i, j int) bool { return m.Artifacts[i].File < m.Artifacts[j].File })
 	mb, _ := json.MarshalIndent(m, "", "  ")
-	if err := os.WriteFile(filepath.Join(*out, "manifest.json"), append(mb, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outAbs, "manifest.json"), append(mb, '\n'), 0o644); err != nil {
 		return err
 	}
-	return writeSums(*out)
+	return writeSums(outAbs)
 }
 
 // writeArchive writes a deterministic tar.gz: fixed order, owner, modes and time.
-func writeArchive(dst, dir, bin string, lic []namedFile, when time.Time) error {
+func writeArchive(dst, dir, src, bin string, lic []namedFile, when time.Time) error {
 	var buf bytes.Buffer
 	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestCompression)
 	zw.ModTime = when
@@ -206,7 +219,7 @@ func writeArchive(dst, dir, bin string, lic []namedFile, when time.Time) error {
 		return err
 	}
 	for _, f := range docFiles {
-		b, err := os.ReadFile(f)
+		b, err := os.ReadFile(filepath.Join(src, f))
 		if err != nil {
 			return err
 		}
@@ -236,8 +249,8 @@ type namedFile struct {
 // licenseFiles returns the license texts of the Go toolchain and of every module that the
 // git-hint binary links, as licenses/<module path>/<file>, sorted. A module without a
 // license file stops the build.
-func licenseFiles() ([]namedFile, error) {
-	goroot, err := goOutput("env", "GOROOT")
+func licenseFiles(src string) ([]namedFile, error) {
+	goroot, err := goOutput(src, "env", "GOROOT")
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +265,7 @@ func licenseFiles() ([]namedFile, error) {
 		}
 		out = append(out, namedFile{"licenses/go/" + n, b})
 	}
-	list, err := goOutput("list", "-deps", "-f", "{{with .Module}}{{if not .Main}}{{.Path}} {{.Dir}}{{end}}{{end}}", "./cmd/git-hint")
+	list, err := goOutput(src, "list", "-deps", "-f", "{{with .Module}}{{if not .Main}}{{.Path}} {{.Dir}}{{end}}{{end}}", "./cmd/git-hint")
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +427,66 @@ func git(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-func goOutput(args ...string) (string, error) {
-	out, err := exec.Command("go", args...).Output()
+func goOutput(dir string, args ...string) (string, error) {
+	cmd := exec.Command("go", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=readonly")
+	out, err := cmd.Output()
 	return strings.TrimSpace(string(out)), err
+}
+
+// exportTree writes the files of a commit (git archive) into dst. Only regular files and
+// directories are written; links and other entries stop the export, and no path may leave
+// dst.
+func exportTree(commit, dst string) error {
+	cmd := exec.Command("git", "archive", "--format=tar", commit)
+	r, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	tr := tar.NewReader(r)
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if h.Typeflag == tar.TypeXGlobalHeader {
+			continue
+		}
+		name := filepath.Clean(filepath.FromSlash(h.Name))
+		if filepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("archive path %q leaves the tree", h.Name)
+		}
+		p := filepath.Join(dst, name)
+		switch h.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(p, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				return err
+			}
+			f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, os.FileMode(h.Mode)&0o755|0o600)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(f, tr)
+			if cerr := f.Close(); err == nil {
+				err = cerr
+			}
+			if err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("archive entry %q has an unsupported type", h.Name)
+		}
+	}
+	return cmd.Wait()
 }
