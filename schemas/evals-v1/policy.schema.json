@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:hint:local:evals:v1:policy",
-  "title": "HINT local eval policy (the evals object of .hint/config.json)",
+  "title": "HINT local eval policy (the evals object of .hint/state/project.json)",
   "description": "Absent or capture=off: no eval evidence is collected. Each permission is separate; enabling capture enables nothing else. Only the user writes this object (CLI or file); no MCP tool can change it.",
   "type": "object",
   "additionalProperties": false,

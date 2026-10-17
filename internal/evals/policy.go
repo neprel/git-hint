@@ -5,7 +5,7 @@ import (
 	"slices"
 )
 
-// Policy is the `evals` object of .hint/config.json. A missing object or capture "off"
+// Policy is the `evals` object of .hint/state/project.json. A missing object or capture "off"
 // collects nothing. Capture, model calls, code execution and result export are separate
 // permissions: enabling one enables none of the others. Only the user writes the policy
 // (CLI or file); MCP tools and agent text cannot change it.
@@ -104,7 +104,7 @@ func (p *Policy) Check(op Op, agent string) error {
 		return &Denied{op, "eval collection is off (git hint eval on)"}
 	}
 	if err := ValidateValue("policy", p); err != nil {
-		return &Denied{op, "the eval policy in .hint/config.json is invalid"}
+		return &Denied{op, "the eval policy in .hint/state/project.json is invalid"}
 	}
 	switch op {
 	case OpCapture:
