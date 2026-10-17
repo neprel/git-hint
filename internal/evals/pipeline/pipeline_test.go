@@ -13,6 +13,7 @@ import (
 
 	"github.com/neprel/git-hint/internal/evals"
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/sessions"
 	"github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/testkit"
@@ -122,5 +123,32 @@ func TestPassKeepsSnapshotsAndLeavesExportsClean(t *testing.T) {
 		if strings.Contains(string(d.Raw), "HINTCANARY_request_text") {
 			t.Fatal("session text in a canonical export")
 		}
+	}
+}
+
+func TestRetentionCoversImportedSessions(t *testing.T) {
+	s, env, _ := setup(t)
+	p := evals.Enabled([]string{"opencode"})
+	s.Cfg.Evals = &p
+	r := Run(context.Background(), s, env) // the fixture session is a week old: imported
+	if r.Imports[0].New != 1 {
+		t.Fatalf("first pass %+v", r.Imports)
+	}
+	l := library.Open(s, 0)
+	var idx sessions.IndexEntry
+	if err := l.Index("opencode/ses_synth_main_0001", &idx); err != nil {
+		t.Fatal(err)
+	}
+	later := env
+	later.Now = func() time.Time { return time.Now().Add(100 * 24 * time.Hour) }
+	r = Run(context.Background(), s, later)
+	if r.Imports[0].New != 0 || r.Imports[0].Skipped != 1 || r.Pruned < 1 {
+		t.Fatalf("pass after the retention period: imports %+v pruned %d", r.Imports, r.Pruned)
+	}
+	if err := l.Index("opencode/ses_synth_main_0001", &idx); err == nil {
+		t.Fatal("an expired session stayed imported")
+	}
+	if _, err := l.GetObject(idx.Normalized); err == nil {
+		t.Fatal("the expired session's objects stayed")
 	}
 }

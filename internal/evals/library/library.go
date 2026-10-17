@@ -375,3 +375,27 @@ func (l *Library) Indexes(group string) ([]string, error) {
 	sort.Strings(out)
 	return out, nil
 }
+
+// DeleteIndex removes one index record (objects it alone named go at the next garbage
+// collection).
+func (l *Library) DeleteIndex(name string) error {
+	if !indexName.MatchString(name) || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid index name %q", name)
+	}
+	p := l.path("index", filepath.FromSlash(name)+".json")
+	if err := l.checkTarget(p); err != nil {
+		return err
+	}
+	err := os.Remove(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// CollectGarbage removes objects that no record or index names.
+func (l *Library) CollectGarbage() (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.collectGarbage()
+}

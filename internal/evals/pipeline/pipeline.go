@@ -79,7 +79,7 @@ func Run(ctx context.Context, s *store.Store, env Env) Result {
 		roots = append(roots, s.RepoRoot(r))
 	}
 	res.Imports = sources.Run(ctx, l, sources.Options{Agents: p.Agents, Roots: roots, ImportRoots: p.ImportRoots,
-		Home: env.Home, MaxSessions: lim.BatchEpisodes, Cmd: env.Cmd})
+		Home: env.Home, MaxSessions: lim.BatchEpisodes, Cmd: env.Cmd, Since: env.Now().Add(-time.Duration(lim.RetentionDays) * 24 * time.Hour)})
 	res.Snapshots = keepSnapshots(ctx, l, env.DataHome)
 	if ctx.Err() == nil {
 		res.Episodes = discover(l, s, env.Now())
@@ -92,6 +92,7 @@ func Run(ctx context.Context, s *store.Store, env Env) Result {
 	if rep, err := l.Prune(env.Now(), lim.RetentionDays); err == nil {
 		res.Pruned = rep.Manifests
 	}
+	res.Pruned += pruneSessions(l, env.Now().Add(-time.Duration(lim.RetentionDays)*24*time.Hour))
 	if ctx.Err() != nil {
 		res.Stopped = "time_limit"
 	}
@@ -216,4 +217,32 @@ func discover(l *library.Library, s *store.Store, now time.Time) EpisodeReport {
 		rep.Error = "store_failed"
 	}
 	return rep
+}
+
+// pruneSessions removes imported sessions whose last activity is older than the cutoff,
+// then the objects that only they named.
+func pruneSessions(l *library.Library, cutoff time.Time) int {
+	n := 0
+	for _, agent := range []string{"opencode", "claude-code", "codex"} {
+		names, _ := l.Indexes(agent)
+		for _, name := range names {
+			var idx sessions.IndexEntry
+			if l.Index(name, &idx) != nil {
+				continue
+			}
+			s, err := sessions.Load(l, idx)
+			if err != nil {
+				continue
+			}
+			if t := sources.LastActivity(s); !t.IsZero() && t.Before(cutoff) {
+				if l.DeleteIndex(name) == nil {
+					n++
+				}
+			}
+		}
+	}
+	if n > 0 {
+		l.CollectGarbage()
+	}
+	return n
 }

@@ -50,11 +50,12 @@ func (e Exec) Output(ctx context.Context, dir, name string, args ...string) ([]b
 
 // Options of one discovery pass.
 type Options struct {
-	Agents      []string // from the policy
-	Roots       []string // project repository roots
-	ImportRoots []string // policy override of the default session locations
-	Home        string   // user home (tests use a temporary one)
-	MaxSessions int      // per agent per pass
+	Agents      []string  // from the policy
+	Roots       []string  // project repository roots
+	ImportRoots []string  // policy override of the default session locations
+	Home        string    // user home (tests use a temporary one)
+	MaxSessions int       // per agent per pass
+	Since       time.Time // sessions whose last activity is older are not imported (retention)
 	Cmd         Commander
 }
 
@@ -184,6 +185,10 @@ func openCode(ctx context.Context, l *library.Library, opt Options) Report {
 			r.fail(code(err))
 			continue
 		}
+		if tooOld(res.Session, opt.Since) {
+			r.Skipped++
+			continue
+		}
 		o, err := sessions.Import(l, src, res)
 		if err != nil {
 			r.fail(code(err))
@@ -204,6 +209,26 @@ func openCode(ctx context.Context, l *library.Library, opt Options) Report {
 // Within reports whether dir lies inside one of the roots (paths compared as given and
 // with symbolic links resolved).
 func Within(roots []string, dir string) bool { return within(roots, dir) }
+
+// LastActivity is the time of the latest timed item of a session (zero when unknown).
+func LastActivity(s sessions.Session) time.Time {
+	var last int64
+	for _, it := range s.Items {
+		if it.Time > last {
+			last = it.Time
+		}
+	}
+	if last == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(last)
+}
+
+// tooOld: the session ended before the retention window (a session without times is kept).
+func tooOld(s sessions.Session, since time.Time) bool {
+	t := LastActivity(s)
+	return !since.IsZero() && !t.IsZero() && t.Before(since)
+}
 
 // within reports whether dir lies inside one of the roots.
 func within(roots []string, dir string) bool {
@@ -278,6 +303,11 @@ func files(l *library.Library, opt Options, agent string, cands []file, parse fu
 		if err != nil {
 			r.fail(code(err))
 			st.Files[f.path] = [2]int64{f.size, f.mod} // do not retry an unsupported file every pass
+			continue
+		}
+		if tooOld(res.Session, opt.Since) {
+			r.Skipped++
+			st.Files[f.path] = [2]int64{f.size, f.mod}
 			continue
 		}
 		if agent == "codex" && !within(opt.Roots, res.Session.Directory) {
