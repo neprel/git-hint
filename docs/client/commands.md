@@ -4,7 +4,7 @@ Every command says what it reads, what it writes and whether it uses the network
 
 | Command | Effects | Purpose |
 |---|---|---|
-| `git hint init [--repo PATH[=NAME]]... [--server URL] [--mcp-upload allow\|deny]` | writes local state; no network | Create the store, the key and the repository list. Running it again adds repositories and keeps the key. `--mcp-upload` sets whether the MCP tool `hint_recommend` may send data (default deny). |
+| `git hint init [--repo PATH[=NAME]]... [--server URL] [--mcp-upload allow\|deny] [--mcp-eval-run allow\|deny]` | writes local state; no network | Create the store, the key and the repository list. Running it again adds repositories and keeps the key. `--mcp-upload` sets whether the MCP tool `hint_recommend` may send data (default deny); `--mcp-eval-run` whether `hint_eval_run` may run eval trials (default deny). |
 | `git hint status` | reads local state; no network | Repositories, last snapshots, adapter counters, queued packages, privacy profile. |
 | `git hint collect [--full] [--json]` | reads the work trees; writes local state; no network | Scan the repositories; store a new snapshot when they changed; record changed files. `--full` ignores the scan cache. |
 | `git hint changes [--format text\|canonical]` | reads local state; no network | Changes between the last two snapshots. `text` shows local names; `canonical` prints the HINT change set without names. |

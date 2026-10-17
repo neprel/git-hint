@@ -68,10 +68,16 @@ type MCP struct {
 	// Upload is "deny" (default) or "allow": whether the hint_recommend tool may send the
 	// export package to the configured server. The agent's request alone never sends data.
 	Upload string `json:"upload,omitempty"`
+	// EvalRun is "deny" (default) or "allow": whether the hint_eval_run tool may run eval
+	// trials. It applies only on top of the eval policy's own permissions.
+	EvalRun string `json:"eval_run,omitempty"`
 }
 
 // MCPUploadAllowed reports the local MCP upload rule (deny by default).
 func (c Config) MCPUploadAllowed() bool { return c.MCP.Upload == "allow" }
+
+// MCPEvalRunAllowed reports the local MCP eval run rule (deny by default).
+func (c Config) MCPEvalRunAllowed() bool { return c.MCP.EvalRun == "allow" }
 
 // Store is an opened project store.
 type Store struct {
@@ -136,9 +142,10 @@ func GitTopLevel(dir string) (string, error) {
 
 // InitOptions are the inputs of `git hint init`.
 type InitOptions struct {
-	Repos     []Repo // additional repositories; the primary repository is always added
-	ServerURL string
-	MCPUpload string // "", "allow" or "deny"
+	Repos      []Repo // additional repositories; the primary repository is always added
+	ServerURL  string
+	MCPUpload  string // "", "allow" or "deny"
+	MCPEvalRun string // "", "allow" or "deny"
 }
 
 // Init creates the store in the Git work tree that contains dir. It is idempotent for an
@@ -192,6 +199,13 @@ func Init(dir string, opt InitOptions) (*Store, bool, error) {
 		s.Cfg.MCP.Upload = opt.MCPUpload
 	default:
 		return nil, false, fmt.Errorf("mcp upload rule %q: use allow or deny", opt.MCPUpload)
+	}
+	switch opt.MCPEvalRun {
+	case "":
+	case "allow", "deny":
+		s.Cfg.MCP.EvalRun = opt.MCPEvalRun
+	default:
+		return nil, false, fmt.Errorf("mcp eval run rule %q: use allow or deny", opt.MCPEvalRun)
 	}
 	if err := s.SaveConfig(); err != nil {
 		return nil, false, err

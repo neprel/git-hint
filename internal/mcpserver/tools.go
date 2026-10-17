@@ -38,6 +38,10 @@ func (h *handlers) register(s *mcp.Server) {
 		Description: "Side effect: none. Repositories, last snapshots with digests, activity coverage, server and upload rule, privacy profile."}, h.status)
 	add(s, &mcp.Tool{Name: "hint_collect", Annotations: local,
 		Description: "Side effect: local write (.hint/ only). Scan the repositories and store a new snapshot when they changed. No network. When the user enabled local evals (git hint eval on), it also builds evals from agent sessions and, only if the user allowed container runs, starts their qualification in containers; this tool cannot change those permissions."}, h.collect)
+	add(s, &mcp.Tool{Name: "hint_evals", Annotations: ro,
+		Description: "Side effect: none. Local evals built from the user's agent sessions: state, family, qualification checks, reasons and raw trial results per arm. Returns no session text, path or solution."}, h.evals)
+	add(s, &mcp.Tool{Name: "hint_eval_run", Annotations: local,
+		Description: "Side effect: runs eval trials in local containers. Allowed only when the user's local rule mcp.eval_run is allow and the eval policy allows container runs; a live agent uses only the local model of that policy. This tool cannot change either rule. Every attempt is recorded."}, h.evalRun)
 	add(s, &mcp.Tool{Name: "hint_export_preview", Annotations: ro,
 		Description: "Side effect: none. Build and validate the export package under the local policy; report documents, sizes, record counts and fields removed by the policy."}, h.exportPreview)
 	add(s, &mcp.Tool{Name: "hint_recommend", Annotations: net,

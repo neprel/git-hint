@@ -21,6 +21,8 @@ Every tool description starts with its side effect. Every result carries `side_e
 |---|---|---|---|
 | `hint_status` | — | repositories with snapshot ID and digest, activity sources and their gaps, server configured, MCP upload rule, privacy profile, queued packages | none |
 | `hint_collect` | `full`, optional `task_id` | per repository: snapshot ID and digest, changed, files, entities, relations, file changes; missing capabilities; `evals` counts when the user enabled local evals ([evals.md](evals.md)) | local write (`.hint/` only); container runs only when the user allowed them with `git hint eval on --run docker` |
+| `hint_evals` | optional `eval` | local evals: state, family, qualification checks, reasons; raw trial results per arm. No session text, path or solution | none |
+| `hint_eval_run` | optional `evals`, `agent` (`oracle`, `nop`, `opencode`), `attempts`, `arm` | suite ID, trials, outcomes, model requests | runs trials in local containers; only when the user's rule `mcp.eval_run` is `allow` (`git hint init --mcp-eval-run allow`) and the eval policy allows container runs |
 | `hint_export_preview` | — | validity, documents and sizes, record counts, fields removed by the policy, profile | none |
 | `hint_recommend` | — | `approval_required` (nothing sent) or `sent` with plan summaries: status, affected repositories, forecasts marked as forecasts | network upload, only with the user's rule |
 | `hint_plan` | optional `recommendation_id`, `output_path` | validation result, plan summaries, Markdown path and text | local write (one plan file) |

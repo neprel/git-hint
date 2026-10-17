@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/neprel/git-hint/internal/api"
+	"github.com/neprel/git-hint/internal/evals"
+	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/store"
 )
@@ -40,6 +42,9 @@ var messages = map[string]string{
 	"unknown_repository":     "No repository of this project has that name. Omit the optional repository argument to use all repositories.",
 	"path_not_allowed":       "The path is outside the project repositories, is or crosses a symbolic link, or the file exists and is not a HINT plan.",
 	"too_large":              "The input is larger than the limit.",
+	"eval_run_denied":        "The user's local rule denies eval runs from MCP. The user can allow them with `git hint init --mcp-eval-run allow`.",
+	"eval_not_allowed":       "The user's eval policy does not allow this operation (collection, container runs or the local model). The user changes it with `git hint eval on`.",
+	"runner_unavailable":     "The eval runner (Harbor 0.23 with Docker) is not available. Nothing ran on the host.",
 	"internal":               "The operation failed. The user can run the matching `git hint` command for details.",
 }
 
@@ -63,6 +68,10 @@ func classify(err error) *ToolError {
 		return toolErr("cancelled")
 	case errors.Is(err, context.DeadlineExceeded):
 		return toolErr("timeout")
+	case errors.As(err, new(*evals.Denied)):
+		return toolErr("eval_not_allowed")
+	case errors.Is(err, runner.ErrUnavailable):
+		return toolErr("runner_unavailable")
 	case errors.Is(err, store.ErrBusy):
 		return toolErr("busy")
 	case errors.Is(err, store.ErrNotExcluded):

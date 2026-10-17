@@ -134,6 +134,7 @@ func cmdInit(e *Env, args []string) int {
 	fs.Var(&repos, "repo", "add another repository: PATH or PATH=NAME (repeatable)")
 	server := fs.String("server", "", "HINT server base URL (https; http only for a loopback host)")
 	mcpUpload := fs.String("mcp-upload", "", "allow or deny: may the MCP tool hint_recommend send data (default deny)")
+	mcpEvalRun := fs.String("mcp-eval-run", "", "allow or deny: may the MCP tool hint_eval_run run eval trials (default deny)")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -148,7 +149,7 @@ func cmdInit(e *Env, args []string) int {
 		}
 		opt.ServerURL = *server
 	}
-	opt.MCPUpload = *mcpUpload
+	opt.MCPUpload, opt.MCPEvalRun = *mcpUpload, *mcpEvalRun
 	s, created, err := store.Init(e.Dir, opt)
 	if err != nil {
 		return fail(e, err)
