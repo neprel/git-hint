@@ -187,11 +187,11 @@ storage_mb = 4096
 // The task container gets no network at run time (network_mode "none" in HINT's compose
 // file); "public" in task.toml only keeps Harbor from adding its own egress sidecar.
 func compose(s Settings) string {
-	if s.Mode == LANModel { // Harbor's egress sidecar controls the network
+	if s.Mode == LANModel {
+		// Harbor's egress sidecar controls the network; the task container joins the
+		// sidecar's network namespace, so it cannot carry host entries of its own
 		return fmt.Sprintf(`services:
   main:
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     pids_limit: %d
     security_opt:
       - "no-new-privileges:true"
