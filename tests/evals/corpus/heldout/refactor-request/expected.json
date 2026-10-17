@@ -1,0 +1,21 @@
+{
+ "episodes": [
+  {
+   "attribution": "exclusive",
+   "base": "s0",
+   "corrections": [],
+   "family": "refactor",
+   "links": [],
+   "outcome": "test_passed",
+   "paths": [
+    "cart.go"
+   ],
+   "reasons": [],
+   "requests": [
+    "u1"
+   ],
+   "result": "s1",
+   "session": "ses_k"
+  }
+ ]
+}

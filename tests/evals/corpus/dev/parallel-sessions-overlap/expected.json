@@ -1,0 +1,42 @@
+{
+ "episodes": [
+  {
+   "attribution": "ambiguous",
+   "base": "s0",
+   "corrections": [],
+   "family": "bug_fix",
+   "links": [],
+   "outcome": "test_passed",
+   "paths": [
+    "cart.go"
+   ],
+   "reasons": [
+    "attribution_ambiguous"
+   ],
+   "requests": [
+    "u1"
+   ],
+   "result": "s1",
+   "session": "ses_f1"
+  },
+  {
+   "attribution": "ambiguous",
+   "base": "s0",
+   "corrections": [],
+   "family": null,
+   "links": [],
+   "outcome": "test_passed",
+   "paths": [
+    "cart.go"
+   ],
+   "reasons": [
+    "attribution_ambiguous"
+   ],
+   "requests": [
+    "v1"
+   ],
+   "result": "s2",
+   "session": "ses_f2"
+  }
+ ]
+}

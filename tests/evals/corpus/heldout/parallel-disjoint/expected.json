@@ -1,0 +1,38 @@
+{
+ "episodes": [
+  {
+   "attribution": "separated",
+   "base": "s0",
+   "corrections": [],
+   "family": "bug_fix",
+   "links": [],
+   "outcome": "test_passed",
+   "paths": [
+    "cart.go"
+   ],
+   "reasons": [],
+   "requests": [
+    "u1"
+   ],
+   "result": "s1",
+   "session": "ses_p1"
+  },
+  {
+   "attribution": "separated",
+   "base": "s0",
+   "corrections": [],
+   "family": "feature",
+   "links": [],
+   "outcome": "test_passed",
+   "paths": [
+    "user.go"
+   ],
+   "reasons": [],
+   "requests": [
+    "v1"
+   ],
+   "result": "s2",
+   "session": "ses_p2"
+  }
+ ]
+}

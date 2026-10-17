@@ -1,0 +1,242 @@
+{
+ "note": "overlapping time, disjoint files: separated with evidence",
+ "now": 1792036000000,
+ "sessions": [
+  {
+   "_parent": null,
+   "info": {
+    "agent": "build",
+    "cost": 0,
+    "id": "ses_p1",
+    "location": {
+     "directory": "/work/shop"
+    },
+    "model": {
+     "id": "local-coder",
+     "providerID": "lan",
+     "variant": "default"
+    },
+    "projectID": "prj_corpus",
+    "time": {
+     "created": 1792000000000,
+     "updated": 1792059940000
+    },
+    "title": "synthetic",
+    "tokens": {
+     "cache": {
+      "read": 0,
+      "write": 0
+     },
+     "input": 0,
+     "output": 0,
+     "reasoning": 0
+    }
+   },
+   "messages": [
+    {
+     "id": "u1",
+     "text": "Fix the discount bug.",
+     "time": {
+      "created": 1792000000000
+     },
+     "type": "user"
+    },
+    {
+     "agent": "build",
+     "content": [
+      {
+       "id": "a1_t0",
+       "name": "edit",
+       "state": {
+        "content": [],
+        "input": {
+         "filePath": "/work/shop/cart.go",
+         "newString": "b",
+         "oldString": "a"
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792000120500,
+        "created": 1792000120000
+       },
+       "type": "tool"
+      },
+      {
+       "id": "a1_t1",
+       "name": "bash",
+       "state": {
+        "content": [],
+        "input": {
+         "command": "go test ./..."
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792000121500,
+        "created": 1792000121000
+       },
+       "type": "tool"
+      }
+     ],
+     "cost": 0,
+     "finish": "stop",
+     "id": "a1",
+     "model": {
+      "id": "local-coder",
+      "providerID": "lan",
+      "variant": "default"
+     },
+     "snapshot": {
+      "end": "SNAP:s1",
+      "start": "SNAP:s0"
+     },
+     "time": {
+      "completed": 1792000150000,
+      "created": 1792000120000
+     },
+     "tokens": {
+      "cache": {
+       "read": 0,
+       "write": 0
+      },
+      "input": 400,
+      "output": 40,
+      "reasoning": 0
+     },
+     "type": "assistant"
+    }
+   ]
+  },
+  {
+   "_parent": null,
+   "info": {
+    "agent": "build",
+    "cost": 0,
+    "id": "ses_p2",
+    "location": {
+     "directory": "/work/shop"
+    },
+    "model": {
+     "id": "local-coder",
+     "providerID": "lan",
+     "variant": "default"
+    },
+    "projectID": "prj_corpus",
+    "time": {
+     "created": 1792000000000,
+     "updated": 1792059940000
+    },
+    "title": "synthetic",
+    "tokens": {
+     "cache": {
+      "read": 0,
+      "write": 0
+     },
+     "input": 0,
+     "output": 0,
+     "reasoning": 0
+    }
+   },
+   "messages": [
+    {
+     "id": "v1",
+     "text": "Add a guest default name.",
+     "time": {
+      "created": 1792000060000
+     },
+     "type": "user"
+    },
+    {
+     "agent": "build",
+     "content": [
+      {
+       "id": "b1_t0",
+       "name": "edit",
+       "state": {
+        "content": [],
+        "input": {
+         "filePath": "/work/shop/user.go",
+         "newString": "b",
+         "oldString": "a"
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792000180500,
+        "created": 1792000180000
+       },
+       "type": "tool"
+      },
+      {
+       "id": "b1_t1",
+       "name": "bash",
+       "state": {
+        "content": [],
+        "input": {
+         "command": "go test ./..."
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792000181500,
+        "created": 1792000181000
+       },
+       "type": "tool"
+      }
+     ],
+     "cost": 0,
+     "finish": "stop",
+     "id": "b1",
+     "model": {
+      "id": "local-coder",
+      "providerID": "lan",
+      "variant": "default"
+     },
+     "snapshot": {
+      "end": "SNAP:s2",
+      "start": "SNAP:s0"
+     },
+     "time": {
+      "completed": 1792000210000,
+      "created": 1792000180000
+     },
+     "tokens": {
+      "cache": {
+       "read": 0,
+       "write": 0
+      },
+      "input": 400,
+      "output": 40,
+      "reasoning": 0
+     },
+     "type": "assistant"
+    }
+   ]
+  }
+ ],
+ "snapshots": {
+  "s0": {
+   "cart.go": "package shop\n\nfunc Total(p, d int) int { return p }\n",
+   "cart_test.go": "package shop\n",
+   "go.mod": "module shop\n",
+   "user.go": "package shop\n\nfunc Name() string { return \"\" }\n"
+  },
+  "s1": {
+   "cart.go": "package shop\n\nfunc Total(p, d int) int { return p - d }\n",
+   "cart_test.go": "package shop\n",
+   "go.mod": "module shop\n",
+   "user.go": "package shop\n\nfunc Name() string { return \"\" }\n"
+  },
+  "s2": {
+   "cart.go": "package shop\n\nfunc Total(p, d int) int { return p }\n",
+   "cart_test.go": "package shop\n",
+   "go.mod": "module shop\n",
+   "user.go": "package shop\n\nfunc Name() string { return \"guest\" }\n"
+  }
+ }
+}

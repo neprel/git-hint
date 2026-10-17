@@ -1,0 +1,23 @@
+{
+ "episodes": [
+  {
+   "attribution": "exclusive",
+   "base": "s0",
+   "corrections": [],
+   "family": "feature",
+   "links": [],
+   "outcome": "none",
+   "paths": [
+    "user.go"
+   ],
+   "reasons": [
+    "no_checkable_outcome"
+   ],
+   "requests": [
+    "u1"
+   ],
+   "result": "s1",
+   "session": "ses_d"
+  }
+ ]
+}

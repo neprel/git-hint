@@ -1,0 +1,23 @@
+{
+ "episodes": [
+  {
+   "attribution": "exclusive",
+   "base": null,
+   "corrections": [],
+   "family": "bug_fix",
+   "links": [],
+   "outcome": "test_passed",
+   "paths": [
+    "cart.go"
+   ],
+   "reasons": [
+    "baseline_missing"
+   ],
+   "requests": [
+    "u1"
+   ],
+   "result": "s1",
+   "session": "ses_e"
+  }
+ ]
+}

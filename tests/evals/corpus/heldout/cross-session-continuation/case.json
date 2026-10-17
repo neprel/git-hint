@@ -1,0 +1,225 @@
+{
+ "note": "a later session continues unfinished work on the same file: linked, not merged",
+ "now": 1792036000000,
+ "sessions": [
+  {
+   "_parent": null,
+   "info": {
+    "agent": "build",
+    "cost": 0,
+    "id": "ses_o1",
+    "location": {
+     "directory": "/work/shop"
+    },
+    "model": {
+     "id": "local-coder",
+     "providerID": "lan",
+     "variant": "default"
+    },
+    "projectID": "prj_corpus",
+    "time": {
+     "created": 1792000000000,
+     "updated": 1792059940000
+    },
+    "title": "synthetic",
+    "tokens": {
+     "cache": {
+      "read": 0,
+      "write": 0
+     },
+     "input": 0,
+     "output": 0,
+     "reasoning": 0
+    }
+   },
+   "messages": [
+    {
+     "id": "u1",
+     "text": "Fix the discount bug.",
+     "time": {
+      "created": 1792000000000
+     },
+     "type": "user"
+    },
+    {
+     "agent": "build",
+     "content": [
+      {
+       "id": "a1_t0",
+       "name": "edit",
+       "state": {
+        "content": [],
+        "input": {
+         "filePath": "/work/shop/cart.go",
+         "newString": "b",
+         "oldString": "a"
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792000060500,
+        "created": 1792000060000
+       },
+       "type": "tool"
+      }
+     ],
+     "cost": 0,
+     "finish": "stop",
+     "id": "a1",
+     "model": {
+      "id": "local-coder",
+      "providerID": "lan",
+      "variant": "default"
+     },
+     "snapshot": {
+      "end": "SNAP:s1",
+      "start": "SNAP:s0"
+     },
+     "time": {
+      "completed": 1792000090000,
+      "created": 1792000060000
+     },
+     "tokens": {
+      "cache": {
+       "read": 0,
+       "write": 0
+      },
+      "input": 400,
+      "output": 40,
+      "reasoning": 0
+     },
+     "type": "assistant"
+    }
+   ]
+  },
+  {
+   "_parent": null,
+   "info": {
+    "agent": "build",
+    "cost": 0,
+    "id": "ses_o2",
+    "location": {
+     "directory": "/work/shop"
+    },
+    "model": {
+     "id": "local-coder",
+     "providerID": "lan",
+     "variant": "default"
+    },
+    "projectID": "prj_corpus",
+    "time": {
+     "created": 1792000000000,
+     "updated": 1792059940000
+    },
+    "title": "synthetic",
+    "tokens": {
+     "cache": {
+      "read": 0,
+      "write": 0
+     },
+     "input": 0,
+     "output": 0,
+     "reasoning": 0
+    }
+   },
+   "messages": [
+    {
+     "id": "v1",
+     "text": "Continue: the discount fix still needs rounding.",
+     "time": {
+      "created": 1792007200000
+     },
+     "type": "user"
+    },
+    {
+     "agent": "build",
+     "content": [
+      {
+       "id": "b1_t0",
+       "name": "edit",
+       "state": {
+        "content": [],
+        "input": {
+         "filePath": "/work/shop/cart.go",
+         "newString": "b",
+         "oldString": "a"
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792007260500,
+        "created": 1792007260000
+       },
+       "type": "tool"
+      },
+      {
+       "id": "b1_t1",
+       "name": "bash",
+       "state": {
+        "content": [],
+        "input": {
+         "command": "go test ./..."
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792007261500,
+        "created": 1792007261000
+       },
+       "type": "tool"
+      }
+     ],
+     "cost": 0,
+     "finish": "stop",
+     "id": "b1",
+     "model": {
+      "id": "local-coder",
+      "providerID": "lan",
+      "variant": "default"
+     },
+     "snapshot": {
+      "end": "SNAP:s2",
+      "start": "SNAP:s1"
+     },
+     "time": {
+      "completed": 1792007290000,
+      "created": 1792007260000
+     },
+     "tokens": {
+      "cache": {
+       "read": 0,
+       "write": 0
+      },
+      "input": 400,
+      "output": 40,
+      "reasoning": 0
+     },
+     "type": "assistant"
+    }
+   ]
+  }
+ ],
+ "snapshots": {
+  "s0": {
+   "cart.go": "package shop\n\nfunc Total(p, d int) int { return p }\n",
+   "cart_test.go": "package shop\n",
+   "go.mod": "module shop\n",
+   "user.go": "package shop\n\nfunc Name() string { return \"\" }\n"
+  },
+  "s1": {
+   "cart.go": "package shop\n\nfunc Total(p, d int) int { return p - d }\n",
+   "cart_test.go": "package shop\n",
+   "go.mod": "module shop\n",
+   "user.go": "package shop\n\nfunc Name() string { return \"\" }\n"
+  },
+  "s2": {
+   "cart.go": "package shop\n\nfunc Total(p, d int) int { return round(p - d) }\n",
+   "cart_test.go": "package shop\n",
+   "go.mod": "module shop\n",
+   "user.go": "package shop\n\nfunc Name() string { return \"\" }\n"
+  }
+ }
+}

@@ -1,0 +1,209 @@
+{
+ "note": "a new request after a passing check with disjoint files is a new task",
+ "now": 1792036000000,
+ "sessions": [
+  {
+   "_parent": null,
+   "info": {
+    "agent": "build",
+    "cost": 0,
+    "id": "ses_c",
+    "location": {
+     "directory": "/work/shop"
+    },
+    "model": {
+     "id": "local-coder",
+     "providerID": "lan",
+     "variant": "default"
+    },
+    "projectID": "prj_corpus",
+    "time": {
+     "created": 1792000000000,
+     "updated": 1792059940000
+    },
+    "title": "synthetic",
+    "tokens": {
+     "cache": {
+      "read": 0,
+      "write": 0
+     },
+     "input": 0,
+     "output": 0,
+     "reasoning": 0
+    }
+   },
+   "messages": [
+    {
+     "id": "u1",
+     "text": "Fix the discount bug in Total.",
+     "time": {
+      "created": 1792000000000
+     },
+     "type": "user"
+    },
+    {
+     "agent": "build",
+     "content": [
+      {
+       "id": "a1_t0",
+       "name": "edit",
+       "state": {
+        "content": [],
+        "input": {
+         "filePath": "/work/shop/cart.go",
+         "newString": "b",
+         "oldString": "a"
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792000060500,
+        "created": 1792000060000
+       },
+       "type": "tool"
+      },
+      {
+       "id": "a1_t1",
+       "name": "bash",
+       "state": {
+        "content": [],
+        "input": {
+         "command": "go test ./..."
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792000061500,
+        "created": 1792000061000
+       },
+       "type": "tool"
+      }
+     ],
+     "cost": 0,
+     "finish": "stop",
+     "id": "a1",
+     "model": {
+      "id": "local-coder",
+      "providerID": "lan",
+      "variant": "default"
+     },
+     "snapshot": {
+      "end": "SNAP:s1",
+      "start": "SNAP:s0"
+     },
+     "time": {
+      "completed": 1792000090000,
+      "created": 1792000060000
+     },
+     "tokens": {
+      "cache": {
+       "read": 0,
+       "write": 0
+      },
+      "input": 400,
+      "output": 40,
+      "reasoning": 0
+     },
+     "type": "assistant"
+    },
+    {
+     "id": "u2",
+     "text": "Now add a default guest name to Name.",
+     "time": {
+      "created": 1792000600000
+     },
+     "type": "user"
+    },
+    {
+     "agent": "build",
+     "content": [
+      {
+       "id": "a2_t0",
+       "name": "edit",
+       "state": {
+        "content": [],
+        "input": {
+         "filePath": "/work/shop/user.go",
+         "newString": "b",
+         "oldString": "a"
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792000660500,
+        "created": 1792000660000
+       },
+       "type": "tool"
+      },
+      {
+       "id": "a2_t1",
+       "name": "bash",
+       "state": {
+        "content": [],
+        "input": {
+         "command": "go test ./..."
+        },
+        "metadata": {},
+        "status": "completed"
+       },
+       "time": {
+        "completed": 1792000661500,
+        "created": 1792000661000
+       },
+       "type": "tool"
+      }
+     ],
+     "cost": 0,
+     "finish": "stop",
+     "id": "a2",
+     "model": {
+      "id": "local-coder",
+      "providerID": "lan",
+      "variant": "default"
+     },
+     "snapshot": {
+      "end": "SNAP:s2",
+      "start": "SNAP:s1"
+     },
+     "time": {
+      "completed": 1792000690000,
+      "created": 1792000660000
+     },
+     "tokens": {
+      "cache": {
+       "read": 0,
+       "write": 0
+      },
+      "input": 400,
+      "output": 40,
+      "reasoning": 0
+     },
+     "type": "assistant"
+    }
+   ]
+  }
+ ],
+ "snapshots": {
+  "s0": {
+   "cart.go": "package shop\n\nfunc Total(p, d int) int { return p }\n",
+   "cart_test.go": "package shop\n",
+   "go.mod": "module shop\n",
+   "user.go": "package shop\n\nfunc Name() string { return \"\" }\n"
+  },
+  "s1": {
+   "cart.go": "package shop\n\nfunc Total(p, d int) int { return p - d }\n",
+   "cart_test.go": "package shop\n",
+   "go.mod": "module shop\n",
+   "user.go": "package shop\n\nfunc Name() string { return \"\" }\n"
+  },
+  "s2": {
+   "cart.go": "package shop\n\nfunc Total(p, d int) int { return p - d }\n",
+   "cart_test.go": "package shop\n",
+   "go.mod": "module shop\n",
+   "user.go": "package shop\n\nfunc Name() string { return \"guest\" }\n"
+  }
+ }
+}
