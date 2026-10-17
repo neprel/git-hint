@@ -1,0 +1,71 @@
+{
+ "info": {
+  "id": "ses_synth_child_0001",
+  "projectID": "prj_synth",
+  "title": "synthetic",
+  "agent": "build",
+  "cost": 0,
+  "location": {
+   "directory": "/work/shop"
+  },
+  "model": {
+   "id": "local-coder",
+   "providerID": "lan",
+   "variant": "default"
+  },
+  "time": {
+   "created": 1792000000000,
+   "updated": 1792000600000
+  },
+  "tokens": {
+   "input": 900,
+   "output": 120,
+   "reasoning": 0,
+   "cache": {
+    "read": 0,
+    "write": 0
+   }
+  }
+ },
+ "messages": [
+  {
+   "type": "user",
+   "id": "msg_c1",
+   "text": "look",
+   "time": {
+    "created": 1792000004700
+   }
+  },
+  {
+   "type": "assistant",
+   "id": "msg_c2",
+   "agent": "general",
+   "finish": "stop",
+   "cost": 0,
+   "model": {
+    "id": "local-coder",
+    "providerID": "lan",
+    "variant": "default"
+   },
+   "time": {
+    "created": 1792000004800,
+    "completed": 1792000004850
+   },
+   "tokens": {
+    "input": 50,
+    "output": 5,
+    "reasoning": 0,
+    "cache": {
+     "read": 0,
+     "write": 0
+    }
+   },
+   "content": [
+    {
+     "type": "text",
+     "text": "ok"
+    }
+   ]
+  }
+ ]
+}

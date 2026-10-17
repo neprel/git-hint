@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -322,4 +323,55 @@ func (l *Library) Recover() (int, error) {
 		return nil
 	})
 	return n, err
+}
+
+var indexName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}/[A-Za-z0-9._-]{1,200}$`)
+
+// PutIndex writes a rebuildable or bookkeeping record (`index/<group>/<name>.json`). It is
+// replaced as a whole and atomically; it never holds session text.
+func (l *Library) PutIndex(name string, v any) error {
+	if !indexName.MatchString(name) || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid index name %q", name)
+	}
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if err := l.reserve(len(b)); err != nil {
+		return err
+	}
+	return l.writeNew(l.path("index", filepath.FromSlash(name)+".json"), append(b, '\n'), false)
+}
+
+// Index reads an index record; fs.ErrNotExist when absent.
+func (l *Library) Index(name string, v any) error {
+	if !indexName.MatchString(name) || strings.Contains(name, "..") {
+		return fmt.Errorf("invalid index name %q", name)
+	}
+	b, err := os.ReadFile(l.path("index", filepath.FromSlash(name)+".json"))
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, v)
+}
+
+// Indexes lists the names of one index group.
+func (l *Library) Indexes(group string) ([]string, error) {
+	ents, err := os.ReadDir(l.path("index", group))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range ents {
+		if n := e.Name(); e.Type().IsRegular() && strings.HasSuffix(n, ".json") && !strings.HasPrefix(n, ".") {
+			out = append(out, group+"/"+strings.TrimSuffix(n, ".json"))
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }

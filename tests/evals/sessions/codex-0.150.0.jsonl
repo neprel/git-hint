@@ -1,0 +1,1 @@
+{"type": "session_meta", "timestamp": "2026-10-11T11:00:00.000Z", "ordinal": 0, "payload": {"id": "cx-synth-0001", "cwd": "/work/shop", "cli_version": "0.150.0", "git": {"branch": "main"}, "source": "cli", "originator": "codex_cli"}}
