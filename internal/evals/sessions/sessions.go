@@ -84,6 +84,7 @@ type Session struct {
 	Source        string   `json:"source"` // digest of the source bytes
 	Session       string   `json:"session"`
 	Parent        string   `json:"parent,omitempty"`
+	Project       string   `json:"project,omitempty"`   // agent project ID (OpenCode: snapshot repository)
 	Directory     string   `json:"directory,omitempty"` // sensitive
 	Items         []Item   `json:"items"`
 	Truncated     bool     `json:"truncated,omitempty"` // the source ended inside a record

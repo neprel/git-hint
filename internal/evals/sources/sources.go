@@ -206,11 +206,21 @@ func within(roots []string, dir string) bool {
 	if dir == "" {
 		return false
 	}
-	d := filepath.Clean(dir)
+	forms := func(p string) []string {
+		out := []string{filepath.Clean(p)}
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			out = append(out, r)
+		}
+		return out
+	}
 	for _, root := range roots {
-		rel, err := filepath.Rel(filepath.Clean(root), d)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return true
+		for _, r := range forms(root) {
+			for _, d := range forms(dir) {
+				rel, err := filepath.Rel(r, d)
+				if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+					return true
+				}
+			}
 		}
 	}
 	return false

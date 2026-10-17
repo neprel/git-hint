@@ -40,7 +40,7 @@ func ParseOpenCode(src []byte, opt OpenCodeOptions) (Result, error) {
 	}
 	b := newBuilder("opencode", opt.Version, src)
 	s := &b.res.Session
-	s.Session, s.Parent = str(doc.Info["id"]), opt.Parent
+	s.Session, s.Parent, s.Project = str(doc.Info["id"]), opt.Parent, str(doc.Info["projectID"])
 	if loc, ok := doc.Info["location"].(map[string]any); ok {
 		s.Directory = str(loc["directory"])
 	}
