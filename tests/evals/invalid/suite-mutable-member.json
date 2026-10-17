@@ -1,0 +1,14 @@
+{
+  "created_at": "2026-10-17T13:00:00Z",
+  "manifest_version": 1,
+  "members": [
+    {
+      "eval": "ev-b0c82a3ade349796",
+      "partition": "held_out",
+      "task_family": "tf-4c18b7a6e5a96b0c"
+    }
+  ],
+  "qualification_policy": "q1",
+  "record": "suite",
+  "suite_id": "su-8853e64d1060ddac"
+}

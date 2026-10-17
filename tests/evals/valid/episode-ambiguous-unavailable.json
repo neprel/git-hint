@@ -1,0 +1,88 @@
+{
+  "attribution": "ambiguous",
+  "boundary": {
+    "basis": "inferred",
+    "end": {
+      "record": "msg_a9",
+      "source": "sha256:9e9b9c7e967fd2150f96191762001ea3f69bca1aaf5ef125ce3eb4378302a00f"
+    },
+    "rule": "request-to-passing-test",
+    "start": {
+      "record": "msg_u1",
+      "source": "sha256:9e9b9c7e967fd2150f96191762001ea3f69bca1aaf5ef125ce3eb4378302a00f"
+    },
+    "support": "high"
+  },
+  "corrections": [
+    {
+      "at": {
+        "record": "msg_u4",
+        "source": "sha256:9e9b9c7e967fd2150f96191762001ea3f69bca1aaf5ef125ce3eb4378302a00f"
+      },
+      "text": "sha256:95817bb292844a3507d57da4a8fc1dd8a6fe25eb002787a57337171cbbfc5d21"
+    }
+  ],
+  "created_at": "2026-10-17T12:00:00Z",
+  "episode_id": "ep-c4d1e7d4193f3028",
+  "links": [
+    {
+      "episode_id": "ep-67d557da97046566",
+      "kind": "child_of",
+      "status": "observed"
+    }
+  ],
+  "manifest_version": 1,
+  "outcomes": [
+    {
+      "at": {
+        "record": "msg_a9",
+        "source": "sha256:9e9b9c7e967fd2150f96191762001ea3f69bca1aaf5ef125ce3eb4378302a00f"
+      }
+    }
+  ],
+  "reasons": [
+    "attribution_ambiguous",
+    "baseline_missing"
+  ],
+  "record": "episode",
+  "repositories": [
+    {
+      "base_evidence": "unavailable",
+      "repo": "app"
+    }
+  ],
+  "requests": [
+    {
+      "at": {
+        "record": "msg_u1",
+        "source": "sha256:9e9b9c7e967fd2150f96191762001ea3f69bca1aaf5ef125ce3eb4378302a00f"
+      },
+      "text": "sha256:ad089b499d48a1dbda3c4e539c2771540ceeaebb3cd2d7f20fdae394685508c1"
+    }
+  ],
+  "rules_version": "0.1.0",
+  "sources": [
+    {
+      "agent": "opencode",
+      "agent_version": "2.0.26",
+      "parser_version": "0.1.0",
+      "role": "primary",
+      "session": "ses_synthetic01",
+      "source": "sha256:9e9b9c7e967fd2150f96191762001ea3f69bca1aaf5ef125ce3eb4378302a00f"
+    },
+    {
+      "agent": "opencode",
+      "agent_version": "2.0.26",
+      "parser_version": "0.1.0",
+      "role": "child",
+      "session": "ses_synthetic02",
+      "source": "sha256:89d9380c0f41d32425a3d5e9e69d679ed20020062f8556d791dbf38dc6eae6ec"
+    }
+  ],
+  "usage": {
+    "child_sessions": 0,
+    "input_tokens": null,
+    "output_tokens": null,
+    "requests": null
+  }
+}

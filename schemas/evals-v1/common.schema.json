@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:local:evals:v1:common",
+  "title": "HINT local eval records: shared definitions",
+  "description": "Local records of the eval library. They never go to a HINT server. Every property carries x-hint-class: sensitive (task content or source evidence; local only, owner-only files), local (digests, states and IDs that stay local), reportable (may appear, transformed into project-scoped opaque values, in a minimized result report).",
+  "$defs": {
+    "Digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "Content digest of a stored object."},
+    "Timestamp": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "EpisodeID": {"type": "string", "pattern": "^ep-[0-9a-f]{16}$", "description": "Local proposal ID. Never an observed task ID."},
+    "EvalID": {"type": "string", "pattern": "^ev-[0-9a-f]{16}$"},
+    "SuiteID": {"type": "string", "pattern": "^su-[0-9a-f]{16}$"},
+    "TrialID": {"type": "string", "pattern": "^tr-[0-9a-f]{16}$"},
+    "EvalRef": {"type": "string", "pattern": "^ev-[0-9a-f]{16}@[1-9][0-9]*$", "description": "One immutable eval version."},
+    "Agent": {"type": "string", "enum": ["opencode", "claude-code", "codex"]},
+    "Family": {"type": "string", "enum": ["bug_fix", "feature", "compatibility", "refactor"]},
+    "State": {"type": "string", "enum": ["candidate", "packaged", "reproducible", "validated", "needs_review", "unsupported", "quarantined"]},
+    "Reason": {
+      "type": "string",
+      "enum": [
+        "baseline_missing", "baseline_ambiguous", "result_state_missing", "attribution_ambiguous", "unrelated_edits",
+        "prerequisite_missing", "submodule_unsupported", "lfs_unsupported", "external_service", "binary_too_large",
+        "no_checkable_outcome", "requirements_contradictory", "requirements_missing", "verifier_missing",
+        "base_passes", "reference_fails", "not_repeatable", "verifier_not_discriminating", "alternative_missing",
+        "solution_leak", "future_history_leak", "isolation_failed", "verifier_forgeable", "secret_found",
+        "quota_exceeded", "budget_exhausted", "runner_unavailable", "model_disabled", "execution_disabled",
+        "duplicate", "user_rejected", "invalidated", "source_truncated", "parser_unsupported_version"
+      ]
+    },
+    "Count": {"oneOf": [{"type": "integer", "minimum": 0}, {"type": "null"}], "description": "A counter; null means unknown, never zero."},
+    "Seconds": {"oneOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+    "SourceLocation": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "sensitive",
+      "properties": {
+        "source": {"$ref": "#/$defs/Digest", "description": "Digest of the imported source object (session export or JSONL file)."},
+        "record": {"type": "string", "minLength": 1, "maxLength": 200, "description": "Stable record identity inside the source (event, message or line ID)."},
+        "line": {"type": "integer", "minimum": 1}
+      },
+      "required": ["source", "record"]
+    }
+  }
+}

@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/neprel/git-hint/internal/evals"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,6 +58,8 @@ type Config struct {
 	ServerURL        string `json:"server_url,omitempty"`
 	Policy           Policy `json:"policy"`
 	MCP              MCP    `json:"mcp"`
+	// Evals is the local eval policy; nil (the default) collects no eval evidence.
+	Evals *evals.Policy `json:"evals,omitempty"`
 }
 
 // MCP holds the local rules of the MCP server. Only the user changes them (CLI or the

@@ -1,0 +1,22 @@
+{
+  "agents": [
+    "opencode"
+  ],
+  "batch": {
+    "episodes": 20,
+    "seconds": 300
+  },
+  "capture": "on",
+  "disclosure": "local",
+  "export": "off",
+  "model": {
+    "use": "off"
+  },
+  "policy_version": 1,
+  "quota_mb": 2048,
+  "retention_days": 90,
+  "run": {
+    "use": "off"
+  },
+  "upload_sessions": true
+}

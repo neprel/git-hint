@@ -1,0 +1,35 @@
+{
+  "agents": [
+    "opencode",
+    "claude-code",
+    "codex"
+  ],
+  "batch": {
+    "episodes": 20,
+    "seconds": 300
+  },
+  "capture": "on",
+  "disclosure": "local",
+  "export": "results",
+  "model": {
+    "base_url": "https://api.example.com/v1",
+    "key_env": "HINT_LOCAL_MODEL_KEY",
+    "max_requests_per_job": 20,
+    "max_retries": 1,
+    "max_seconds_per_job": 600,
+    "model": "local-coder",
+    "use": "lan"
+  },
+  "policy_version": 1,
+  "quota_mb": 2048,
+  "retention_days": 90,
+  "run": {
+    "cpus": 2,
+    "max_requests_per_trial": 40,
+    "max_seconds_per_trial": 900,
+    "max_trials_per_run": 10,
+    "memory_mb": 2048,
+    "runner": "harbor",
+    "use": "docker"
+  }
+}

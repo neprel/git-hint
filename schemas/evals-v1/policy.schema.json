@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:local:evals:v1:policy",
+  "title": "HINT local eval policy (the evals object of .hint/config.json)",
+  "description": "Absent or capture=off: no eval evidence is collected. Each permission is separate; enabling capture enables nothing else. Only the user writes this object (CLI or file); no MCP tool can change it.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "policy_version": {"const": 1},
+    "capture": {"type": "string", "enum": ["off", "on"], "x-hint-class": "local"},
+    "agents": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Agent"}, "uniqueItems": true, "x-hint-class": "local"},
+    "import_roots": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 4096}, "uniqueItems": true, "x-hint-class": "local",
+      "description": "Directories with session exports to import; empty means the agent defaults. Global agent authentication files are never read."},
+    "model": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "local",
+      "description": "Local generation of requirement and verifier drafts. off by default.",
+      "properties": {
+        "use": {"type": "string", "enum": ["off", "lan"]},
+        "base_url": {"type": "string", "pattern": "^http://(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|127\\.)[0-9.]+(:[0-9]{1,5})?(/.*)?$",
+          "description": "A private-network OpenAI-compatible endpoint; the key is read from the environment variable named in key_env, never stored here."},
+        "model": {"type": "string", "minLength": 1, "maxLength": 200},
+        "key_env": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$"},
+        "max_requests_per_job": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "max_retries": {"type": "integer", "minimum": 0, "maximum": 5},
+        "max_seconds_per_job": {"type": "integer", "minimum": 1, "maximum": 86400}
+      },
+      "required": ["use"]
+    },
+    "run": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "local",
+      "description": "Code execution in disposable containers through the external runner. off by default.",
+      "properties": {
+        "use": {"type": "string", "enum": ["off", "docker"]},
+        "runner": {"const": "harbor"},
+        "max_trials_per_run": {"type": "integer", "minimum": 1, "maximum": 500},
+        "max_seconds_per_trial": {"type": "integer", "minimum": 10, "maximum": 86400},
+        "max_requests_per_trial": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "cpus": {"type": "number", "minimum": 0.5, "maximum": 64},
+        "memory_mb": {"type": "integer", "minimum": 256, "maximum": 262144}
+      },
+      "required": ["use"]
+    },
+    "disclosure": {"type": "string", "enum": ["local"], "x-hint-class": "local",
+      "description": "Sensitive excerpts never leave the machine; MCP results carry sanitized summaries only."},
+    "export": {"type": "string", "enum": ["off", "results"], "x-hint-class": "local",
+      "description": "results: minimized result reports may be sent with the same consent as recommend."},
+    "retention_days": {"type": "integer", "minimum": 1, "maximum": 3650, "x-hint-class": "local"},
+    "quota_mb": {"type": "integer", "minimum": 16, "maximum": 1048576, "x-hint-class": "local"},
+    "batch": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "local",
+      "properties": {
+        "episodes": {"type": "integer", "minimum": 1, "maximum": 1000},
+        "seconds": {"type": "integer", "minimum": 1, "maximum": 3600}
+      },
+      "required": ["episodes", "seconds"]
+    }
+  },
+  "required": ["policy_version", "capture"]
+}

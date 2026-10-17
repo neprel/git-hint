@@ -1,0 +1,40 @@
+{
+  "agent": {
+    "model": "local-coder",
+    "name": "opencode",
+    "version": "2.0.26"
+  },
+  "arm": "baseline",
+  "artifacts": [
+    "sha256:31b8aaa29149ec40f466dfc2f493649a3b71918d5278c61181788eaf9f1ebc00"
+  ],
+  "attempt": 2,
+  "budget": {
+    "max_requests": 40,
+    "max_seconds": 900,
+    "stop_reason": "time_limit"
+  },
+  "checks": [
+    {
+      "check_id": "C1",
+      "status": "not_run"
+    }
+  ],
+  "counters": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "requests": 40,
+    "wall_seconds": 900.0
+  },
+  "eval": "ev-b0c82a3ade349796@1",
+  "manifest_version": 1,
+  "outcome": "timeout",
+  "record": "trial",
+  "runner": {
+    "name": "harbor",
+    "version": "0.23.0"
+  },
+  "started_at": "2026-10-17T13:05:00Z",
+  "suite_id": "su-8853e64d1060ddac",
+  "trial_id": "tr-81a43b8822c3f600"
+}

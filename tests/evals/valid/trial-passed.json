@@ -1,0 +1,51 @@
+{
+  "agent": {
+    "model": "local-coder",
+    "name": "opencode",
+    "version": "2.0.26"
+  },
+  "arm": "baseline",
+  "artifacts": [
+    "sha256:31b8aaa29149ec40f466dfc2f493649a3b71918d5278c61181788eaf9f1ebc00"
+  ],
+  "attempt": 1,
+  "budget": {
+    "max_requests": 40,
+    "max_seconds": 900,
+    "stop_reason": "completed"
+  },
+  "checks": [
+    {
+      "check_id": "C1",
+      "status": "pass"
+    },
+    {
+      "check_id": "C2",
+      "status": "pass"
+    },
+    {
+      "check_id": "C3",
+      "status": "pass"
+    }
+  ],
+  "counters": {
+    "agent_seconds": 290.0,
+    "cache_tokens": null,
+    "input_tokens": 40100,
+    "output_tokens": 2200,
+    "requests": 11,
+    "retries": 0,
+    "wall_seconds": 312.5
+  },
+  "eval": "ev-b0c82a3ade349796@1",
+  "manifest_version": 1,
+  "outcome": "passed",
+  "record": "trial",
+  "runner": {
+    "name": "harbor",
+    "version": "0.23.0"
+  },
+  "started_at": "2026-10-17T13:05:00Z",
+  "suite_id": "su-8853e64d1060ddac",
+  "trial_id": "tr-1f10668b5f1cb897"
+}

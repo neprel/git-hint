@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:local:evals:v1:trial",
+  "title": "HINT local trial result",
+  "description": "One attempt of one eval version under one configuration. Every attempt is kept, including failures, timeouts and cancellations, with its consumed resources.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "record": {"const": "trial"},
+    "manifest_version": {"const": 1},
+    "trial_id": {"$ref": "urn:hint:local:evals:v1:common#/$defs/TrialID", "x-hint-class": "reportable"},
+    "suite_id": {"$ref": "urn:hint:local:evals:v1:common#/$defs/SuiteID", "x-hint-class": "reportable"},
+    "eval": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalRef", "x-hint-class": "reportable"},
+    "attempt": {"type": "integer", "minimum": 1, "x-hint-class": "reportable"},
+    "arm": {"type": "string", "enum": ["baseline", "no_change", "context_only", "refactor", "configuration"], "x-hint-class": "reportable"},
+    "agent": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "reportable",
+      "properties": {
+        "name": {"type": "string", "enum": ["nop", "oracle", "opencode"]},
+        "version": {"type": "string", "maxLength": 64},
+        "model": {"type": "string", "maxLength": 200}
+      },
+      "required": ["name"]
+    },
+    "runner": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "reportable",
+      "properties": {"name": {"const": "harbor"}, "version": {"type": "string", "maxLength": 64}},
+      "required": ["name", "version"]
+    },
+    "started_at": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Timestamp", "x-hint-class": "local"},
+    "outcome": {"type": "string", "enum": ["passed", "failed", "verifier_error", "infrastructure_error", "timeout", "cancelled", "budget_exhausted"], "x-hint-class": "reportable"},
+    "checks": {
+      "type": "array", "x-hint-class": "reportable",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "properties": {"check_id": {"type": "string", "pattern": "^C[1-9][0-9]{0,2}$"}, "status": {"type": "string", "enum": ["pass", "fail", "error", "not_run"]}},
+        "required": ["check_id", "status"]
+      }
+    },
+    "counters": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "reportable",
+      "properties": {
+        "requests": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Count"},
+        "retries": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Count"},
+        "input_tokens": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Count"},
+        "output_tokens": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Count"},
+        "cache_tokens": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Count"},
+        "wall_seconds": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Seconds"},
+        "agent_seconds": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Seconds"}
+      },
+      "required": ["requests", "input_tokens", "output_tokens", "wall_seconds"]
+    },
+    "budget": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "reportable",
+      "properties": {
+        "max_requests": {"type": "integer", "minimum": 1}, "max_seconds": {"type": "integer", "minimum": 1},
+        "stop_reason": {"type": "string", "enum": ["completed", "request_limit", "time_limit", "cancelled", "error"]}
+      },
+      "required": ["max_seconds", "stop_reason"]
+    },
+    "artifacts": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}, "x-hint-class": "local"}
+  },
+  "required": ["record", "manifest_version", "trial_id", "suite_id", "eval", "attempt", "arm", "agent", "runner", "started_at", "outcome", "checks", "counters", "budget"]
+}

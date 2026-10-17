@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:local:evals:v1:eval",
+  "title": "HINT local eval version",
+  "description": "One immutable eval version: base state, instruction, environment, hidden verifier and qualification evidence. A content change makes a new version and invalidates dependent qualifications.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "record": {"const": "eval"},
+    "manifest_version": {"const": 1},
+    "eval_id": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalID", "x-hint-class": "local"},
+    "version": {"type": "integer", "minimum": 1, "x-hint-class": "local"},
+    "previous": {"oneOf": [{"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalRef"}, {"type": "null"}], "x-hint-class": "local"},
+    "created_at": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Timestamp", "x-hint-class": "local"},
+    "episode_id": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EpisodeID", "x-hint-class": "local"},
+    "family": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Family", "x-hint-class": "reportable"},
+    "repositories": {
+      "type": "array", "minItems": 1, "x-hint-class": "local",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "repo": {"type": "string", "minLength": 1, "maxLength": 200},
+          "base_tree": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
+          "base_archive": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
+          "result_tree": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}
+        },
+        "required": ["repo", "base_tree", "base_archive"]
+      }
+    },
+    "instruction": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "x-hint-class": "sensitive"},
+    "requirements": {
+      "type": "array", "minItems": 1, "x-hint-class": "sensitive",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "req_id": {"type": "string", "pattern": "^R[1-9][0-9]{0,2}$"},
+          "kind": {"type": "string", "enum": ["behavior", "constraint", "interface", "preserve", "structure"]},
+          "origin": {"type": "string", "enum": ["request", "correction", "result_test", "existing_test"]},
+          "text": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
+          "evidence": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/SourceLocation"}},
+          "checks": {"type": "array", "items": {"type": "string", "pattern": "^C[1-9][0-9]{0,2}$"}, "minItems": 1, "uniqueItems": true}
+        },
+        "required": ["req_id", "kind", "origin", "text", "evidence", "checks"]
+      }
+    },
+    "verifier": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "sensitive",
+      "properties": {
+        "archive": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "description": "The hidden tests directory; never in the agent image."},
+        "checks": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "check_id": {"type": "string", "pattern": "^C[1-9][0-9]{0,2}$"},
+              "origin": {"type": "string", "enum": ["existing_test", "result_test", "generated"]},
+              "generator": {
+                "type": "object", "additionalProperties": false,
+                "properties": {
+                  "name": {"type": "string", "maxLength": 100}, "version": {"type": "string", "maxLength": 64},
+                  "model": {"type": "string", "maxLength": 200}, "inputs": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}},
+                  "output": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}, "requests": {"type": "integer", "minimum": 0}
+                },
+                "required": ["name", "version", "inputs", "output", "requests"]
+              }
+            },
+            "required": ["check_id", "origin"]
+          }
+        }
+      },
+      "required": ["archive", "checks"]
+    },
+    "reference": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "x-hint-class": "sensitive", "description": "Reference patch: private evaluator evidence, not proof of correctness."},
+    "environment": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "local",
+      "properties": {
+        "image": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$"},
+        "setup": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
+        "workdir": {"type": "string", "pattern": "^/[A-Za-z0-9._/-]*$"},
+        "test_command": {"type": "string", "enum": ["tests/test.sh"]}
+      },
+      "required": ["image", "workdir", "test_command"]
+    },
+    "dependencies": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalRef"}, "uniqueItems": true, "x-hint-class": "local"},
+    "state": {"$ref": "urn:hint:local:evals:v1:common#/$defs/State", "x-hint-class": "reportable"},
+    "reasons": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Reason"}, "uniqueItems": true, "x-hint-class": "local"},
+    "qualification": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "reportable",
+      "properties": {
+        "policy": {"type": "string", "pattern": "^q[1-9][0-9]*$"},
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string", "enum": ["base_fails", "reference_passes", "repeatable", "near_miss_fails", "alternative_passes", "isolation", "leak_probe", "forgery_probe"]},
+              "status": {"type": "string", "enum": ["pass", "fail", "missing", "not_applicable"]},
+              "runs": {"type": "integer", "minimum": 0},
+              "independent": {"type": "boolean"},
+              "evidence": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}}
+            },
+            "required": ["name", "status", "runs"]
+          }
+        }
+      },
+      "required": ["policy", "checks"]
+    },
+    "override": {
+      "oneOf": [{"type": "null"}, {
+        "type": "object", "additionalProperties": false,
+        "properties": {"state": {"$ref": "urn:hint:local:evals:v1:common#/$defs/State"}, "at": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Timestamp"}},
+        "required": ["state", "at"]
+      }],
+      "x-hint-class": "local", "description": "A user decision, kept apart from the automatic qualification."
+    }
+  },
+  "required": ["record", "manifest_version", "eval_id", "version", "previous", "created_at", "episode_id", "family", "repositories", "instruction", "requirements", "verifier", "environment", "dependencies", "state", "reasons", "qualification", "override"]
+}
