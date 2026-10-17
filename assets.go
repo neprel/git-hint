@@ -14,6 +14,11 @@ var SchemasV01 embed.FS
 //go:embed schemas/evals-v1/*.schema.json
 var SchemasEvalsV1 embed.FS
 
+// SchemaEvalReportV01 is the eval result report schema (schemas/evalreport-v0.1).
+//
+//go:embed schemas/evalreport-v0.1/report.schema.json
+var SchemaEvalReportV01 []byte
+
 // OpenCodePlugin is the OpenCode adapter plugin that `git hint adapter install opencode`
 // writes to .opencode/plugins/.
 //

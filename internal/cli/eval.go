@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,10 +11,12 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/neprel/git-hint/internal/api"
 	"github.com/neprel/git-hint/internal/evals"
 	"github.com/neprel/git-hint/internal/evals/bundle"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/pipeline"
+	"github.com/neprel/git-hint/internal/evals/report"
 	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/store"
 )
@@ -36,6 +39,9 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
   git hint eval run [ID...] [--agent opencode|oracle|nop] [--attempts N] [--arm ARM]
                                      freeze a suite of validated evals and run bounded trials
   git hint eval compare [SUITE]      raw results per arm and agent (every attempt counts)
+  git hint eval report [-o FILE] [--send] [--yes]
+                                     minimized results of new trials (no task content);
+                                     --send uploads them when the policy allows result export
   git hint eval pack ID... -o FILE   write evals to a private bundle for your other machines
   git hint eval unpack FILE          read a bundle (every object is checked; never sent anywhere)
 `)
@@ -58,6 +64,8 @@ func cmdEval(e *Env, args []string) int {
 		return evalRun(e, args[1:])
 	case "compare":
 		return evalCompare(e, args[1:])
+	case "report":
+		return evalReport(e, args[1:])
 	case "pack":
 		return evalPack(e, args[1:])
 	case "unpack":
@@ -259,7 +267,7 @@ func state(p *evals.Policy) string {
 }
 
 // valueFlags take a separate value token (`-o FILE`).
-var valueFlags = map[string]bool{"-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true}
+var valueFlags = map[string]bool{"-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true}
 
 // flagsFirst moves flag tokens (with their values) before positional ones, so
 // `eval show ID --text` and `eval pack ID -o FILE` work.
@@ -589,5 +597,83 @@ func evalUnpack(e *Env, args []string) int {
 		return fail(e, err)
 	}
 	fmt.Fprintf(e.Stdout, "Read %d evals (%s) with %d objects.\n", len(res.Evals), strings.Join(res.Evals, ", "), res.Objects)
+	return 0
+}
+
+func evalReport(e *Env, args []string) int {
+	args = flagsFirst(args)
+	fs := flags(e, "eval report", "reads local trial records; writes a report file; --send SENDS the minimized report to the configured server")
+	out := fs.String("o", "", "report file (default .hint/state/evals/reports/<report>.json)")
+	send := fs.Bool("send", false, "send the report to the configured server (needs evals.export = results)")
+	yes := fs.Bool("yes", false, "approve sending without a prompt")
+	server := fs.String("server", "", "server base URL (default: the project setting)")
+	if fs.Parse(args) != nil || fs.NArg() != 0 {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	l := library.Open(s, s.Cfg.Evals.Limits().QuotaBytes)
+	names, err := report.Unreported(l)
+	if err != nil {
+		return fail(e, err)
+	}
+	if len(names) == 0 {
+		fmt.Fprintln(e.Stdout, "No new trial results to report.")
+		return 0
+	}
+	data, used, err := report.Builder{Key: s.Key(), Namespace: s.Cfg.ProjectNamespace}.Build(l, names, e.Now())
+	if err != nil {
+		return fail(e, err)
+	}
+	var meta struct {
+		ReportID      string `json:"report_id"`
+		ContentDigest string `json:"content_digest"`
+	}
+	json.Unmarshal(data, &meta)
+	path := *out
+	if path == "" {
+		path = s.Path("state", "evals", "reports", meta.ReportID+".json")
+		if err := s.CheckPath(path); err != nil {
+			return fail(e, err)
+		}
+		os.MkdirAll(filepath.Dir(path), 0o700)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintf(e.Stdout, "Report %s: %d trial results in %s.\n", meta.ReportID, len(used), path)
+	fmt.Fprintln(e.Stdout, "It holds outcomes, counters and opaque references only: no task text, code, path, command, log or local ID.")
+	if !*send {
+		return 0
+	}
+	if err := s.Cfg.Evals.Check(evals.OpExport, ""); err != nil {
+		return fail(e, err)
+	}
+	c, err := api.New(serverURL(s, *server))
+	if err != nil {
+		return fail(e, err)
+	}
+	if !*yes {
+		if !e.IsTerminal() {
+			return fail(e, fmt.Errorf("sending the report to %s needs approval; read %s, then run again with --yes", c.Origin(), path))
+		}
+		fmt.Fprintf(e.Stdout, "Send report %s (%d trial results) to %s? [y/N] ", meta.ReportID, len(used), c.Origin())
+		var ans string
+		fmt.Fscanln(e.Stdin, &ans)
+		if a := strings.ToLower(strings.TrimSpace(ans)); a != "y" && a != "yes" {
+			fmt.Fprintln(e.Stdout, "Not sent.")
+			return 1
+		}
+	}
+	rc, err := c.PostEvalReport(context.Background(), data, meta.ReportID, meta.ContentDigest)
+	if err != nil {
+		return fail(e, err)
+	}
+	if err := report.MarkReported(l, used); err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintf(e.Stdout, "Sent: the server answered %s.\n", rc.Status)
 	return 0
 }

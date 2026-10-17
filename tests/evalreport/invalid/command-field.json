@@ -1,0 +1,152 @@
+{
+  "content_digest": "sha256:713842eabfa1b22dccbc266d1d9becab19f75ab00d75d89283e6268e0b1926b2",
+  "created_at": "2026-10-18T09:00:00Z",
+  "producer": {
+    "tool": "git-hint",
+    "version": "0.1.0-dev"
+  },
+  "project_namespace": "0123456789abcdef0123456789abcdef",
+  "report_id": "15230043ca5fe428b7bbb35cf8f3e6a3",
+  "report_version": "0.1.0",
+  "trials": [
+    {
+      "agent": {
+        "model_ref": "86bf0b727517cdc355d34f10c9b72569",
+        "name": "opencode",
+        "version": "2.0.26"
+      },
+      "arm": "baseline",
+      "attempt": 2,
+      "budget": {
+        "max_requests": 40,
+        "max_seconds": 900,
+        "stop_reason": "completed"
+      },
+      "checks": [
+        {
+          "check_ref": "11a35b2808f58a7e7973125821afe97f",
+          "status": "fail"
+        },
+        {
+          "check_ref": "0bcff9c043e37d5c4ddb19a29479f78e",
+          "status": "pass"
+        }
+      ],
+      "command": "go test ./...",
+      "counters": {
+        "agent_seconds": null,
+        "cache_tokens": null,
+        "input_tokens": 400,
+        "output_tokens": 10,
+        "requests": 10,
+        "retries": 2,
+        "wall_seconds": 95.5
+      },
+      "eval_ref": "c40f325c265f1a1bfb51fa2bffcc224f",
+      "family": "bug_fix",
+      "outcome": "failed",
+      "partition": "held_out",
+      "qualification": {
+        "basis": "client_claim",
+        "policy": "q1",
+        "state": "validated"
+      },
+      "runner": {
+        "name": "harbor",
+        "version": "0.23.0"
+      },
+      "suite_ref": "35522814bcdeb911127f98d74de28337",
+      "task_family_ref": "03cfc28511f7e4a1a148573526fa7bf2",
+      "trial_ref": "b5bac0b64b0aa33b8cb96496783230ea"
+    },
+    {
+      "agent": {
+        "model_ref": "86bf0b727517cdc355d34f10c9b72569",
+        "name": "opencode",
+        "version": "2.0.26"
+      },
+      "arm": "baseline",
+      "attempt": 1,
+      "budget": {
+        "max_requests": 40,
+        "max_seconds": 900,
+        "stop_reason": "completed"
+      },
+      "checks": [
+        {
+          "check_ref": "11a35b2808f58a7e7973125821afe97f",
+          "status": "pass"
+        },
+        {
+          "check_ref": "0bcff9c043e37d5c4ddb19a29479f78e",
+          "status": "pass"
+        }
+      ],
+      "counters": {
+        "agent_seconds": null,
+        "cache_tokens": null,
+        "input_tokens": 400,
+        "output_tokens": 10,
+        "requests": 10,
+        "retries": 2,
+        "wall_seconds": 95.5
+      },
+      "eval_ref": "c40f325c265f1a1bfb51fa2bffcc224f",
+      "family": "bug_fix",
+      "outcome": "passed",
+      "partition": "held_out",
+      "qualification": {
+        "basis": "client_claim",
+        "policy": "q1",
+        "state": "validated"
+      },
+      "runner": {
+        "name": "harbor",
+        "version": "0.23.0"
+      },
+      "suite_ref": "35522814bcdeb911127f98d74de28337",
+      "task_family_ref": "03cfc28511f7e4a1a148573526fa7bf2",
+      "trial_ref": "45722d55c7b9ffaf671eda3c2da54790"
+    },
+    {
+      "agent": {
+        "model_ref": "86bf0b727517cdc355d34f10c9b72569",
+        "name": "opencode",
+        "version": "2.0.26"
+      },
+      "arm": "baseline",
+      "attempt": 3,
+      "budget": {
+        "max_requests": 40,
+        "max_seconds": 900,
+        "stop_reason": "time_limit"
+      },
+      "checks": [],
+      "counters": {
+        "agent_seconds": null,
+        "cache_tokens": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "requests": 10,
+        "retries": 2,
+        "wall_seconds": null
+      },
+      "eval_ref": "c40f325c265f1a1bfb51fa2bffcc224f",
+      "family": "bug_fix",
+      "outcome": "timeout",
+      "partition": "held_out",
+      "qualification": {
+        "basis": "client_claim",
+        "policy": "q1",
+        "state": "validated"
+      },
+      "runner": {
+        "name": "harbor",
+        "version": "0.23.0"
+      },
+      "suite_ref": "35522814bcdeb911127f98d74de28337",
+      "task_family_ref": "03cfc28511f7e4a1a148573526fa7bf2",
+      "trial_ref": "31dd47aed5e6e93c8548fd0a8a63652e"
+    }
+  ]
+}

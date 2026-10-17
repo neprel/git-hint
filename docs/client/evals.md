@@ -71,6 +71,20 @@ the trial limit; inside the container the agent can reach only that proxy. `eval
 shows raw counts: every failed or timed-out attempt and its resources count, unknown
 usage stays unknown. Statistical comparisons are not computed locally.
 
+## Result reports
+
+```sh
+git hint eval report                 # write a minimized report of new trial results
+git hint eval report --send          # send it (needs "export": "results" in the eval policy)
+```
+
+A report holds outcomes, check results, counters, budgets and opaque references that only
+your project key can produce. It holds no task text, code, file name, command, log,
+content digest or local ID; a model name becomes an opaque reference. `--send` asks for
+approval (or `--yes` in scripts), like `git hint recommend`. A local `validated` state is
+reported as your client's claim, with its policy name. The server uses reports for
+comparisons; no server is needed to create, run or compare evals.
+
 ## Moving evals to another machine
 
 ```sh

@@ -5,6 +5,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -77,6 +78,10 @@ func loopback(h string) bool {
 func (c *Client) Origin() string { return c.base.Scheme + "://" + c.base.Host }
 
 func (c *Client) do(ctx context.Context, method, path string, body []byte) (int, []byte, error) {
+	return c.doMedia(ctx, method, path, body, MediaType, "application/vnd.hint+json")
+}
+
+func (c *Client) doMedia(ctx context.Context, method, path string, body []byte, media, answerPrefix string) (int, []byte, error) {
 	u := *c.base
 	p, q, _ := strings.Cut(path, "?")
 	u.Path += p
@@ -89,9 +94,9 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) (int,
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("Accept", MediaType)
+	req.Header.Set("Accept", media)
 	if body != nil {
-		req.Header.Set("Content-Type", MediaType)
+		req.Header.Set("Content-Type", media)
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
@@ -112,7 +117,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) (int,
 		// the server is unavailable or overloaded: retryable, like a transport failure
 		return resp.StatusCode, nil, fmt.Errorf("%w: server status %d", ErrNetwork, resp.StatusCode)
 	}
-	if len(b) > 0 && !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/vnd.hint+json") {
+	if len(b) > 0 && !strings.HasPrefix(resp.Header.Get("Content-Type"), answerPrefix) {
 		return resp.StatusCode, nil, fmt.Errorf("server answered %d with content type %q, not a HINT document", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
 	return resp.StatusCode, b, nil
@@ -206,3 +211,36 @@ func (c *Client) Recommendations(ctx context.Context, namespace string) ([]byte,
 }
 
 func list(v any) []any { l, _ := v.([]any); return l }
+
+// EvalReportMediaType is the media type of eval result reports.
+const EvalReportMediaType = "application/vnd.hint-evalreport+json"
+
+// EvalReportReceipt is the server's answer to a report upload.
+type EvalReportReceipt struct {
+	ReportVersion string `json:"report_version"`
+	ReportID      string `json:"report_id"`
+	ContentDigest string `json:"content_digest"`
+	Status        string `json:"status"` // accepted, same, rejected
+	Code          string `json:"code,omitempty"`
+}
+
+// PostEvalReport sends one eval result report. It counts as accepted only when the server
+// answers 201 (new) or 200 (the same report again) naming the sent report ID and digest.
+func (c *Client) PostEvalReport(ctx context.Context, body []byte, reportID, digest string) (EvalReportReceipt, error) {
+	status, b, err := c.doMedia(ctx, http.MethodPost, "/hint/evalreport/v0.1/reports", body, EvalReportMediaType, EvalReportMediaType)
+	if err != nil {
+		return EvalReportReceipt{}, err
+	}
+	var r EvalReportReceipt
+	if err := json.Unmarshal(b, &r); err != nil {
+		return EvalReportReceipt{}, fmt.Errorf("the server answered %d without a report receipt", status)
+	}
+	switch {
+	case status == http.StatusUnprocessableEntity || r.Status == "rejected":
+		return r, fmt.Errorf("the server rejected the report: %s", r.Code)
+	case (status == http.StatusCreated && r.Status == "accepted" || status == http.StatusOK && r.Status == "same") &&
+		r.ReportID == reportID && r.ContentDigest == digest:
+		return r, nil
+	}
+	return r, fmt.Errorf("the server answer did not confirm the report (status %d)", status)
+}

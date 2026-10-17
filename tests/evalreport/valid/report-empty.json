@@ -1,0 +1,12 @@
+{
+  "content_digest": "sha256:8fe38165c3320d15542ec787fd8e21f78458ecde1749d2fb36ab054132d74bc7",
+  "created_at": "2026-10-18T09:00:00Z",
+  "producer": {
+    "tool": "git-hint",
+    "version": "0.1.0-dev"
+  },
+  "project_namespace": "0123456789abcdef0123456789abcdef",
+  "report_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "report_version": "0.1.0",
+  "trials": []
+}

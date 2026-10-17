@@ -5,6 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +18,9 @@ import (
 	"github.com/neprel/git-hint/internal/evals/evaltest"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/pipeline"
+	"github.com/neprel/git-hint/internal/evals/report"
+	"github.com/neprel/git-hint/internal/evals/runner"
+	"github.com/neprel/git-hint/internal/evals/suites"
 	"github.com/neprel/git-hint/internal/store"
 )
 
@@ -179,5 +186,69 @@ func TestPackAndUnpackBetweenProjects(t *testing.T) {
 	}
 	if out := must(t, runEval(t, other, &spawned, "eval")).stdout; !strings.Contains(out, name) {
 		t.Fatalf("list after unpack: %s", out)
+	}
+}
+
+func TestEvalReportFileAndConsentedUpload(t *testing.T) {
+	shop, _ := setup(t)
+	var spawned []string
+	must(t, runEval(t, shop, &spawned, "eval", "on"))
+	s, _ := store.Open(shop)
+	l := library.Open(s, 0)
+	rec := evaltest.GoBugFix(t, l)
+	l.PutManifest("eval", rec)
+	v2 := map[string]any{}
+	for k, v := range rec {
+		v2[k] = v
+	}
+	v2["version"], v2["previous"], v2["state"] = 2, fmt.Sprintf("%s@1", rec["eval_id"]), "validated"
+	l.PutManifest("eval", v2)
+	suite, _, err := suites.Freeze(l, nil, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reward := 1.0
+	suites.RecordTrial(l, suites.TrialInput{Suite: suite, Eval: fmt.Sprintf("%s@2", rec["eval_id"]), Attempt: 1, Arm: "baseline", Agent: "oracle",
+		RunnerVersion: "0.23.0", Started: time.Now(), MaxSeconds: 600}, runner.Trial{Name: "a", Reward: &reward, Checks: map[string]string{"C1": "pass"}})
+
+	var got [][]byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		got = append(got, b)
+		var m map[string]any
+		json.Unmarshal(b, &m)
+		w.Header().Set("Content-Type", "application/vnd.hint-evalreport+json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"report_version": "0.1.0", "report_id": m["report_id"], "content_digest": m["content_digest"], "status": "accepted"})
+	}))
+	defer srv.Close()
+
+	r := must(t, runEval(t, shop, &spawned, "eval", "report"))
+	if !strings.Contains(r.stdout, "1 trial results") || len(got) != 0 {
+		t.Fatalf("report without send: %s (%d uploads)", r.stdout, len(got))
+	}
+	if r := runEval(t, shop, &spawned, "eval", "report", "--send", "--yes", "--server", srv.URL); r.code == 0 || !strings.Contains(r.stderr, "result export is off") {
+		t.Fatalf("send without the export permission: %d %s", r.code, r.stderr)
+	}
+	s, _ = store.Open(shop)
+	s.Cfg.Evals.Export = "results"
+	s.SaveConfig()
+	if r := runEval(t, shop, &spawned, "eval", "report", "--send", "--server", srv.URL); r.code == 0 || !strings.Contains(r.stderr, "needs approval") || len(got) != 0 {
+		t.Fatalf("send without consent: %d %s", r.code, r.stderr)
+	}
+	must(t, runEval(t, shop, &spawned, "eval", "report", "--send", "--yes", "--server", srv.URL))
+	if len(got) != 1 {
+		t.Fatalf("uploads %d", len(got))
+	}
+	if err := report.Check(got[0]); err != nil {
+		t.Fatalf("uploaded report: %v", err)
+	}
+	for _, bad := range []string{"discount", "ev-", "cart.go", "oracle.txt"} {
+		if strings.Contains(string(got[0]), bad) {
+			t.Fatalf("uploaded report holds %q", bad)
+		}
+	}
+	if r := must(t, runEval(t, shop, &spawned, "eval", "report", "--send", "--yes", "--server", srv.URL)); !strings.Contains(r.stdout, "No new trial results") {
+		t.Fatalf("second report: %s", r.stdout)
 	}
 }
