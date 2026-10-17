@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/neprel/git-hint/internal/evals/pipeline"
 	"os"
 	"path/filepath"
 	"sort"
@@ -36,7 +37,7 @@ func (h *handlers) register(s *mcp.Server) {
 	add(s, &mcp.Tool{Name: "hint_status", Annotations: ro,
 		Description: "Side effect: none. Repositories, last snapshots with digests, activity coverage, server and upload rule, privacy profile."}, h.status)
 	add(s, &mcp.Tool{Name: "hint_collect", Annotations: local,
-		Description: "Side effect: local write (.hint/ only). Scan the repositories and store a new snapshot when they changed. No network."}, h.collect)
+		Description: "Side effect: local write (.hint/ only). Scan the repositories and store a new snapshot when they changed. No network. When the user enabled local evals (git hint eval on), it also builds evals from agent sessions and, only if the user allowed container runs, starts their qualification in containers; this tool cannot change those permissions."}, h.collect)
 	add(s, &mcp.Tool{Name: "hint_export_preview", Annotations: ro,
 		Description: "Side effect: none. Build and validate the export package under the local policy; report documents, sizes, record counts and fields removed by the policy."}, h.exportPreview)
 	add(s, &mcp.Tool{Name: "hint_recommend", Annotations: net,
@@ -186,10 +187,11 @@ type CollectRepo struct {
 }
 
 type CollectOut struct {
-	SideEffect    string        `json:"side_effect"`
-	SchemaVersion string        `json:"schema_version"`
-	Repositories  []CollectRepo `json:"repositories"`
-	Missing       []string      `json:"missing"`
+	SideEffect    string            `json:"side_effect"`
+	Evals         *pipeline.Summary `json:"evals,omitempty"` // only when the user's eval policy is on
+	SchemaVersion string            `json:"schema_version"`
+	Repositories  []CollectRepo     `json:"repositories"`
+	Missing       []string          `json:"missing"`
 }
 
 func (h *handlers) collect(ctx context.Context, _ *mcp.CallToolRequest, in CollectIn) (*mcp.CallToolResult, CollectOut, error) {
@@ -222,6 +224,16 @@ func (h *handlers) collect(ctx context.Context, _ *mcp.CallToolRequest, in Colle
 			Reused: r.Scan.Reused, Entities: len(r.Snapshot.Entities), Relations: len(r.Snapshot.Relations),
 			FileChanges: r.Mutations, ParseErrors: r.Scan.Unparsed, DurationMS: r.Duration.Milliseconds()})
 	}
+	lock.Unlock()
+	env := pipeline.DefaultEnv
+	if h.o.EvalEnv != nil {
+		env = h.o.EvalEnv
+	}
+	spawn := func() error { return pipeline.SpawnWorker(s) }
+	if h.o.Spawn != nil {
+		spawn = h.o.Spawn
+	}
+	out.Evals = pipeline.AfterCollect(ctx, s, env(), spawn)
 	return text("Collected %d repositories; %d new snapshots. No data left the machine.", len(res), changed), out, nil
 }
 

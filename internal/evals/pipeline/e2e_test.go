@@ -91,7 +91,6 @@ func e2eProject(t *testing.T) (*store.Store, Env) {
 	return s, env
 }
 
-
 // e2eRunner evaluates tasks like the generated verifier (see qualify tests).
 type e2eRunner struct{ calls int }
 

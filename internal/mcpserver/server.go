@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/neprel/git-hint/internal/evals/pipeline"
 	"io"
 	"slices"
 	"time"
@@ -41,6 +42,9 @@ type Options struct {
 	MaxListItems     int
 	// Tools limits the served tools to these names (empty: all tools).
 	Tools []string
+	// EvalEnv and Spawn replace the eval pipeline environment and the worker start (tests).
+	EvalEnv func() pipeline.Env
+	Spawn   func() error
 }
 
 func (o *Options) defaults() {

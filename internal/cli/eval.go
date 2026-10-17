@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -338,66 +337,36 @@ func evalForget(e *Env, args []string) int {
 	return 0
 }
 
-// evalPass runs one pipeline pass after collect and starts the qualification worker when
-// evals wait and the policy allows container runs. It prints one summary line.
+// evalPass runs the eval work after collect (when the policy is on) and prints one line.
 func evalPass(e *Env, s *store.Store) {
-	if s.Cfg.Evals.Check(evals.OpCapture, "") != nil {
-		return
-	}
 	env := pipeline.DefaultEnv
 	if e.EvalEnv != nil {
 		env = e.EvalEnv
 	}
-	r := pipeline.Run(context.Background(), s, env())
+	spawn := func() error { return pipeline.SpawnWorker(s) }
+	if e.Spawn != nil {
+		spawn = func() error { return e.Spawn("eval", "__qualify") }
+	}
+	r := pipeline.AfterCollect(context.Background(), s, env(), spawn)
+	if r == nil {
+		return
+	}
 	if !r.Ran {
 		fmt.Fprintf(e.Stdout, "Evals: %s\n", r.Blocked)
 		return
 	}
-	imported := 0
-	for _, i := range r.Imports {
-		imported += i.New + i.Updated
-	}
 	fmt.Fprintf(e.Stdout, "Evals: %d sessions imported, %d episodes, %d packaged, %d refused, %d waiting for qualification",
-		imported, r.Episodes.Proposed, r.Packages.Packaged, r.Packages.Refused, r.Pending)
+		r.Imported, r.Episodes, r.Packaged, r.Refused, r.Pending)
 	if r.Stopped != "" {
 		fmt.Fprintf(e.Stdout, " (pass stopped: %s)", r.Stopped)
 	}
 	fmt.Fprintln(e.Stdout)
-	if r.Pending > 0 && s.Cfg.Evals.Check(evals.OpExecute, "") == nil {
-		if err := startWorker(e, s); err != nil {
-			fmt.Fprintf(e.Stdout, "Evals: qualification not started: %v\n", err)
-		} else {
-			fmt.Fprintln(e.Stdout, "Evals: qualification runs in the background (git hint eval shows the result).")
-		}
+	switch r.Worker {
+	case "started":
+		fmt.Fprintln(e.Stdout, "Evals: qualification runs in the background (git hint eval shows the result).")
+	case "failed":
+		fmt.Fprintln(e.Stdout, "Evals: qualification could not start.")
 	}
-}
-
-// startWorker starts `git-hint eval __qualify` detached in the project root.
-func startWorker(e *Env, s *store.Store) error {
-	if e.Spawn != nil {
-		return e.Spawn("eval", "__qualify")
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	logp := s.Path("state", "evals", "worker.log")
-	if err := s.CheckPath(logp); err != nil {
-		return err
-	}
-	lf, err := os.OpenFile(logp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(exe, "eval", "__qualify")
-	cmd.Dir, cmd.Stdout, cmd.Stderr = s.Root, lf, lf
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		lf.Close()
-		return err
-	}
-	lf.Close()
-	return cmd.Process.Release()
 }
 
 // evalWorker qualifies pending evals within the policy budget; one worker per project.
