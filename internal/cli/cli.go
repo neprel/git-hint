@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/neprel/git-hint/internal/api"
+	"github.com/neprel/git-hint/internal/evals/pipeline"
 	"github.com/neprel/git-hint/internal/mcpserver"
 	"github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/scan"
@@ -36,6 +37,10 @@ type Env struct {
 	Now    func() time.Time
 	// IsTerminal reports whether stdin is interactive (for the export approval prompt).
 	IsTerminal func() bool
+	// Spawn starts a background git-hint process (nil: the real executable). Tests replace it.
+	Spawn func(args ...string) error
+	// EvalEnv gives the eval pipeline its environment (nil: the real user environment).
+	EvalEnv func() pipeline.Env
 }
 
 type command struct {
@@ -61,6 +66,7 @@ func init() {
 		{"doctor", "reads local state and tools; no network", "Check Git, the store, the key, schemas, adapters and optional indexers.", cmdDoctor},
 		{"adapter", "writes .opencode/plugins/ (install); no network", "`adapter install opencode`: install the OpenCode adapter plugin.", cmdAdapter},
 		{"mcp", "stdio MCP server; tools state their own effects (hint_recommend sends only if the local rule allows it)", "Start the MCP server for a coding agent (stdio).", cmdMCP},
+		{"eval", "reads agent session records; writes local state; container runs only if allowed; sends nothing", "Build local evals from your agent sessions and measure agent efficiency (`eval on` once).", cmdEval},
 		{"version", "no effects", "Print the version; --capabilities lists what this build supports.", cmdVersion},
 	}
 }
@@ -211,6 +217,7 @@ func cmdStatus(e *Env, args []string) int {
 	adapterStatus(e, s)
 	q, _ := project.Queued(s)
 	fmt.Fprintf(w, "Queued packages: %d\n", len(q))
+	fmt.Fprintf(w, "Evals: %s\n", state(s.Cfg.Evals))
 	return 0
 }
 
@@ -246,6 +253,10 @@ func cmdCollect(e *Env, args []string) int {
 	res, err := project.Collect(s, project.CollectOptions{Full: *full, Now: e.Now})
 	if err != nil {
 		return fail(e, err)
+	}
+	lock.Unlock()
+	if !*asJSON {
+		defer evalPass(e, s)
 	}
 	if *asJSON {
 		type row struct {
