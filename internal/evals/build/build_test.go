@@ -64,7 +64,7 @@ func input(t *testing.T, l *library.Library) Input {
 		Paths: []string{"cart.go", "discount_test.go"}, Attribution: "exclusive", Outcome: "test_passed",
 		Request: "Total ignores the discount; fix it.", RequestAt: at,
 		Corrections: []Text{{Body: "Keep integer arithmetic.", At: map[string]any{"source": at["source"], "record": "u2"}}},
-		CheckHint: "go test ./...", Now: time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)}
+		CheckHint:   "go test ./...", Now: time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)}
 }
 
 func untar(t *testing.T, l *library.Library, digest string) map[string]string {
@@ -118,7 +118,7 @@ func TestBugFixPackage(t *testing.T) {
 		}
 	}
 	v := untar(t, l, b.Record["verifier"].(map[string]any)["archive"].(string))
-	if v["hidden/discount_test.go"] != newTest || !strings.Contains(v["test.sh"], "go test -count=1 .") {
+	if v["hidden/discount_test.go"] != newTest || !strings.Contains(v["test.sh"], "-run '^(TestDiscount)$' .") || v["preserve/cart_test.go"] != "package shop\n" {
 		t.Fatalf("verifier %v", keysOf(v))
 	}
 	s := untar(t, l, b.Record["reference"].(string))
@@ -163,7 +163,10 @@ func TestRefusals(t *testing.T) {
 		"baseline_missing":      func(i *Input) { i.Base = "" },
 		"result_state_missing":  func(i *Input) { i.Result = "" },
 		"requirements_missing":  func(i *Input) { i.Request = "  " },
-		"verifier_missing":      func(i *Input) { i.Paths = []string{"cart.go"}; i.Result = mkTree(t, l, map[string]string{"go.mod": "module shop\n\ngo 1.26\n", "cart.go": fix, "cart_test.go": "package shop\n"}) },
+		"verifier_missing": func(i *Input) {
+			i.Paths = []string{"cart.go"}
+			i.Result = mkTree(t, l, map[string]string{"go.mod": "module shop\n\ngo 1.26\n", "cart.go": fix, "cart_test.go": "package shop\n"})
+		},
 	}
 	for want, mod := range cases {
 		in := input(t, l)

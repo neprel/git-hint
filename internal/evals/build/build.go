@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path"
 	"regexp"
 	"sort"
@@ -243,12 +244,31 @@ func Build(l *library.Library, in Input) (*Built, error) {
 	if err != nil {
 		return nil, err
 	}
-	checks := checkScript(lang, hidden)
 	vfiles := []trees.File{}
 	for _, p := range hidden {
 		vfiles = append(vfiles, resFiles[p])
 	}
+	names, err := testNames(l, lang, vfiles)
+	if err != nil {
+		return nil, err
+	}
+	// evaluator-owned copies of the existing tests that the episode did not change
+	var preserve []trees.File
+	for _, f := range base.Files {
+		if isTest.MatchString(f.Path) && !contains(hidden, f.Path) {
+			preserve = append(preserve, f)
+		}
+	}
+	checks := checkScript(lang, hidden, names)
+	pArchive, err := tarTree(l, preserve, "preserve/")
+	if err != nil {
+		return nil, err
+	}
 	vArchive, err := tarTree(l, vfiles, "hidden/", extra{"test.sh", []byte(checks), 0o755}, extra{"checks.json", checksJSON(lang, hidden), 0o644})
+	if err != nil {
+		return nil, err
+	}
+	vArchive, err = joinTar(vArchive, pArchive)
 	if err != nil {
 		return nil, err
 	}
@@ -284,8 +304,8 @@ func Build(l *library.Library, in Input) (*Built, error) {
 		d, _ := l.PutObject([]byte(c.Body))
 		reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", i+2), "kind": "behavior", "origin": "correction", "text": d, "evidence": []any{c.At}, "checks": []any{"C1"}})
 	}
-	preserve, _ := l.PutObject([]byte("The existing tests keep passing."))
-	reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", len(reqs)+1), "kind": "preserve", "origin": "existing_test", "text": preserve, "evidence": []any{}, "checks": []any{"C2"}})
+	preserveText, _ := l.PutObject([]byte("The existing tests keep passing."))
+	reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", len(reqs)+1), "kind": "preserve", "origin": "existing_test", "text": preserveText, "evidence": []any{}, "checks": []any{"C2"}})
 	evalID := "ev-" + short(in.EpisodeID, in.Base, in.Result)
 	rec := map[string]any{
 		"record": "eval", "manifest_version": 1, "eval_id": evalID, "version": 1, "previous": nil,
@@ -344,10 +364,38 @@ func instruction(in Input, lang string) string {
 	return b.String()
 }
 
-// checkScript runs the fixed checks: C1 the hidden tests (copied over the work tree), C2
-// the full existing suite. It prints one line per check and writes the reward; it runs
-// in the separate verifier container with no network.
-func checkScript(lang string, hidden []string) string {
+var goTestFunc = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(t \*testing\.T\)`)
+
+// testNames returns the Go test functions of the hidden files (nil for other languages).
+func testNames(l *library.Library, lang string, hidden []trees.File) ([]string, error) {
+	if lang != "go" {
+		return nil, nil
+	}
+	var names []string
+	for _, f := range hidden {
+		b, err := l.GetObject(f.Digest)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range goTestFunc.FindAllSubmatch(b, -1) {
+			names = append(names, string(m[1]))
+		}
+	}
+	if len(names) == 0 {
+		return nil, &Refusal{[]string{"verifier_missing"}}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// checkScript runs the fixed checks in the separate verifier container (no network):
+//   - restore evaluator-owned copies of the existing tests and remove the files that the
+//     hidden set replaces, so the agent cannot weaken the checks;
+//   - C2: the existing suite;
+//   - copy the hidden tests in; C1: the hidden tests only.
+//
+// It prints one line per check and writes the reward.
+func checkScript(lang string, hidden, names []string) string {
 	var c1, c2 string
 	switch lang {
 	case "go":
@@ -355,12 +403,15 @@ func checkScript(lang string, hidden []string) string {
 		for _, p := range hidden {
 			pk["./"+path.Dir(p)] = true
 		}
-		pkgs := keys(pk)
-		c1 = "go test -count=1 " + strings.Join(pkgs, " ")
+		c1 = "go test -count=1 -run '^(" + strings.Join(names, "|") + ")$' " + strings.Join(keys(pk), " ")
 		c2 = "go test -count=1 ./..."
 	case "python":
 		c1 = "python -m pytest -q -p no:cacheprovider " + strings.Join(quoteAll(hidden), " ")
 		c2 = "python -m pytest -q -p no:cacheprovider"
+	}
+	var rm strings.Builder
+	for _, p := range quoteAll(hidden) {
+		rm.WriteString("rm -f " + p + "\n")
 	}
 	return `#!/bin/sh
 # Generated verifier: fixed checks, no session command. Writes /logs/verifier/reward.txt.
@@ -369,13 +420,39 @@ mkdir -p /logs/verifier
 reward=0
 trap 'echo "$reward" > /logs/verifier/reward.txt' EXIT
 cd ` + Workdir + ` || exit 0
-cp -R /tests/hidden/. ` + Workdir + `/ || exit 0
-ok=1
-if ` + c1 + ` >/logs/verifier/c1.txt 2>&1; then echo "CHECK C1 PASS"; else echo "CHECK C1 FAIL"; ok=0; fi
+[ -d /tests/preserve ] && cp -R /tests/preserve/. ` + Workdir + `/
+` + rm.String() + `ok=1
 if ` + c2 + ` >/logs/verifier/c2.txt 2>&1; then echo "CHECK C2 PASS"; else echo "CHECK C2 FAIL"; ok=0; fi
+cp -R /tests/hidden/. ` + Workdir + `/ || exit 0
+if ` + c1 + ` >/logs/verifier/c1.txt 2>&1; then echo "CHECK C1 PASS"; else echo "CHECK C1 FAIL"; ok=0; fi
 [ "$ok" = 1 ] && reward=1
 exit 0
 `
+}
+
+// joinTar concatenates the entries of two HINT tar archives.
+func joinTar(a, b []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for _, src := range [][]byte{a, b} {
+		tr := tar.NewReader(bytes.NewReader(src))
+		for {
+			h, err := tr.Next()
+			if err != nil {
+				break
+			}
+			if err := tw.WriteHeader(h); err != nil {
+				return nil, err
+			}
+			if _, err := io.Copy(tw, tr); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := tw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func checksJSON(lang string, hidden []string) []byte {
