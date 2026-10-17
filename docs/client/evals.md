@@ -54,6 +54,32 @@ solution.
 Qualification needs Docker and Harbor 0.23 (`uv tool install harbor==0.23.0`); HINT
 turns Harbor's telemetry off for its runs. Without them, evals stay `packaged`.
 
+## Measuring agents
+
+```sh
+git hint eval run --agent oracle          # check the setup without a model
+git hint eval run --attempts 3            # OpenCode with the local model of the policy
+git hint eval run --arm configuration     # label a run, for example after a setup change
+git hint eval compare                     # raw results per arm and agent
+```
+
+`eval run` freezes a suite of validated evals and runs bounded trials in containers. A
+live agent uses only the local model named in the eval policy (`model.use: lan`, a
+private-network `base_url`, the key in the environment variable `key_env`). HINT runs a
+small proxy that holds the key, counts the model requests of each trial and stops them at
+the trial limit; inside the container the agent can reach only that proxy. `eval compare`
+shows raw counts: every failed or timed-out attempt and its resources count, unknown
+usage stays unknown. Statistical comparisons are not computed locally.
+
+## Moving evals to another machine
+
+```sh
+git hint eval pack ev-… -o evals.bundle   # private file: instruction, states, solution
+git hint eval unpack evals.bundle         # every object is checked; nothing is sent
+```
+
+A bundle holds private task content. Keep it on your own machines; HINT never uploads it.
+
 ## Limits and deletion
 
 Defaults: 90 days retention for unpinned evals, 2 GiB, 20 episodes per pass, 20 trials

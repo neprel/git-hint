@@ -152,3 +152,32 @@ func TestCollectStartsTheWorkerOnlyWhenRunsAreAllowed(t *testing.T) {
 		t.Fatalf("show: %s", show)
 	}
 }
+
+func TestPackAndUnpackBetweenProjects(t *testing.T) {
+	shop, _ := setup(t)
+	var spawned []string
+	must(t, runEval(t, shop, &spawned, "eval", "on"))
+	s, _ := store.Open(shop)
+	l := library.Open(s, 0)
+	name, err := l.PutManifest("eval", evaltest.GoBugFix(t, l))
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "evals.bundle")
+	id, _, _ := strings.Cut(name, "@")
+	must(t, runEval(t, shop, &spawned, "eval", "pack", id, "-o", file))
+	if fi, err := os.Stat(file); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("bundle file %v %v", err, fi)
+	}
+	if r := runEval(t, shop, &spawned, "eval", "pack", id, "-o", file); r.code == 0 {
+		t.Fatal("pack overwrote an existing file")
+	}
+	other, _ := setup(t)
+	r := must(t, runEval(t, other, &spawned, "eval", "unpack", file))
+	if !strings.Contains(r.stdout, name) {
+		t.Fatalf("unpack: %s", r.stdout)
+	}
+	if out := must(t, runEval(t, other, &spawned, "eval")).stdout; !strings.Contains(out, name) {
+		t.Fatalf("list after unpack: %s", out)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/neprel/git-hint/internal/evals"
+	"github.com/neprel/git-hint/internal/evals/bundle"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/pipeline"
 	"github.com/neprel/git-hint/internal/evals/runner"
@@ -35,6 +36,8 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
   git hint eval run [ID...] [--agent opencode|oracle|nop] [--attempts N] [--arm ARM]
                                      freeze a suite of validated evals and run bounded trials
   git hint eval compare [SUITE]      raw results per arm and agent (every attempt counts)
+  git hint eval pack ID... -o FILE   write evals to a private bundle for your other machines
+  git hint eval unpack FILE          read a bundle (every object is checked; never sent anywhere)
 `)
 }
 
@@ -55,6 +58,10 @@ func cmdEval(e *Env, args []string) int {
 		return evalRun(e, args[1:])
 	case "compare":
 		return evalCompare(e, args[1:])
+	case "pack":
+		return evalPack(e, args[1:])
+	case "unpack":
+		return evalUnpack(e, args[1:])
 	case "__qualify":
 		return evalWorker(e, args[1:])
 	case "help", "-h", "--help":
@@ -504,5 +511,70 @@ func evalCompare(e *Env, args []string) int {
 			r.Timeouts, r.Errors+r.Budget, num(r.Requests), num(r.InputTokens), num(r.OutputTokens), med)
 	}
 	fmt.Fprintln(e.Stdout, "Raw counts only: failed and timed-out attempts and their resources count. Unknown usage stays unknown.")
+	return 0
+}
+
+func evalPack(e *Env, args []string) int {
+	args = flagsFirst(args)
+	fs := flags(e, "eval pack", "reads local evals; writes a private bundle file; sends nothing")
+	out := fs.String("o", "", "bundle file to write (private: holds instructions, file states and solutions)")
+	if fs.Parse(args) != nil || *out == "" || fs.NArg() == 0 {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	l := library.Open(s, 0)
+	latest := map[string]string{}
+	for _, r := range latestEvals(l) {
+		id, _, _ := strings.Cut(r.Ref, "@")
+		latest[id] = r.Ref
+	}
+	var refs []string
+	for _, a := range fs.Args() {
+		if !strings.Contains(a, "@") {
+			if r, ok := latest[a]; ok {
+				a = r
+			}
+		}
+		refs = append(refs, a)
+	}
+	f, err := os.OpenFile(*out, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fail(e, err)
+	}
+	idx, perr := bundle.Pack(l, refs, f)
+	cerr := f.Close()
+	if perr != nil || cerr != nil {
+		os.Remove(*out)
+		if perr == nil {
+			perr = cerr
+		}
+		return fail(e, perr)
+	}
+	fmt.Fprintf(e.Stdout, "Wrote %s: %d evals, %d objects. It holds private task content; keep it on your own machines.\n", *out, len(idx.Evals), len(idx.Objects))
+	return 0
+}
+
+func evalUnpack(e *Env, args []string) int {
+	fs := flags(e, "eval unpack", "reads a bundle file; writes local state; sends nothing")
+	if fs.Parse(args) != nil || fs.NArg() != 1 {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	f, err := os.Open(fs.Arg(0))
+	if err != nil {
+		return fail(e, err)
+	}
+	defer f.Close()
+	res, err := bundle.Unpack(library.Open(s, s.Cfg.Evals.Limits().QuotaBytes), f)
+	if err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintf(e.Stdout, "Read %d evals (%s) with %d objects.\n", len(res.Evals), strings.Join(res.Evals, ", "), res.Objects)
 	return 0
 }
