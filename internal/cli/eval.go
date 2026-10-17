@@ -258,13 +258,26 @@ func state(p *evals.Policy) string {
 	return fmt.Sprintf("on for %s; container runs %s", strings.Join(p.Agents, ", "), allowed(p.Check(evals.OpExecute, "")))
 }
 
-// flagsFirst moves flag tokens before positional ones, so `eval show ID --text` works.
+// valueFlags take a separate value token (`-o FILE`).
+var valueFlags = map[string]bool{"-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true}
+
+// flagsFirst moves flag tokens (with their values) before positional ones, so
+// `eval show ID --text` and `eval pack ID -o FILE` work.
 func flagsFirst(args []string) []string {
 	var f, p []string
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			p = append(p, args[i+1:]...)
+			i = len(args)
+		case strings.HasPrefix(a, "-"):
 			f = append(f, a)
-		} else {
+			if valueFlags[a] && i+1 < len(args) {
+				f = append(f, args[i+1])
+				i++
+			}
+		default:
 			p = append(p, a)
 		}
 	}
