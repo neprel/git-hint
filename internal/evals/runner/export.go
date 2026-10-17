@@ -190,6 +190,8 @@ func compose(s Settings) string {
 	if s.Mode == LANModel { // Harbor's egress sidecar controls the network
 		return fmt.Sprintf(`services:
   main:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     pids_limit: %d
     security_opt:
       - "no-new-privileges:true"
