@@ -26,8 +26,10 @@ import (
 	"github.com/neprel/git-hint/internal/evals/library"
 )
 
-// Settings are the limits written into a task.
+// Settings are the limits and the network mode written into a task.
 type Settings struct {
+	Mode            string // Offline or LANModel
+	LANHost         string // the only host the agent may reach in LANModel mode
 	AgentSeconds    int
 	VerifierSeconds int
 	BuildSeconds    int
@@ -102,6 +104,9 @@ func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Ta
 	if err := w("instruction.md", []byte("<!-- canary "+t.Canary+" -->\n"+string(instr)), 0o644); err != nil {
 		return nil, err
 	}
+	if s.Mode == LANModel && s.LANHost == "" {
+		return nil, errors.New("LAN model mode needs the proxy host")
+	}
 	if err := w("task.toml", []byte(taskTOML(t.Name, version, evalID, s)), 0o644); err != nil {
 		return nil, err
 	}
@@ -144,6 +149,13 @@ func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Ta
 }
 
 func taskTOML(name string, version int, evalID string, s Settings) string {
+	agentNet, verifierNet := "", ""
+	if s.Mode == LANModel {
+		// setup (agent install) keeps the baseline; the agent reaches only the proxy host;
+		// the verifier gets no network
+		agentNet = fmt.Sprintf("network_mode = \"allowlist\"\nallowed_hosts = [%q]\n", s.LANHost)
+		verifierNet = "network_mode = \"no-network\"\n"
+	}
 	return fmt.Sprintf(`schema_version = "1.4"
 artifacts = ["/app"]
 
@@ -159,22 +171,30 @@ visibility = "private"
 [verifier]
 timeout_sec = %d.0
 environment_mode = "separate"
-
+%s
 [agent]
 timeout_sec = %d.0
-
+%s
 [environment]
 network_mode = "public"
 build_timeout_sec = %d.0
 cpus = %g
 memory_mb = %d
 storage_mb = 4096
-`, name, version, evalID, s.VerifierSeconds, s.AgentSeconds, s.BuildSeconds, s.CPUs, s.MemoryMB)
+`, name, version, evalID, s.VerifierSeconds, verifierNet, s.AgentSeconds, agentNet, s.BuildSeconds, s.CPUs, s.MemoryMB)
 }
 
 // The task container gets no network at run time (network_mode "none" in HINT's compose
 // file); "public" in task.toml only keeps Harbor from adding its own egress sidecar.
 func compose(s Settings) string {
+	if s.Mode == LANModel { // Harbor's egress sidecar controls the network
+		return fmt.Sprintf(`services:
+  main:
+    pids_limit: %d
+    security_opt:
+      - "no-new-privileges:true"
+`, s.Pids)
+	}
 	return fmt.Sprintf(`services:
   main:
     network_mode: "none"

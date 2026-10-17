@@ -32,6 +32,9 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
   git hint eval off                  stop collecting (stored evals stay)
   git hint eval show ID [--text]     one eval: state, checks, reasons (--text: local texts)
   git hint eval forget ID...|--all   delete evals (pinned ones stay) and list leftovers
+  git hint eval run [ID...] [--agent opencode|oracle|nop] [--attempts N] [--arm ARM]
+                                     freeze a suite of validated evals and run bounded trials
+  git hint eval compare [SUITE]      raw results per arm and agent (every attempt counts)
 `)
 }
 
@@ -48,6 +51,10 @@ func cmdEval(e *Env, args []string) int {
 		return evalShow(e, args[1:])
 	case "forget":
 		return evalForget(e, args[1:])
+	case "run":
+		return evalRun(e, args[1:])
+	case "compare":
+		return evalCompare(e, args[1:])
 	case "__qualify":
 		return evalWorker(e, args[1:])
 	case "help", "-h", "--help":
@@ -400,5 +407,102 @@ func evalWorker(e *Env, _ []string) int {
 	}
 	rep := pipeline.Qualify(context.Background(), s, h, e.Now())
 	fmt.Fprintf(e.Stdout, "%s qualified %d (trials %d) states %v %s %s\n", e.Now().UTC().Format("2006-01-02T15:04:05Z"), rep.Qualified, rep.Trials, rep.States, rep.Blocked, rep.Stopped)
+	return 0
+}
+
+func evalRun(e *Env, args []string) int {
+	args = flagsFirst(args)
+	fs := flags(e, "eval run", "runs agents in containers (policy evals.run); a live agent uses only the local model of the policy; sends nothing to a HINT server")
+	agent := fs.String("agent", "opencode", "agent: opencode (local model of the policy), oracle or nop (checks without a model)")
+	attempts := fs.Int("attempts", 1, "attempts per eval")
+	arm := fs.String("arm", "baseline", "label for comparisons: "+strings.Join(pipeline.Arms, ", "))
+	asJSON := fs.Bool("json", false, "print the result as JSON")
+	if fs.Parse(args) != nil {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	p := s.Cfg.Evals
+	if err := p.Check(evals.OpExecute, ""); err != nil {
+		return fail(e, err)
+	}
+	ctx := context.Background()
+	h, err := runner.FindHarbor(ctx)
+	if err != nil {
+		return fail(e, err)
+	}
+	o := pipeline.SuiteOptions{Evals: fs.Args(), Agent: *agent, Attempts: *attempts, Arm: *arm}
+	if *agent == "opencode" {
+		if err := p.Check(evals.OpModel, ""); err != nil {
+			return fail(e, err)
+		}
+		lv, err := runner.StartLive(runner.LiveConfig{BaseURL: p.Model.BaseURL, Model: p.Model.Model, KeyEnv: p.Model.KeyEnv, AgentVersion: "2.0.26"})
+		if err != nil {
+			return fail(e, err)
+		}
+		defer lv.Close()
+		o.Live = lv
+	}
+	rep, err := pipeline.RunSuite(ctx, s, h, h.Version, o, e.Now())
+	if err != nil {
+		return fail(e, err)
+	}
+	if *asJSON {
+		return writeJSON(e, rep)
+	}
+	fmt.Fprintf(e.Stdout, "Suite %s: %d trials, outcomes %v", rep.Suite, rep.Trials, rep.Outcomes)
+	if rep.Requests != nil {
+		fmt.Fprintf(e.Stdout, ", model requests %d", *rep.Requests)
+	}
+	if rep.Stopped != "" {
+		fmt.Fprintf(e.Stdout, " (stopped: %s)", rep.Stopped)
+	}
+	fmt.Fprintln(e.Stdout)
+	for _, sk := range rep.Skipped {
+		fmt.Fprintf(e.Stdout, "  not in the suite: %s\n", sk)
+	}
+	return 0
+}
+
+func evalCompare(e *Env, args []string) int {
+	args = flagsFirst(args)
+	fs := flags(e, "eval compare", "reads local trial records; no network")
+	asJSON := fs.Bool("json", false, "print as JSON")
+	if fs.Parse(args) != nil || fs.NArg() > 1 {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	rows, err := pipeline.Compare(library.Open(s, 0), fs.Arg(0))
+	if err != nil {
+		return fail(e, err)
+	}
+	if *asJSON {
+		return writeJSON(e, rows)
+	}
+	if len(rows) == 0 {
+		fmt.Fprintln(e.Stdout, "No trials yet (git hint eval run).")
+		return 0
+	}
+	num := func(p *int64) string {
+		if p == nil {
+			return "unknown"
+		}
+		return fmt.Sprint(*p)
+	}
+	fmt.Fprintf(e.Stdout, "%-20s %-13s %-22s %6s %6s %6s %8s %7s %9s %10s %10s %8s\n", "suite", "arm", "agent", "trials", "passed", "failed", "timeouts", "errors", "requests", "in tokens", "out tokens", "median s")
+	for _, r := range rows {
+		med := "unknown"
+		if r.MedianWall != nil {
+			med = fmt.Sprintf("%.0f", *r.MedianWall)
+		}
+		fmt.Fprintf(e.Stdout, "%-20s %-13s %-22s %6d %6d %6d %8d %7d %9s %10s %10s %8s\n", r.Suite, r.Arm, r.Agent, r.Trials, r.Passed, r.Failed,
+			r.Timeouts, r.Errors+r.Budget, num(r.Requests), num(r.InputTokens), num(r.OutputTokens), med)
+	}
+	fmt.Fprintln(e.Stdout, "Raw counts only: failed and timed-out attempts and their resources count. Unknown usage stays unknown.")
 	return 0
 }

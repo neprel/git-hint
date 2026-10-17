@@ -71,3 +71,66 @@ func GoBugFix(t testing.TB, l *library.Library) map[string]any {
 	}
 	return b.Record
 }
+
+// Family fixtures: each is a complete Go project change with the request that asked for it.
+type Change struct {
+	Family  string
+	Request string
+	Base    map[string]string
+	Result  map[string]string
+	Paths   []string
+}
+
+// Families returns one complete change per task family.
+func Families() []Change {
+	shop := func(extra map[string]string) map[string]string {
+		m := map[string]string{"go.mod": GoMod, "cart_test.go": GoOld}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	fixed := map[string]string{"cart.go": GoFix}
+	return []Change{
+		{"bug_fix", "Total ignores the discount. Fix Total so it subtracts the discount from the price.",
+			shop(map[string]string{"cart.go": GoBug}), shop(map[string]string{"cart.go": GoFix, "discount_test.go": GoAdded}), []string{"cart.go", "discount_test.go"}},
+		{"feature", "Add a Tax function that returns 10 percent of the price, rounded down.",
+			shop(fixed), shop(map[string]string{"cart.go": GoFix + "\n// Tax returns 10 percent of the price, rounded down.\nfunc Tax(price int) int { return price / 10 }\n",
+				"tax_test.go": "package shop\n\nimport \"testing\"\n\nfunc TestTax(t *testing.T) {\n\tif Tax(99) != 9 || Tax(100) != 10 {\n\t\tt.Fatal(\"tax\")\n\t}\n}\n"}),
+			[]string{"cart.go", "tax_test.go"}},
+		{"compatibility", "Change the Total API to accept an optional list of coupons; keep existing callers compatible.",
+			shop(fixed), shop(map[string]string{"cart.go": "package shop\n\n// Total returns the price after the discount and the coupons.\nfunc Total(price, discount int, coupons ...int) int {\n\tt := price - discount\n\tfor _, c := range coupons {\n\t\tt -= c\n\t}\n\treturn t\n}\n",
+				"coupon_test.go": "package shop\n\nimport \"testing\"\n\nfunc TestCoupons(t *testing.T) {\n\tif Total(10, 1, 2, 3) != 4 || Total(10, 1) != 9 {\n\t\tt.Fatal(\"coupons\")\n\t}\n}\n"}),
+			[]string{"cart.go", "coupon_test.go"}},
+		{"refactor", "Refactor Total: rename its parameters p and d to price and discount; keep the behavior.",
+			shop(map[string]string{"cart.go": "package shop\n\n// Total returns the price after the discount.\nfunc Total(p, d int) int { return p - d }\n"}),
+			shop(fixed), []string{"cart.go"}},
+	}
+}
+
+// RefactorExtract is a refactoring whose request is only partly visible in the exported API
+// ("make Total use it" is internal): qualification must not validate it.
+func RefactorExtract() Change {
+	return Change{"refactor", "Refactor: extract the discount calculation into an exported function Discounted(price, discount int) int and make Total use it.",
+		map[string]string{"go.mod": GoMod, "cart_test.go": GoOld, "cart.go": GoFix},
+		map[string]string{"go.mod": GoMod, "cart_test.go": GoOld, "cart.go": "package shop\n\n// Discounted returns the price minus the discount.\nfunc Discounted(price, discount int) int { return price - discount }\n\n// Total returns the price after the discount.\nfunc Total(price, discount int) int { return Discounted(price, discount) }\n"},
+		[]string{"cart.go"}}
+}
+
+// Package builds the eval record of a family change.
+func Package(t testing.TB, l *library.Library, c Change, check string) (*build.Built, error) {
+	t.Helper()
+	at := map[string]any{"source": library.Digest([]byte("synthetic-session-" + c.Family)), "record": "u1"}
+	return build.Build(l, build.Input{EpisodeID: "ep-" + fmt16(c.Family), Family: c.Family, Repo: "shop",
+		Base: Tree(t, l, c.Base), Result: Tree(t, l, c.Result), Paths: c.Paths, Attribution: "exclusive", Outcome: "test_passed",
+		Request: c.Request, RequestAt: at, CheckHint: check, Now: time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)})
+}
+
+func fmt16(s string) string {
+	const hex = "0123456789abcdef"
+	b := make([]byte, 16)
+	for i := range b {
+		b[i] = hex[(int(s[i%len(s)])+i)%16]
+	}
+	return string(b)
+}

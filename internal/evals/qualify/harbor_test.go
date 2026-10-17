@@ -43,3 +43,41 @@ func TestHarborQualification(t *testing.T) {
 		t.Fatalf("state %s", res.State)
 	}
 }
+
+// TestHarborFamilies qualifies one change per task family through the real Harbor CLI with
+// no model, plus a refactoring whose request is only partly visible in the exported API
+// (it must not be validated). Set HINT_HARBOR to run it.
+func TestHarborFamilies(t *testing.T) {
+	if os.Getenv("HINT_HARBOR") == "" {
+		t.Skip("set HINT_HARBOR to the harbor executable")
+	}
+	ctx := context.Background()
+	h, err := runner.FindHarbor(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := append(evaltest.Families(), evaltest.RefactorExtract())
+	for i, c := range cases {
+		l := evaltest.Library(t)
+		b, err := evaltest.Package(t, l, c, "go test ./...")
+		if err != nil {
+			t.Fatalf("%s: %v", c.Family, err)
+		}
+		start := time.Now()
+		res, err := Run(ctx, l, h, b.Record, Options{Work: t.TempDir(), Settings: runner.Settings{AgentSeconds: 300, VerifierSeconds: 300, BuildSeconds: 900, CPUs: 2, MemoryMB: 2048, Pids: 512}})
+		if err != nil {
+			t.Fatalf("%s: %v", c.Family, err)
+		}
+		t.Logf("%d %-13s state %-12s reasons %v trials %d in %s", i, c.Family, res.State, res.Reasons, res.Trials, time.Since(start).Round(time.Second))
+		want := "validated"
+		if i == len(cases)-1 {
+			want = "needs_review"
+		}
+		if res.State != want {
+			for _, ch := range res.Checks {
+				t.Logf("  %-18s %-14s runs %d", ch.Name, ch.Status, ch.Runs)
+			}
+			t.Errorf("%s: state %s, want %s", c.Family, res.State, want)
+		}
+	}
+}

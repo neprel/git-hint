@@ -91,6 +91,7 @@ type RunOptions struct {
 	JobsDir   string
 	JobName   string
 	AgentArgs []string // extra --ak values (opencode version, model config)
+	Model     string   // provider/model for live agents
 	Env       []string // extra environment for the runner (never credentials in arguments)
 	Timeout   time.Duration
 }
@@ -117,6 +118,9 @@ func (h *Harbor) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 		"-o", o.JobsDir, "--job-name", o.JobName, "-e", "docker", "-q", "-y"}
 	for _, a := range o.AgentArgs {
 		args = append(args, "--ak", a)
+	}
+	if o.Model != "" {
+		args = append(args, "-m", o.Model)
 	}
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()

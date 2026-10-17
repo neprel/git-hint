@@ -228,11 +228,19 @@ func Build(l *library.Library, in Input) (*Built, error) {
 			unattributed++
 		}
 	}
-	if len(hidden) == 0 {
-		return nil, &Refusal{[]string{"verifier_missing"}}
-	}
 	if len(solution)+len(deleted) == 0 {
 		return nil, &Refusal{[]string{"no_checkable_outcome"}}
+	}
+	var apiDirs, apiAfter []string
+	if len(hidden) == 0 {
+		if in.Family != "refactor" || lang != "go" {
+			return nil, &Refusal{[]string{"verifier_missing"}}
+		}
+		dirs, _, after, err := refactorAPI(l, in.Base, in.Result, append(append([]string{}, solution...), deleted...))
+		if err != nil {
+			return nil, err
+		}
+		apiDirs, apiAfter = dirs, after
 	}
 	// agent image: base tree as one archive (no history); hidden test paths that exist in
 	// the base keep their base version (visible), the result version goes to the verifier
@@ -248,9 +256,11 @@ func Build(l *library.Library, in Input) (*Built, error) {
 	for _, p := range hidden {
 		vfiles = append(vfiles, resFiles[p])
 	}
-	names, err := testNames(l, lang, vfiles)
-	if err != nil {
-		return nil, err
+	var names []string
+	if apiDirs == nil {
+		if names, err = testNames(l, lang, vfiles); err != nil {
+			return nil, err
+		}
 	}
 	// evaluator-owned copies of the existing tests that the episode did not change
 	var preserve []trees.File
@@ -259,12 +269,18 @@ func Build(l *library.Library, in Input) (*Built, error) {
 			preserve = append(preserve, f)
 		}
 	}
-	checks := checkScript(lang, hidden, names)
 	pArchive, err := tarTree(l, preserve, "preserve/")
 	if err != nil {
 		return nil, err
 	}
-	vArchive, err := tarTree(l, vfiles, "hidden/", extra{"test.sh", []byte(checks), 0o755}, extra{"checks.json", checksJSON(lang, hidden), 0o644})
+	var vArchive []byte
+	if apiDirs != nil {
+		vArchive, err = tarTree(l, nil, "", extra{"test.sh", []byte(refactorScript(apiDirs)), 0o755},
+			extra{"checks.json", checksJSON(lang, nil), 0o644}, extra{"apicheck/main.go", []byte(apicheckMain()), 0o644},
+			extra{"api.expected", []byte(strings.Join(apiAfter, "\n") + "\n"), 0o644})
+	} else {
+		vArchive, err = tarTree(l, vfiles, "hidden/", extra{"test.sh", []byte(checkScript(lang, hidden, names)), 0o755}, extra{"checks.json", checksJSON(lang, hidden), 0o644})
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +315,11 @@ func Build(l *library.Library, in Input) (*Built, error) {
 		return nil, err
 	}
 	reqText, _ := l.PutObject([]byte(in.Request))
-	reqs := []any{map[string]any{"req_id": "R1", "kind": "behavior", "origin": "request", "text": reqText, "evidence": []any{in.RequestAt}, "checks": []any{"C1"}}}
+	kind := "behavior"
+	if apiDirs != nil {
+		kind = "structure"
+	}
+	reqs := []any{map[string]any{"req_id": "R1", "kind": kind, "origin": "request", "text": reqText, "evidence": []any{in.RequestAt}, "checks": []any{"C1"}}}
 	for i, c := range in.Corrections {
 		d, _ := l.PutObject([]byte(c.Body))
 		reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", i+2), "kind": "behavior", "origin": "correction", "text": d, "evidence": []any{c.At}, "checks": []any{"C1"}})
@@ -313,7 +333,7 @@ func Build(l *library.Library, in Input) (*Built, error) {
 		"repositories": []any{map[string]any{"repo": in.Repo, "base_tree": in.Base, "base_archive": baseArc, "result_tree": in.Result}},
 		"instruction":  instrD, "requirements": reqs,
 		"verifier": map[string]any{"archive": vArc, "checks": []any{
-			map[string]any{"check_id": "C1", "origin": "result_test"}, map[string]any{"check_id": "C2", "origin": "existing_test"}}},
+			c1Check(l, apiDirs, apiAfter, in.Result), map[string]any{"check_id": "C2", "origin": "existing_test"}}},
 		"reference":    sArc,
 		"environment":  map[string]any{"image": img.Ref, "setup": setupD, "workdir": Workdir, "test_command": "tests/test.sh"},
 		"dependencies": []any{}, "state": "packaged", "reasons": reasonsFor(unattributed),
@@ -544,4 +564,15 @@ func tarTree(l *library.Library, files []trees.File, prefix string, extras ...ex
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// c1Check describes C1: hidden tests from the result state, or the refactoring API check
+// that the builder derived from the result state's exported API (deterministic, no model).
+func c1Check(l *library.Library, apiDirs, apiAfter []string, result string) map[string]any {
+	if apiDirs == nil {
+		return map[string]any{"check_id": "C1", "origin": "result_test"}
+	}
+	out, _ := l.PutObject([]byte(strings.Join(apiAfter, "\n") + "\n"))
+	return map[string]any{"check_id": "C1", "origin": "generated", "generator": map[string]any{
+		"name": "git-hint apicheck", "version": "1", "inputs": []any{result}, "output": out, "requests": 0}}
 }
