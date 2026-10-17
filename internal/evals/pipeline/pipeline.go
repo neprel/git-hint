@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/neprel/git-hint/internal/evals"
+	"github.com/neprel/git-hint/internal/evals/episodes"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/sessions"
 	"github.com/neprel/git-hint/internal/evals/sources"
@@ -42,6 +43,7 @@ type Result struct {
 	Blocked   string           `json:"blocked,omitempty"` // why the pass did not run
 	Imports   []sources.Report `json:"imports,omitempty"`
 	Snapshots SnapshotReport   `json:"snapshots"`
+	Episodes  EpisodeReport    `json:"episodes"`
 	Stopped   string           `json:"stopped,omitempty"` // time_limit when the batch time ran out
 	Elapsed   float64          `json:"elapsed_seconds"`
 	Extra     map[string]any   `json:"extra,omitempty"`
@@ -76,6 +78,9 @@ func Run(ctx context.Context, s *store.Store, env Env) Result {
 	res.Imports = sources.Run(ctx, l, sources.Options{Agents: p.Agents, Roots: roots, ImportRoots: p.ImportRoots,
 		Home: env.Home, MaxSessions: lim.BatchEpisodes, Cmd: env.Cmd})
 	res.Snapshots = keepSnapshots(ctx, l, env.DataHome)
+	if ctx.Err() == nil {
+		res.Episodes = discover(l, s, env.Now())
+	}
 	if ctx.Err() != nil {
 		res.Stopped = "time_limit"
 	}
@@ -147,6 +152,57 @@ func keepSnapshots(ctx context.Context, l *library.Library, dataHome string) Sna
 		for _, c := range m.Unavailable {
 			rep.Unavailable[c]++
 		}
+	}
+	return rep
+}
+
+// EpisodeReport counts episode proposals of a pass.
+type EpisodeReport struct {
+	Proposed  int            `json:"proposed"`
+	Stored    int            `json:"stored"`
+	Unchanged int            `json:"unchanged"`
+	Reasons   map[string]int `json:"reasons,omitempty"`
+	Error     string         `json:"error,omitempty"`
+}
+
+// discover proposes closed episodes from every imported session and stores them.
+func discover(l *library.Library, s *store.Store, now time.Time) EpisodeReport {
+	rep := EpisodeReport{Reasons: map[string]int{}}
+	maps := map[string]snapMap{}
+	snaps := func(project, id string) string {
+		if project == "" || id == "" {
+			return ""
+		}
+		m, ok := maps[project]
+		if !ok {
+			_ = l.Index("snapmap/"+project, &m)
+			maps[project] = m
+		}
+		return m.Trees[id]
+	}
+	repos := func(dir string) string {
+		for _, r := range s.Cfg.Repos {
+			if sources.Within([]string{s.RepoRoot(r)}, dir) {
+				return r.Name
+			}
+		}
+		return ""
+	}
+	props, err := episodes.Discover(l, now, snaps, repos)
+	if err != nil {
+		rep.Error = "discovery_failed"
+		return rep
+	}
+	rep.Proposed = len(props)
+	for _, p := range props {
+		for _, r := range p.Record["reasons"].([]string) {
+			rep.Reasons[r]++
+		}
+	}
+	stored, unchanged, err := episodes.Store(l, props)
+	rep.Stored, rep.Unchanged = stored, unchanged
+	if err != nil {
+		rep.Error = "store_failed"
 	}
 	return rep
 }

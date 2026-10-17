@@ -95,7 +95,14 @@ func TestPassKeepsSnapshotsAndLeavesExportsClean(t *testing.T) {
 	if err := l.Index("snapmap/prj_synth", &m); err != nil || m.Trees[tree] == "" {
 		t.Fatalf("snapshot map %v %+v", err, m)
 	}
+	// the fixture session ended long ago: one closed bug-fix episode with an exact base
+	if r.Episodes.Proposed != 1 || r.Episodes.Stored != 1 {
+		t.Fatalf("episodes %+v", r.Episodes)
+	}
 	r2 := Run(context.Background(), s, env)
+	if r2.Episodes.Stored != 0 || r2.Episodes.Unchanged != 1 {
+		t.Fatalf("second pass episodes %+v", r2.Episodes)
+	}
 	if r2.Imports[0].Unchanged != 1 || r2.Snapshots.Kept != 1 {
 		t.Fatalf("second pass %+v", r2)
 	}

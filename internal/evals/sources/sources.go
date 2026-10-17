@@ -201,6 +201,10 @@ func openCode(ctx context.Context, l *library.Library, opt Options) Report {
 	return r
 }
 
+// Within reports whether dir lies inside one of the roots (paths compared as given and
+// with symbolic links resolved).
+func Within(roots []string, dir string) bool { return within(roots, dir) }
+
 // within reports whether dir lies inside one of the roots.
 func within(roots []string, dir string) bool {
 	if dir == "" {
