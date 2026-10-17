@@ -162,6 +162,12 @@ func packageOne(l *library.Library, ep map[string]any, p *evals.Policy, now time
 	}
 	built, err := build.Build(l, in)
 	var ref *build.Refusal
+	if errors.As(err, &ref) && len(ref.Reasons) == 1 && ref.Reasons[0] == "verifier_missing" {
+		// no test of its own: a local model draft may supply a hidden check (policy model)
+		if drafted, ok := draftVerifier(context.Background(), l, p, in); ok {
+			built, err = build.Build(l, drafted)
+		}
+	}
 	if errors.As(err, &ref) {
 		return evalMap{Refused: ref.Reasons}
 	}

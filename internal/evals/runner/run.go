@@ -59,6 +59,7 @@ type Trial struct {
 	Name         string            `json:"name"`
 	Reward       *float64          `json:"reward"`
 	Exception    string            `json:"exception,omitempty"` // exception type only
+	Tampered     bool              `json:"tampered,omitempty"`  // a check line appeared more than once
 	Checks       map[string]string `json:"checks"`
 	InputTokens  *int64            `json:"input_tokens"`
 	OutputTokens *int64            `json:"output_tokens"`
@@ -70,6 +71,8 @@ type Trial struct {
 // Outcome classifies a trial for HINT records.
 func (t Trial) Outcome() string {
 	switch {
+	case t.Tampered:
+		return "verifier_error"
 	case t.Exception != "" && strings.Contains(strings.ToLower(t.Exception), "timeout"):
 		return "timeout"
 	case t.Exception != "" && strings.Contains(t.Exception, "Reward"):
@@ -79,6 +82,16 @@ func (t Trial) Outcome() string {
 	case t.Reward == nil:
 		return "verifier_error"
 	case *t.Reward >= 1:
+		// a pass needs the verifier's own check lines, all passing: a reward file written
+		// by other code is not a pass
+		if len(t.Checks) == 0 {
+			return "verifier_error"
+		}
+		for _, st := range t.Checks {
+			if st != "pass" {
+				return "verifier_error"
+			}
+		}
 		return "passed"
 	}
 	return "failed"
@@ -216,6 +229,9 @@ func ReadJob(jobDir string) ([]Trial, error) {
 			sc := bufio.NewScanner(f)
 			for sc.Scan() {
 				if c := checkLine.FindStringSubmatch(strings.TrimSpace(sc.Text())); c != nil {
+					if _, dup := t.Checks[c[1]]; dup {
+						t.Tampered = true // the generated verifier prints each check once
+					}
 					t.Checks[c[1]] = strings.ToLower(c[2])
 				}
 			}

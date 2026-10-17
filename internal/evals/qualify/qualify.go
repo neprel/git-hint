@@ -183,7 +183,9 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 		return res, err
 	}
 	pt, err := run("probe", "oracle", probe, 1)
-	if err != nil || len(pt) != 1 || infra(pt[0]) {
+	// the probe is judged by its reward value: an inconsistent reward is a forgery here,
+	// not an infrastructure error
+	if err != nil || len(pt) != 1 || pt[0].Exception != "" {
 		add(Check{Name: "forgery_probe", Status: "missing", Runs: len(pt)})
 		add(Check{Name: "isolation", Status: "missing", Runs: len(pt)})
 		reason("runner_unavailable")

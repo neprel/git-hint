@@ -82,14 +82,32 @@ func refactorScript(dirs []string) string {
 set -u
 mkdir -p /logs/verifier
 reward=0
-trap 'echo "$reward" > /logs/verifier/reward.txt' EXIT
+# kill every process of the check user (kernel-enforced, also where the mounted log
+# directory does not enforce file permissions); repeat until none is left
+killnobody() {
+	for i in 1 2 3 4 5; do
+		found=0
+		for d in /proc/[0-9]*; do
+			u=$(awk '/^Uid:/{print $2; exit}' "$d/status" 2>/dev/null)
+			if [ "$u" = 65534 ]; then kill -9 "${d#/proc/}" 2>/dev/null; found=1; fi
+		done
+		[ "$found" = 0 ] && return 0
+		sleep 0.2
+	done
+}
+finish() { killnobody; echo "$reward" > /logs/verifier/reward.txt; echo "{\"reward\": $reward}" > /logs/verifier/reward.json; }
+trap finish EXIT
+# the checks run as the unprivileged user nobody; this script (root) writes the results
+run_as() { setpriv --reuid=65534 --regid=65534 --clear-groups env HOME=/tmp/hint-home GOCACHE=/tmp/hint-gocache GOFLAGS=-mod=mod PYTHONDONTWRITEBYTECODE=1 sh -c "$1"; }
+mkdir -p /tmp/hint-home /tmp/hint-gocache && chown -R 65534:65534 /tmp/hint-home /tmp/hint-gocache
 cd ` + Workdir + ` || exit 0
 [ -d /tests/preserve ] && cp -R /tests/preserve/. ` + Workdir + `/
+chown -R 65534:65534 ` + Workdir + `
 ok=1
-if go test -count=1 ./... >/logs/verifier/c2.txt 2>&1; then echo "CHECK C2 PASS"; else echo "CHECK C2 FAIL"; ok=0; fi
+if run_as "go test -count=1 ./..." >/logs/verifier/c2.txt 2>&1; then r=PASS; else r=FAIL; ok=0; fi; killnobody; echo "CHECK C2 $r"
 mkdir -p /tmp/apicheck && cp /tests/apicheck/main.go /tmp/apicheck/main.go
-printf 'module apicheck\n\ngo 1.21\n' > /tmp/apicheck/go.mod
-if (cd /tmp/apicheck && GOFLAGS=-mod=mod go run . ` + Workdir + ` ` + strings.Join(quoteAll(dirs), " ") + `) >/logs/verifier/api.txt 2>/logs/verifier/c1.txt && diff -u /tests/api.expected /logs/verifier/api.txt >>/logs/verifier/c1.txt 2>&1; then echo "CHECK C1 PASS"; else echo "CHECK C1 FAIL"; ok=0; fi
+printf 'module apicheck\n\ngo 1.21\n' > /tmp/apicheck/go.mod && chown -R 65534:65534 /tmp/apicheck
+if run_as "cd /tmp/apicheck && go run . ` + Workdir + ` ` + strings.Join(quoteAll(dirs), " ") + `" >/logs/verifier/api.txt 2>/logs/verifier/c1.txt && diff -u /tests/api.expected /logs/verifier/api.txt >>/logs/verifier/c1.txt 2>&1; then r=PASS; else r=FAIL; ok=0; fi; killnobody; echo "CHECK C1 $r"
 [ "$ok" = 1 ] && reward=1
 exit 0
 `

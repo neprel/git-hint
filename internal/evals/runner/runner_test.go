@@ -82,7 +82,7 @@ func TestReadJob(t *testing.T) {
 	write("t1/verifier/test-stdout.txt", "noise\nCHECK C1 PASS\nCHECK C2 PASS\n")
 	write("t2/result.json", `{"trial_name":"t2","verifier_result":null,"exception_info":{"exception_type":"AgentTimeoutError"}}`)
 	write("t3/result.json", `{"trial_name":"t3","verifier_result":{"rewards":{"reward":0.0}}}`)
-	write("t3/verifier/test-stdout.txt", "CHECK C1 FAIL\nCHECK C2 PASS\nCHECK C1 PASS extra\n")
+	write("t3/verifier/test-stdout.txt", "CHECK C1 FAIL\nCHECK C2 PASS\nCHECK C1 PASS\n")
 	ts, err := ReadJob(job)
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("%v %d", err, len(ts))
@@ -90,7 +90,7 @@ func TestReadJob(t *testing.T) {
 	if ts[0].Outcome() != "passed" || ts[0].Checks["C1"] != "pass" || *ts[0].WallSeconds != 90 || *ts[0].InputTokens != 10 || ts[0].CacheTokens != nil {
 		t.Fatalf("t1 %+v", ts[0])
 	}
-	if ts[1].Outcome() != "timeout" || ts[2].Outcome() != "failed" || ts[2].Checks["C1"] != "fail" {
+	if ts[1].Outcome() != "timeout" || ts[2].Outcome() != "verifier_error" || !ts[2].Tampered {
 		t.Fatalf("t2 %s t3 %s %v", ts[1].Outcome(), ts[2].Outcome(), ts[2].Checks)
 	}
 }

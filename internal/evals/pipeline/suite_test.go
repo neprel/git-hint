@@ -2,12 +2,16 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/neprel/git-hint/internal/evals"
+	"github.com/neprel/git-hint/internal/evals/build"
 	"github.com/neprel/git-hint/internal/evals/evaltest"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/runner"
@@ -97,5 +101,52 @@ func TestCompareKeepsFailuresAndUnknowns(t *testing.T) {
 	r := rows[0]
 	if r.Trials != 3 || r.Passed != 1 || r.Failed != 1 || r.Timeouts != 1 || r.UnknownUsage != 1 || r.InputTokens != nil || *r.MedianWall != 30 {
 		t.Fatalf("row %+v", r)
+	}
+}
+
+// An episode without a test of its own gets a hidden check drafted by the local model
+// (when the policy allows it); the check is labeled generated with its provenance.
+func TestDraftedVerifier(t *testing.T) {
+	draft := "package shop\n\nimport \"testing\"\n\nfunc TestDiscount(t *testing.T) {\n\tif Total(10, 3) != 7 {\n\t\tt.Fatal(\"total\")\n\t}\n}\n"
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": draft}}}})
+	}))
+	defer srv.Close()
+	t.Setenv("HINT_TEST_MODEL_KEY", "model-key")
+	l := evaltest.Library(t)
+	base := evaltest.Tree(t, l, map[string]string{"go.mod": evaltest.GoMod, "cart.go": evaltest.GoBug, "cart_test.go": evaltest.GoOld})
+	result := evaltest.Tree(t, l, map[string]string{"go.mod": evaltest.GoMod, "cart.go": evaltest.GoFix, "cart_test.go": evaltest.GoOld})
+	in := build.Input{EpisodeID: "ep-00000000000000d1", Family: "bug_fix", Repo: "shop", Base: base, Result: result, Paths: []string{"cart.go"},
+		Attribution: "exclusive", Outcome: "test_passed", Request: "Fix Total so it subtracts the discount.",
+		RequestAt: map[string]any{"source": library.Digest([]byte("s")), "record": "u1"}, CheckHint: "go test ./...", Now: time.Now()}
+	if _, err := build.Build(l, in); err == nil {
+		t.Fatal("an episode without a test was packaged without a draft")
+	}
+	off := evals.Enabled(nil)
+	if _, ok := draftVerifier(context.Background(), l, &off, in); ok || calls != 0 {
+		t.Fatal("a draft was requested without the model permission")
+	}
+	p := evals.Enabled(nil)
+	p.Model = &evals.Model{Use: "lan", BaseURL: srv.URL + "/v1", Model: "local-coder", KeyEnv: "HINT_TEST_MODEL_KEY"}
+	drafted, ok := draftVerifier(context.Background(), l, &p, in)
+	if !ok || calls != 1 {
+		t.Fatalf("draft %v calls %d", ok, calls)
+	}
+	b, err := build.Build(l, drafted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c1 := b.Record["verifier"].(map[string]any)["checks"].([]any)[0].(map[string]any)
+	g, _ := c1["generator"].(map[string]any)
+	if c1["origin"] != "generated" || g == nil || g["model"] != "local-coder" || g["requests"] != int64(1) && g["requests"] != 1 {
+		t.Fatalf("C1 %v", c1)
+	}
+	if err := evals.ValidateValue("eval", b.Record); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := draftVerifier(context.Background(), l, &p, in); ok || calls != 1 {
+		t.Fatal("the same episode got a second draft budget")
 	}
 }

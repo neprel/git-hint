@@ -73,6 +73,9 @@ type Input struct {
 	Corrections []Text
 	CheckHint   string // the session's passing check command (selects a template only)
 	Now         time.Time
+	// Generated names hidden test files that the local model drafted (path -> generator
+	// record); their check is labeled generated, never as a test of the session.
+	Generated map[string]map[string]any
 }
 
 // Text is a request or correction with its source location.
@@ -191,7 +194,9 @@ func Build(l *library.Library, in Input) (*Built, error) {
 		return nil, &Refusal{[]string{"verifier_missing"}}
 	}
 	if in.CheckHint == "" || !checkTemplate[lang].MatchString(in.CheckHint) || in.Outcome != "test_passed" {
-		return nil, &Refusal{[]string{"verifier_missing"}}
+		if len(in.Generated) == 0 || in.Outcome != "test_passed" {
+			return nil, &Refusal{[]string{"verifier_missing"}}
+		}
 	}
 	img, err := pickImage(l, lang, base)
 	if err != nil {
@@ -213,7 +218,7 @@ func Build(l *library.Library, in Input) (*Built, error) {
 	unattributed := 0
 	for _, p := range append(append([]string{}, added...), changed...) {
 		switch {
-		case isTest.MatchString(p) && (edited[p] || contains(added, p)):
+		case isTest.MatchString(p) && (edited[p] || contains(added, p) || in.Generated[p] != nil):
 			hidden = append(hidden, p)
 		case edited[p]:
 			solution = append(solution, p)
@@ -333,7 +338,7 @@ func Build(l *library.Library, in Input) (*Built, error) {
 		"repositories": []any{map[string]any{"repo": in.Repo, "base_tree": in.Base, "base_archive": baseArc, "result_tree": in.Result}},
 		"instruction":  instrD, "requirements": reqs,
 		"verifier": map[string]any{"archive": vArc, "checks": []any{
-			c1Check(l, apiDirs, apiAfter, in.Result), map[string]any{"check_id": "C2", "origin": "existing_test"}}},
+			c1Check(l, apiDirs, apiAfter, in.Result, hidden, in.Generated), map[string]any{"check_id": "C2", "origin": "existing_test"}}},
 		"reference":    sArc,
 		"environment":  map[string]any{"image": img.Ref, "setup": setupD, "workdir": Workdir, "test_command": "tests/test.sh"},
 		"dependencies": []any{}, "state": "packaged", "reasons": reasonsFor(unattributed),
@@ -438,13 +443,34 @@ func checkScript(lang string, hidden, names []string) string {
 set -u
 mkdir -p /logs/verifier
 reward=0
-trap 'echo "$reward" > /logs/verifier/reward.txt' EXIT
+# code under test runs with the same rights: at the end stop every other process and write
+# both reward files (Harbor reads reward.json before reward.txt)
+# kill every process of the check user (kernel-enforced, also where the mounted log
+# directory does not enforce file permissions); repeat until none is left
+killnobody() {
+	for i in 1 2 3 4 5; do
+		found=0
+		for d in /proc/[0-9]*; do
+			u=$(awk '/^Uid:/{print $2; exit}' "$d/status" 2>/dev/null)
+			if [ "$u" = 65534 ]; then kill -9 "${d#/proc/}" 2>/dev/null; found=1; fi
+		done
+		[ "$found" = 0 ] && return 0
+		sleep 0.2
+	done
+}
+finish() { killnobody; echo "$reward" > /logs/verifier/reward.txt; echo "{\"reward\": $reward}" > /logs/verifier/reward.json; }
+trap finish EXIT
+# the checks run as the unprivileged user nobody; this script (root) writes the results
+run_as() { setpriv --reuid=65534 --regid=65534 --clear-groups env HOME=/tmp/hint-home GOCACHE=/tmp/hint-gocache GOFLAGS=-mod=mod PYTHONDONTWRITEBYTECODE=1 sh -c "$1"; }
+mkdir -p /tmp/hint-home /tmp/hint-gocache && chown -R 65534:65534 /tmp/hint-home /tmp/hint-gocache
 cd ` + Workdir + ` || exit 0
 [ -d /tests/preserve ] && cp -R /tests/preserve/. ` + Workdir + `/
-` + rm.String() + `ok=1
-if ` + c2 + ` >/logs/verifier/c2.txt 2>&1; then echo "CHECK C2 PASS"; else echo "CHECK C2 FAIL"; ok=0; fi
+` + rm.String() + `chown -R 65534:65534 ` + Workdir + `
+ok=1
+if run_as "` + c2 + `" >/logs/verifier/c2.txt 2>&1; then r=PASS; else r=FAIL; ok=0; fi; killnobody; echo "CHECK C2 $r"
 cp -R /tests/hidden/. ` + Workdir + `/ || exit 0
-if ` + c1 + ` >/logs/verifier/c1.txt 2>&1; then echo "CHECK C1 PASS"; else echo "CHECK C1 FAIL"; ok=0; fi
+chown -R 65534:65534 ` + Workdir + `
+if run_as "` + c1 + `" >/logs/verifier/c1.txt 2>&1; then r=PASS; else r=FAIL; ok=0; fi; killnobody; echo "CHECK C1 $r"
 [ "$ok" = 1 ] && reward=1
 exit 0
 `
@@ -568,8 +594,13 @@ func tarTree(l *library.Library, files []trees.File, prefix string, extras ...ex
 
 // c1Check describes C1: hidden tests from the result state, or the refactoring API check
 // that the builder derived from the result state's exported API (deterministic, no model).
-func c1Check(l *library.Library, apiDirs, apiAfter []string, result string) map[string]any {
+func c1Check(l *library.Library, apiDirs, apiAfter []string, result string, hidden []string, generated map[string]map[string]any) map[string]any {
 	if apiDirs == nil {
+		for _, h := range hidden {
+			if g := generated[h]; g != nil {
+				return map[string]any{"check_id": "C1", "origin": "generated", "generator": g}
+			}
+		}
 		return map[string]any{"check_id": "C1", "origin": "result_test"}
 	}
 	out, _ := l.PutObject([]byte(strings.Join(apiAfter, "\n") + "\n"))

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -212,6 +213,20 @@ echo '{"reward": 1}' > /logs/verifier/reward.json
 echo 'CHECK C1 PASS' > /logs/verifier/test-stdout.txt
 exit 0
 `
+	if pkg := rootPackage(filepath.Join(task, "environment", "repo")); pkg != "" {
+		// code that the verifier runs with the tests also tries to forge the result
+		script = strings.TrimSuffix(script, "exit 0\n") + "cat > /app/hint_probe_forge.go <<'GO'\npackage " + pkg + `
+
+import "os"
+
+func init() {
+	os.WriteFile("/logs/verifier/reward.json", []byte("{\"reward\": 1}"), 0o644)
+	os.WriteFile("/logs/verifier/reward.txt", []byte("1"), 0o644)
+}
+GO
+exit 0
+`
+	}
 	if err := os.WriteFile(filepath.Join(sol, "solve.sh"), []byte(script), 0o755); err != nil {
 		return "", err
 	}
@@ -229,6 +244,30 @@ func netSeen(jobDir string) string {
 			return "reachable"
 		case strings.Contains(s, "HINT_PROBE_NET=blocked"):
 			return "blocked"
+		}
+	}
+	return ""
+}
+
+var packageClause = regexp.MustCompile(`(?m)^package ([A-Za-z_][A-Za-z0-9_]*)\s*$`)
+
+// rootPackage returns the Go package name of the repository root ("" for other projects).
+func rootPackage(repo string) string {
+	if _, err := os.Stat(filepath.Join(repo, "go.mod")); err != nil {
+		return ""
+	}
+	files, _ := filepath.Glob(filepath.Join(repo, "*.go"))
+	sort.Strings(files)
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		if m := packageClause.FindSubmatch(b); m != nil {
+			return string(m[1])
 		}
 	}
 	return ""
