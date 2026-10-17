@@ -317,3 +317,23 @@ func TestRetentionForgetAndPurge(t *testing.T) {
 		t.Fatal("purge removed project state outside the library")
 	}
 }
+
+// Objects that only index records reference (imported sessions, snapshot maps) and the
+// objects they name survive garbage collection.
+func TestGarbageCollectionKeepsIndexedObjects(t *testing.T) {
+	l := Open(project(t), 0)
+	text, _ := l.PutObject([]byte("session text"))
+	norm, _ := l.PutObject([]byte(`{"items":[{"text":"` + text + `"}]}`))
+	orphan, _ := l.PutObject([]byte("orphan"))
+	if err := l.PutIndex("opencode/ses_x", map[string]any{"normalized": norm}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.Forget([]string{"ev-0000000000000000"}); err != nil {
+		t.Fatal(err)
+	}
+	for d, want := range map[string]bool{text: true, norm: true, orphan: false} {
+		if _, err := l.GetObject(d); (err == nil) != want {
+			t.Errorf("object kept=%v, want %v", err == nil, want)
+		}
+	}
+}

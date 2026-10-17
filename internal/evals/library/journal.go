@@ -462,6 +462,35 @@ func (l *Library) collectGarbage() (int, error) {
 			}
 		}
 	}
+	// index records (imported sessions, snapshot maps, bookkeeping) keep their objects too
+	filepath.WalkDir(l.path("index"), func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.Type().IsRegular() {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err == nil {
+			for _, x := range digestRe.FindAll(b, -1) {
+				live[string(x)] = true
+			}
+		}
+		return nil
+	})
+	// objects that live objects name (session texts, tree files) stay as well
+	for changed := true; changed; {
+		changed = false
+		for d := range live {
+			b, err := l.GetObject(d)
+			if err != nil || len(b) > 64<<20 {
+				continue
+			}
+			for _, x := range digestRe.FindAll(b, -1) {
+				if !live[string(x)] {
+					live[string(x)] = true
+					changed = true
+				}
+			}
+		}
+	}
 	removed := 0
 	root := l.path("objects")
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {

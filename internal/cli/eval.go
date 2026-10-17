@@ -36,6 +36,7 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
   git hint eval off                  stop collecting (stored evals stay)
   git hint eval show ID [--text]     one eval: state, checks, reasons (--text: local texts)
   git hint eval forget ID...|--all   delete evals (pinned ones stay) and list leftovers
+  git hint eval pin ID [--off]       keep an eval version beyond the retention period
   git hint eval run [ID...] [--agent opencode|oracle|nop] [--attempts N] [--arm ARM]
                                      freeze a suite of validated evals and run bounded trials
   git hint eval compare [SUITE]      raw results per arm and agent (every attempt counts)
@@ -60,6 +61,8 @@ func cmdEval(e *Env, args []string) int {
 		return evalShow(e, args[1:])
 	case "forget":
 		return evalForget(e, args[1:])
+	case "pin":
+		return evalPin(e, args[1:])
 	case "run":
 		return evalRun(e, args[1:])
 	case "compare":
@@ -675,5 +678,44 @@ func evalReport(e *Env, args []string) int {
 		return fail(e, err)
 	}
 	fmt.Fprintf(e.Stdout, "Sent: the server answered %s.\n", rc.Status)
+	return 0
+}
+
+func evalPin(e *Env, args []string) int {
+	args = flagsFirst(args)
+	fs := flags(e, "eval pin", "writes local state; no network")
+	off := fs.Bool("off", false, "remove the pin")
+	if fs.Parse(args) != nil || fs.NArg() != 1 {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	l := library.Open(s, 0)
+	ref := fs.Arg(0)
+	if !strings.Contains(ref, "@") && !strings.HasPrefix(ref, "su-") {
+		for _, r := range latestEvals(l) {
+			if strings.HasPrefix(r.Ref, ref+"@") {
+				ref = r.Ref
+			}
+		}
+	}
+	var probe map[string]any
+	kind := "eval"
+	if strings.HasPrefix(ref, "su-") {
+		kind = "suite"
+	}
+	if l.Manifest(kind, ref, &probe) != nil {
+		return fail(e, fmt.Errorf("no %s %s", kind, fs.Arg(0)))
+	}
+	if err := l.Pin(ref, !*off); err != nil {
+		return fail(e, err)
+	}
+	if *off {
+		fmt.Fprintf(e.Stdout, "%s is no longer pinned; retention applies again.\n", ref)
+	} else {
+		fmt.Fprintf(e.Stdout, "%s is pinned: retention and forget keep it.\n", ref)
+	}
 	return 0
 }

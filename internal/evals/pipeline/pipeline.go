@@ -46,6 +46,7 @@ type Result struct {
 	Episodes  EpisodeReport    `json:"episodes"`
 	Packages  PackageReport    `json:"packages"`
 	Pending   int              `json:"pending_qualification"`
+	Pruned    int              `json:"pruned_records"`
 	Stopped   string           `json:"stopped,omitempty"` // time_limit when the batch time ran out
 	Elapsed   float64          `json:"elapsed_seconds"`
 	Extra     map[string]any   `json:"extra,omitempty"`
@@ -86,6 +87,10 @@ func Run(ctx context.Context, s *store.Store, env Env) Result {
 	if ctx.Err() == nil {
 		res.Packages = packageEpisodes(l, p, env.Now())
 		res.Pending = len(Pending(l))
+	}
+	// retention: unpinned records older than the policy's limit go, with their objects
+	if rep, err := l.Prune(env.Now(), lim.RetentionDays); err == nil {
+		res.Pruned = rep.Manifests
 	}
 	if ctx.Err() != nil {
 		res.Stopped = "time_limit"

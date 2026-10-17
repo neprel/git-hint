@@ -252,3 +252,27 @@ func TestEvalReportFileAndConsentedUpload(t *testing.T) {
 		t.Fatalf("second report: %s", r.stdout)
 	}
 }
+
+func TestPinKeepsAnEvalThroughRetention(t *testing.T) {
+	shop, _ := setup(t)
+	var spawned []string
+	must(t, runEval(t, shop, &spawned, "eval", "on"))
+	s, _ := store.Open(shop)
+	l := library.Open(s, 0)
+	rec := evaltest.GoBugFix(t, l)
+	rec["created_at"] = "2025-01-01T00:00:00Z" // older than the retention period
+	name, err := l.PutManifest("eval", rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	must(t, runEval(t, shop, &spawned, "eval", "pin", strings.SplitN(name, "@", 2)[0]))
+	must(t, runEval(t, shop, &spawned, "collect")) // the pass prunes unpinned old records
+	if names, _ := l.Manifests("eval"); len(names) != 1 {
+		t.Fatal("a pinned eval was pruned")
+	}
+	must(t, runEval(t, shop, &spawned, "eval", "pin", name, "--off"))
+	must(t, runEval(t, shop, &spawned, "collect"))
+	if names, _ := l.Manifests("eval"); len(names) != 0 {
+		t.Fatalf("an unpinned old eval survived retention: %v", names)
+	}
+}
