@@ -344,7 +344,7 @@ func build(l *library.Library, s sessions.Session, all map[string]sessions.Sessi
 	if p.End < p.Start {
 		p.End = p.Start
 	}
-	repo := map[string]any{"repo": "", "base_evidence": "unavailable", "files": len(paths)}
+	repo := map[string]any{"repo": "", "base_evidence": "unavailable", "files": len(paths), "edited": paths}
 	reasons := []string{}
 	if d := snaps(s.Project, baseSnap); d != "" {
 		repo["base_tree"], repo["base_evidence"] = d, "agent_snapshot"

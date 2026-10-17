@@ -18,15 +18,19 @@ import (
 	"github.com/neprel/git-hint/internal/testkit"
 )
 
-type fakeOC struct{ root, export string }
+type fakeOC struct{ root, exportID, export string }
 
 func (f fakeOC) Output(_ context.Context, dir, name string, args ...string) ([]byte, error) {
 	switch {
 	case name == "opencode" && len(args) == 1 && args[0] == "--version":
 		return []byte("2.0.26\n"), nil
 	case name == "opencode" && args[0] == "session" && args[1] == "list":
-		return json.Marshal([]map[string]any{{"id": "ses_synth_main_0001", "directory": f.root}})
-	case name == "opencode" && args[0] == "session" && args[1] == "export" && args[2] == "ses_synth_main_0001":
+		id := f.exportID
+		if id == "" {
+			id = "ses_synth_main_0001"
+		}
+		return json.Marshal([]map[string]any{{"id": id, "directory": f.root}})
+	case name == "opencode" && args[0] == "session" && args[1] == "export" && (args[2] == f.exportID || f.exportID == "" && args[2] == "ses_synth_main_0001"):
 		return []byte(f.export), nil
 	}
 	return nil, errors.New("unexpected")

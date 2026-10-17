@@ -44,6 +44,8 @@ type Result struct {
 	Imports   []sources.Report `json:"imports,omitempty"`
 	Snapshots SnapshotReport   `json:"snapshots"`
 	Episodes  EpisodeReport    `json:"episodes"`
+	Packages  PackageReport    `json:"packages"`
+	Pending   int              `json:"pending_qualification"`
 	Stopped   string           `json:"stopped,omitempty"` // time_limit when the batch time ran out
 	Elapsed   float64          `json:"elapsed_seconds"`
 	Extra     map[string]any   `json:"extra,omitempty"`
@@ -80,6 +82,10 @@ func Run(ctx context.Context, s *store.Store, env Env) Result {
 	res.Snapshots = keepSnapshots(ctx, l, env.DataHome)
 	if ctx.Err() == nil {
 		res.Episodes = discover(l, s, env.Now())
+	}
+	if ctx.Err() == nil {
+		res.Packages = packageEpisodes(l, p, env.Now())
+		res.Pending = len(Pending(l))
 	}
 	if ctx.Err() != nil {
 		res.Stopped = "time_limit"

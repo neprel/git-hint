@@ -6,88 +6,290 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "record": {"const": "episode"},
-    "manifest_version": {"const": 1},
-    "episode_id": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EpisodeID", "x-hint-class": "local"},
-    "created_at": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Timestamp", "x-hint-class": "local"},
-    "rules_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "x-hint-class": "local"},
+    "record": {
+      "const": "episode"
+    },
+    "manifest_version": {
+      "const": 1
+    },
+    "episode_id": {
+      "$ref": "urn:hint:local:evals:v1:common#/$defs/EpisodeID",
+      "x-hint-class": "local"
+    },
+    "created_at": {
+      "$ref": "urn:hint:local:evals:v1:common#/$defs/Timestamp",
+      "x-hint-class": "local"
+    },
+    "rules_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "x-hint-class": "local"
+    },
     "sources": {
-      "type": "array", "minItems": 1, "x-hint-class": "sensitive",
+      "type": "array",
+      "minItems": 1,
+      "x-hint-class": "sensitive",
       "items": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "agent": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Agent"},
-          "agent_version": {"type": "string", "minLength": 1, "maxLength": 64},
-          "parser_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
-          "source": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
-          "session": {"type": "string", "minLength": 1, "maxLength": 200},
-          "role": {"type": "string", "enum": ["primary", "continuation", "child"]}
+          "agent": {
+            "$ref": "urn:hint:local:evals:v1:common#/$defs/Agent"
+          },
+          "agent_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "parser_version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          },
+          "source": {
+            "$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"
+          },
+          "session": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "continuation",
+              "child"
+            ]
+          }
         },
-        "required": ["agent", "parser_version", "source", "session", "role"]
+        "required": [
+          "agent",
+          "parser_version",
+          "source",
+          "session",
+          "role"
+        ]
       }
     },
     "boundary": {
-      "type": "object", "additionalProperties": false, "x-hint-class": "local",
+      "type": "object",
+      "additionalProperties": false,
+      "x-hint-class": "local",
       "properties": {
-        "basis": {"type": "string", "enum": ["observed", "inferred"], "description": "observed: an explicit task identity or link; inferred: rules or a local model proposed it."},
-        "start": {"$ref": "urn:hint:local:evals:v1:common#/$defs/SourceLocation"},
-        "end": {"$ref": "urn:hint:local:evals:v1:common#/$defs/SourceLocation"},
-        "rule": {"type": "string", "minLength": 1, "maxLength": 64},
-        "support": {"type": "string", "enum": ["high", "medium", "low"], "description": "A rule label, not a calibrated probability."}
-      },
-      "required": ["basis", "start", "rule", "support"]
-    },
-    "requests": {"type": "array", "items": {"$ref": "#/$defs/Evidence"}, "minItems": 1, "x-hint-class": "sensitive"},
-    "corrections": {"type": "array", "items": {"$ref": "#/$defs/Evidence"}, "x-hint-class": "sensitive"},
-    "outcomes": {"type": "array", "items": {"$ref": "#/$defs/Evidence"}, "x-hint-class": "sensitive"},
-    "repositories": {
-      "type": "array", "x-hint-class": "local",
-      "items": {
-        "type": "object", "additionalProperties": false,
-        "properties": {
-          "repo": {"type": "string", "minLength": 1, "maxLength": 200, "description": "Name of the repository in the project configuration."},
-          "base_tree": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
-          "result_tree": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
-          "base_evidence": {"type": "string", "enum": ["prospective_capture", "agent_snapshot", "commit", "unavailable"]},
-          "files": {"type": "integer", "minimum": 0}
+        "basis": {
+          "type": "string",
+          "enum": [
+            "observed",
+            "inferred"
+          ],
+          "description": "observed: an explicit task identity or link; inferred: rules or a local model proposed it."
         },
-        "required": ["repo", "base_evidence"]
+        "start": {
+          "$ref": "urn:hint:local:evals:v1:common#/$defs/SourceLocation"
+        },
+        "end": {
+          "$ref": "urn:hint:local:evals:v1:common#/$defs/SourceLocation"
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "support": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "description": "A rule label, not a calibrated probability."
+        }
+      },
+      "required": [
+        "basis",
+        "start",
+        "rule",
+        "support"
+      ]
+    },
+    "requests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "minItems": 1,
+      "x-hint-class": "sensitive"
+    },
+    "corrections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "x-hint-class": "sensitive"
+    },
+    "outcomes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Evidence"
+      },
+      "x-hint-class": "sensitive"
+    },
+    "repositories": {
+      "type": "array",
+      "x-hint-class": "sensitive",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "repo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Name of the repository in the project configuration."
+          },
+          "base_tree": {
+            "$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"
+          },
+          "result_tree": {
+            "$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"
+          },
+          "base_evidence": {
+            "type": "string",
+            "enum": [
+              "prospective_capture",
+              "agent_snapshot",
+              "commit",
+              "unavailable"
+            ]
+          },
+          "files": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "edited": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "maxItems": 10000,
+            "uniqueItems": true,
+            "description": "Paths that the episode edited, relative to the repository root (sensitive: file names)."
+          }
+        },
+        "required": [
+          "repo",
+          "base_evidence"
+        ]
       }
     },
     "links": {
-      "type": "array", "x-hint-class": "local",
+      "type": "array",
+      "x-hint-class": "local",
       "items": {
-        "type": "object", "additionalProperties": false,
+        "type": "object",
+        "additionalProperties": false,
         "properties": {
-          "kind": {"type": "string", "enum": ["continues", "child_of", "depends_on", "alternative_of", "duplicate_of"]},
-          "episode_id": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EpisodeID"},
-          "status": {"type": "string", "enum": ["observed", "inferred", "unresolved"]}
+          "kind": {
+            "type": "string",
+            "enum": [
+              "continues",
+              "child_of",
+              "depends_on",
+              "alternative_of",
+              "duplicate_of"
+            ]
+          },
+          "episode_id": {
+            "$ref": "urn:hint:local:evals:v1:common#/$defs/EpisodeID"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "inferred",
+              "unresolved"
+            ]
+          }
         },
-        "required": ["kind", "episode_id", "status"]
+        "required": [
+          "kind",
+          "episode_id",
+          "status"
+        ]
       }
     },
-    "attribution": {"type": "string", "enum": ["exclusive", "separated", "ambiguous"], "x-hint-class": "local"},
-    "family": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Family", "x-hint-class": "reportable"},
-    "reasons": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Reason"}, "uniqueItems": true, "x-hint-class": "local"},
+    "attribution": {
+      "type": "string",
+      "enum": [
+        "exclusive",
+        "separated",
+        "ambiguous"
+      ],
+      "x-hint-class": "local"
+    },
+    "family": {
+      "$ref": "urn:hint:local:evals:v1:common#/$defs/Family",
+      "x-hint-class": "reportable"
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:hint:local:evals:v1:common#/$defs/Reason"
+      },
+      "uniqueItems": true,
+      "x-hint-class": "local"
+    },
     "usage": {
-      "type": "object", "additionalProperties": false, "x-hint-class": "reportable",
+      "type": "object",
+      "additionalProperties": false,
+      "x-hint-class": "reportable",
       "properties": {
-        "requests": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Count"},
-        "input_tokens": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Count"},
-        "output_tokens": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Count"},
-        "child_sessions": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Count"}
+        "requests": {
+          "$ref": "urn:hint:local:evals:v1:common#/$defs/Count"
+        },
+        "input_tokens": {
+          "$ref": "urn:hint:local:evals:v1:common#/$defs/Count"
+        },
+        "output_tokens": {
+          "$ref": "urn:hint:local:evals:v1:common#/$defs/Count"
+        },
+        "child_sessions": {
+          "$ref": "urn:hint:local:evals:v1:common#/$defs/Count"
+        }
       }
     }
   },
-  "required": ["record", "manifest_version", "episode_id", "created_at", "rules_version", "sources", "boundary", "requests", "repositories", "attribution", "reasons"],
+  "required": [
+    "record",
+    "manifest_version",
+    "episode_id",
+    "created_at",
+    "rules_version",
+    "sources",
+    "boundary",
+    "requests",
+    "repositories",
+    "attribution",
+    "reasons"
+  ],
   "$defs": {
     "Evidence": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "at": {"$ref": "urn:hint:local:evals:v1:common#/$defs/SourceLocation"},
-        "text": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "description": "Stored text object; text never sits in the manifest."}
+        "at": {
+          "$ref": "urn:hint:local:evals:v1:common#/$defs/SourceLocation"
+        },
+        "text": {
+          "$ref": "urn:hint:local:evals:v1:common#/$defs/Digest",
+          "description": "Stored text object; text never sits in the manifest."
+        }
       },
-      "required": ["at"]
+      "required": [
+        "at"
+      ]
     }
   }
 }
