@@ -1,0 +1,113 @@
+{
+  "content_digest": "sha256:f9a5b4cb4509d3e2c9c2627034aace47c6f15b97975ac5b02445ff7d3b69a59a",
+  "created_at": "2026-10-18T13:00:00Z",
+  "producer": {
+    "tool": "git-hint",
+    "version": "0.1.0-dev"
+  },
+  "project_namespace": "00e2e00000000000000000000000e14a",
+  "report_id": "fbbd97c9713874bb4ad15439b45c1957",
+  "report_version": "0.1.0",
+  "trials": [
+    {
+      "agent": {
+        "name": "oracle"
+      },
+      "arm": "context_only",
+      "attempt": 1,
+      "baseline_ref": "f9350d2174b87fed84f24d04accfa1c1",
+      "budget": {
+        "max_requests": null,
+        "max_seconds": 1800,
+        "stop_reason": "completed"
+      },
+      "checks": [
+        {
+          "check_ref": "96374ed9518707af5f936556a8c08c90",
+          "status": "pass"
+        },
+        {
+          "check_ref": "79e440a62b967cc44e49975f3371cb9d",
+          "status": "pass"
+        }
+      ],
+      "counters": {
+        "agent_seconds": null,
+        "cache_tokens": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "requests": 0,
+        "retries": null,
+        "wall_seconds": null
+      },
+      "environment_ref": "61efac1adc94341437ce9691c67801f7",
+      "eval_ref": "b4435d89babb4757d6e1e4f9678c8f3a",
+      "family": "bug_fix",
+      "objective_ref": "9e33e80a11bbf72e0cf7f046cef01232",
+      "outcome": "passed",
+      "partition": "held_out",
+      "qualification": {
+        "basis": "client_claim",
+        "policy": "q2",
+        "state": "validated"
+      },
+      "runner": {
+        "name": "harbor",
+        "version": "0.23.0"
+      },
+      "suite_ref": "3232a5d3d7b8d34e5cc61c97193585de",
+      "task_family_ref": "ae4836390d37e0cabf230635b2051f07",
+      "trial_ref": "ca431b7d06b152af135a78ca07476955"
+    },
+    {
+      "agent": {
+        "name": "oracle"
+      },
+      "arm": "baseline",
+      "attempt": 1,
+      "baseline_ref": "f9350d2174b87fed84f24d04accfa1c1",
+      "budget": {
+        "max_requests": null,
+        "max_seconds": 1800,
+        "stop_reason": "completed"
+      },
+      "checks": [
+        {
+          "check_ref": "d406492527a0f5d532ea88be91ef3a55",
+          "status": "pass"
+        },
+        {
+          "check_ref": "7649a37d5a8faa1c6571bd80a81e5224",
+          "status": "pass"
+        }
+      ],
+      "counters": {
+        "agent_seconds": null,
+        "cache_tokens": null,
+        "input_tokens": null,
+        "output_tokens": null,
+        "requests": 0,
+        "retries": null,
+        "wall_seconds": null
+      },
+      "environment_ref": "61efac1adc94341437ce9691c67801f7",
+      "eval_ref": "f9350d2174b87fed84f24d04accfa1c1",
+      "family": "bug_fix",
+      "objective_ref": "9e33e80a11bbf72e0cf7f046cef01232",
+      "outcome": "passed",
+      "partition": "held_out",
+      "qualification": {
+        "basis": "client_claim",
+        "policy": "q2",
+        "state": "validated"
+      },
+      "runner": {
+        "name": "harbor",
+        "version": "0.23.0"
+      },
+      "suite_ref": "7b124b63160eaccb80f518ee6224d951",
+      "task_family_ref": "ae4836390d37e0cabf230635b2051f07",
+      "trial_ref": "226ee78adea86c481fbefcfa703b3596"
+    }
+  ]
+}

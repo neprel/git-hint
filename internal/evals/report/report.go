@@ -192,7 +192,7 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 		if v, ok := bud["max_requests"]; ok {
 			maxReq = v
 		}
-		trials = append(trials, map[string]any{
+		tr := map[string]any{
 			"trial_ref": b.ref("trial", n), "suite_ref": b.ref("suite", suite), "eval_ref": b.ref("eval", evalRef),
 			"task_family_ref": b.ref("family", str(member["task_family"])), "family": ev["family"], "partition": member["partition"],
 			"arm": t["arm"], "qualification": map[string]any{"policy": sr["qualification_policy"], "state": ev["state"], "basis": "client_claim"},
@@ -201,7 +201,17 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 				"output_tokens": counter("output_tokens"), "cache_tokens": counter("cache_tokens"), "wall_seconds": counter("wall_seconds"),
 				"agent_seconds": counter("agent_seconds")},
 			"budget": map[string]any{"max_requests": maxReq, "max_seconds": bud["max_seconds"], "stop_reason": bud["stop_reason"]},
-		})
+		}
+		// comparison binding (E14): the objective, the exact baseline version and the
+		// environment, as project-scoped references only
+		if obj := str(t["objective"]); obj != "" {
+			bind, _ := t["binding"].(map[string]any)
+			env, _ := ev["environment"].(map[string]any)
+			tr["objective_ref"] = b.ref("objective", obj)
+			tr["baseline_ref"] = b.ref("eval", str(bind["baseline"]))
+			tr["environment_ref"] = b.ref("environment", str(env["image"]), str(env["setup"]))
+		}
+		trials = append(trials, tr)
 		used = append(used, n)
 	}
 	if trials == nil {

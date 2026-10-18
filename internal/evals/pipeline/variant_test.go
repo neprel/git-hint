@@ -4,10 +4,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +19,7 @@ import (
 	"github.com/neprel/git-hint/internal/evals/build"
 	"github.com/neprel/git-hint/internal/evals/evaltest"
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/report"
 	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/evals/trees"
 	"github.com/neprel/git-hint/internal/store"
@@ -400,4 +404,85 @@ func TestVariantIdentity(t *testing.T) {
 	if err != nil || !rf.Created || rf.Ref == v3.Ref {
 		t.Fatalf("other arm: %+v %v", rf, err)
 	}
+}
+
+// TestReportVariantPairs builds real evalreport documents for the E14 comparison: a
+// baseline and its context variant (a pair), a variant of an older baseline version than
+// the one the baseline arm ran (no pair), and a different agent (no pair). With
+// HINT_REPORT_OUT set it writes them for the server's comparison test (Go report ->
+// Python evalcompare). The documents hold references only: no eval ID, digest or text.
+func TestReportVariantPairs(t *testing.T) {
+	out := os.Getenv("HINT_REPORT_OUT")
+	key, ns := []byte("e2e-variant-pair-key-not-secret"), "00e2e00000000000000000000000e14a"
+	scenario := func(name string, run func(s *store.Store, l *library.Library, base, variant string)) map[string]any {
+		s, l := validatedProject(t)
+		p := evals.Enabled(nil)
+		p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+		s.Cfg.Evals = &p
+		base := baselineRef(t, l)
+		v, err := MakeVariant(l, base, VariantInput{Arm: "context_only", Context: []ContextFile{{Path: "AGENTS.md", Data: []byte("Run go test ./... before you finish.\n")}}}, variantNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if q := Qualify(context.Background(), s, &e2eRunner{}, variantNow); q.States["validated"] != 1 {
+			t.Fatalf("%s: %+v", name, q)
+		}
+		run(s, l, base, strings.Split(v.Ref, "@")[0]+"@2")
+		names, _ := l.Manifests("trial")
+		doc, _, err := report.Builder{Key: key, Namespace: ns}.Build(l, names, variantNow)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		body := regexp.MustCompile(`"content_digest": "sha256:[0-9a-f]+"`).ReplaceAllString(string(doc), "") // the report's own digest
+		if strings.Contains(body, "ev-") || strings.Contains(body, "sha256:") || strings.Contains(body, "AGENTS") {
+			t.Fatalf("%s: the report holds a raw identity or content: %s", name, doc)
+		}
+		if out != "" {
+			os.MkdirAll(out, 0o755)
+			os.WriteFile(filepath.Join(out, name+".json"), doc, 0o644)
+		}
+		var r map[string]any
+		json.Unmarshal(doc, &r)
+		return r
+	}
+	runArm := func(s *store.Store, ref, arm, agent string, at time.Time) {
+		if _, err := RunSuite(context.Background(), s, &e2eRunner{}, "0.23.0", SuiteOptions{Agent: agent, Arm: arm, Evals: []string{ref}}, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pair := scenario("variant-pair", func(s *store.Store, _ *library.Library, base, variant string) {
+		runArm(s, base, "baseline", "oracle", variantNow)
+		runArm(s, variant, "context_only", "oracle", variantNow.Add(time.Minute))
+	})
+	ts := pair["trials"].([]any)
+	if len(ts) != 2 {
+		t.Fatalf("trials %d", len(ts))
+	}
+	var b, v map[string]any
+	for _, x := range ts {
+		if m := x.(map[string]any); m["arm"] == "baseline" {
+			b = m
+		} else {
+			v = m
+		}
+	}
+	if b["objective_ref"] == nil || b["objective_ref"] != v["objective_ref"] || b["baseline_ref"] != b["eval_ref"] || v["baseline_ref"] != b["eval_ref"] ||
+		v["eval_ref"] == b["eval_ref"] || v["environment_ref"] != b["environment_ref"] || v["partition"] != b["partition"] || v["suite_ref"] == b["suite_ref"] {
+		t.Fatalf("binding: baseline %v variant %v", b, v)
+	}
+	scenario("baseline-version-mismatch", func(s *store.Store, l *library.Library, base, variant string) {
+		var rec map[string]any
+		l.Manifest("eval", base, &rec)
+		id, _, _ := strings.Cut(base, "@")
+		rec["version"], rec["previous"], rec["created_at"] = 4, base, "2026-10-18T15:00:00Z"
+		if _, err := l.PutManifest("eval", rec); err != nil {
+			t.Fatal(err)
+		}
+		runArm(s, id+"@4", "baseline", "oracle", variantNow)
+		runArm(s, variant, "context_only", "oracle", variantNow.Add(time.Minute))
+	})
+	scenario("environment-mismatch", func(s *store.Store, _ *library.Library, base, variant string) {
+		runArm(s, base, "baseline", "nop", variantNow)
+		runArm(s, variant, "context_only", "oracle", variantNow.Add(time.Minute))
+	})
 }
