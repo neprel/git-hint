@@ -217,7 +217,7 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 			var sources []any
 			ids := keys(used)
 			for _, id := range ids {
-				sources = append(sources, srcs[id])
+				sources = append(sources, sourceFor(srcs[id], p.Version))
 			}
 			p.Report.Records["Observation"] += len(list)
 			var repos []string
@@ -599,4 +599,14 @@ func sortBy(recs []any, idField string) {
 		return str(m["snapshot_id"]) + "/" + str(m[idField])
 	}
 	sort.SliceStable(recs, func(i, j int) bool { return key(recs[i]) < key(recs[j]) })
+}
+
+// sourceFor adapts a source entry to the package version: v0.1 cannot name the "context"
+// capability (observed hint_context calls), so a v0.1 package leaves it out.
+func sourceFor(src activity.Source, ver string) activity.Source {
+	if ver != version.SpecVersion {
+		return src
+	}
+	src.Capabilities = slices.DeleteFunc(slices.Clone(src.Capabilities), func(c string) bool { return c == "context" })
+	return src
 }

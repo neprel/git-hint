@@ -167,6 +167,7 @@ const MaxShownFindings = 5
 func renderFindings(w func(string, ...any), payload map[string]any, name func(string) string) {
 	fs, abst := list(payload["findings"]), list(payload["abstentions"])
 	defer renderFeedback(w, list(payload["context_feedback"]))
+	defer renderComparisons(w, list(payload["project_comparisons"]))
 	if len(fs) == 0 && len(abst) == 0 {
 		return
 	}
@@ -232,6 +233,36 @@ func renderFindings(w func(string, ...any), payload map[string]any, name func(st
 	}
 }
 
+// renderComparisons writes the project-level eval variant comparisons: observations that no
+// finding is bound to, so they decide nothing by themselves.
+func renderComparisons(w func(string, ...any), cs []any) {
+	if len(cs) == 0 {
+		return
+	}
+	w("## Project eval comparisons\n\n")
+	w("Observed on the project's eval tasks; not bound to a finding, so they do not decide an intervention.\n\n")
+	w("| Pair | Arm | Partition | Objectives | Tokens per attempt (variant - baseline) | Success difference |\n|---|---|---|---|---|---|\n")
+	for _, x := range cs {
+		c := x.(map[string]any)
+		w("| `%s` | %s | %s | %v | %s | %s |\n", str(c["pair_id"]), str(c["arm"]), str(c["partition"]), c["paired_objectives"], delta(c["effort_delta"]), delta(c["success_delta"]))
+	}
+	w("\n")
+}
+
+// delta writes an observed difference with its interval and coverage.
+func delta(v any) string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return "unknown"
+	}
+	cov := list(m["coverage"])
+	iv, ok := m["interval"].(map[string]any)
+	if !ok {
+		return fmt.Sprintf("%s (no interval; %v of %v)", numOr(m["observed"]), cov[0], cov[1])
+	}
+	return fmt.Sprintf("%s (%v to %v; %v of %v)", numOr(m["observed"]), iv["lower"], iv["upper"], cov[0], cov[1])
+}
+
 // renderFeedback writes the proposals on the local context policy versions. Nothing changes
 // by itself: the user changes or restores the policy with git hint init --context-limits.
 func renderFeedback(w func(string, ...any), fb []any) {
@@ -260,27 +291,19 @@ func renderFeedback(w func(string, ...any), fb []any) {
 func renderDecision(w func(string, ...any), d map[string]any) {
 	w("Intervention comparison (heuristic; cost model unavailable, so no net value or break-even): **%s**.\n\n", str(d["chosen"]))
 	w("| Intervention | State | Tokens per attempt (variant - baseline) | Success difference | Pairs |\n|---|---|---|---|---|\n")
-	delta := func(v any) string {
-		m, ok := v.(map[string]any)
-		if !ok {
-			return "unknown"
-		}
-		iv, ok := m["interval"].(map[string]any)
-		cov := list(m["coverage"])
-		if !ok {
-			return fmt.Sprintf("%s (no interval; %v of %v)", numOr(m["observed"]), cov[0], cov[1])
-		}
-		return fmt.Sprintf("%s (%v to %v; %v of %v)", numOr(m["observed"]), iv["lower"], iv["upper"], cov[0], cov[1])
-	}
 	for _, x := range list(d["alternatives"]) {
 		a := x.(map[string]any)
 		scope := "none"
 		if sc, ok := a["scope"].(map[string]any); ok {
-			scope = fmt.Sprintf("%s, %s, %v objectives, %v families", str(sc["arm"]), str(sc["partition"]), sc["paired_objectives"], sc["task_families"])
+			scope = fmt.Sprintf("`%s`: %s, %s, %v objectives, %v families", str(sc["pair_id"]), str(sc["arm"]), str(sc["partition"]), sc["paired_objectives"], sc["task_families"])
 		}
 		w("| %s | %s | %s | %s | %s |\n", str(a["intervention"]), str(a["state"]), delta(a["effort_delta"]), delta(a["success_delta"]), scope)
 	}
-	w("\nObserved differences on the project's eval tasks, not a forecast for future work.\n\n")
+	if d["evidence"] == "unbound" {
+		w("\nNo eval comparison is bound to this finding's objectives, so the choice is to collect more evidence (see the project eval comparisons).\n\n")
+	} else {
+		w("\nObserved differences on the eval tasks bound to this finding, not a forecast for future work.\n\n")
+	}
 }
 
 func title(m map[string]any) string {

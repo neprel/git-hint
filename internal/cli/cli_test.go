@@ -1006,6 +1006,10 @@ func TestExportWithContextMeasurementIsV02(t *testing.T) {
 		if doc["document_type"] != "activity_stream" {
 			continue
 		}
+		// the source says that it observes hint_context calls (C11C-2: absence is then known)
+		if src := doc["sources"].([]any)[0].(map[string]any); !strings.Contains(fmt.Sprint(src["capabilities"]), "context") {
+			t.Errorf("source capabilities: %v", src["capabilities"])
+		}
 		calls := map[any]bool{}
 		for _, o := range doc["payload"].(map[string]any)["observations"].([]any) {
 			m := o.(map[string]any)

@@ -611,6 +611,13 @@
           "items": {
             "$ref": "#/$defs/ContextFeedback"
           }
+        },
+        "project_comparisons": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/ProjectComparison"
+          }
         }
       },
       "required": [
@@ -1083,7 +1090,7 @@
     "Decision": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The minimum sufficient intervention for a finding (v0.2): observed differences of the project's eval variant pairs per alternative, with units, coverage and scope. No net value, horizon or break-even: the cost model (07B) is unavailable. A heuristic choice; unknown inputs are never filled.",
+      "description": "The minimum sufficient intervention for a finding (v0.2): observed differences of eval variant pairs that are bound to the finding's objectives, per alternative, with units, coverage and the pair reference (project_comparisons). Without a binding the alternatives are unbound and the choice is COLLECT_MORE_EVIDENCE. Incomplete resource coverage is not used for a choice. No net value, horizon or break-even: the cost model (07B) is unavailable.",
       "properties": {
         "chosen": {
           "type": "string",
@@ -1116,6 +1123,8 @@
                   "chosen",
                   "known",
                   "unknown",
+                  "unbound",
+                  "partial_coverage",
                   "excluded_correctness",
                   "cost_unknown",
                   "not_applicable"
@@ -1254,6 +1263,9 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                      "pair_id": {
+                        "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                      },
                       "arm": {
                         "type": "string",
                         "enum": [
@@ -1278,6 +1290,7 @@
                       }
                     },
                     "required": [
+                      "pair_id",
                       "arm",
                       "partition",
                       "paired_objectives",
@@ -1309,7 +1322,8 @@
         "evidence": {
           "type": "string",
           "enum": [
-            "project_eval_pairs",
+            "bound_eval_pairs",
+            "unbound",
             "none"
           ]
         }
@@ -1325,7 +1339,7 @@
     "ContextFeedback": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Feedback on one effective context policy identity (v0.2): counters derived from context measurements, comparable tasks without delivery, and a conservative proposal. Proposals only; nothing changes automatically. Heuristic.",
+      "description": "Feedback on one effective context policy identity (v0.2): counters derived from context measurements and a comparison of whole task windows against a matched cohort (same agent source, same edited components, context observed and no delivery). Proposals only; heuristic.",
       "properties": {
         "feedback_id": {
           "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
@@ -1355,13 +1369,15 @@
                 "enum": [
                   "tasks_with_delivery",
                   "comparable_tasks",
+                  "matched_groups",
                   "deliveries",
                   "expansions",
                   "repeated_originals",
                   "stale_refusals",
                   "delivered_bytes",
                   "navigation_after_delivery_per_task",
-                  "navigation_per_comparable_task",
+                  "total_navigation_per_task",
+                  "total_navigation_per_comparable_task",
                   "pass_rate_with_delivery",
                   "pass_rate_comparable"
                 ]
@@ -1373,7 +1389,8 @@
                   "operations",
                   "bytes",
                   "operations_per_task",
-                  "fraction"
+                  "fraction",
+                  "groups"
                 ]
               },
               "value": {
@@ -1448,9 +1465,11 @@
               "below_minimum_tasks",
               "missing_comparable_tasks",
               "missing_outcomes",
+              "context_not_observed",
+              "unknown_task_controls",
               "expansion_is_normal",
-              "more_navigation_after_delivery",
-              "less_navigation_after_delivery",
+              "more_total_navigation",
+              "less_total_navigation",
               "worse_outcome_with_delivery",
               "no_worse_outcome_with_delivery",
               "hysteresis_hold"
@@ -1486,6 +1505,198 @@
         "task_ids",
         "observation_ids",
         "basis_label"
+      ]
+    },
+    "ProjectComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A project-level eval variant comparison (v0.2), not bound to a finding: observed differences with coverage and the provenance of the compared eval versions.",
+      "properties": {
+        "pair_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "arm": {
+          "type": "string",
+          "enum": [
+            "context_only",
+            "refactor"
+          ]
+        },
+        "partition": {
+          "type": "string",
+          "enum": [
+            "calibration",
+            "held_out"
+          ]
+        },
+        "paired_objectives": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "task_families": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "effort_delta": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "observed": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "interval": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "lower": {
+                          "type": "number"
+                        },
+                        "upper": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "lower",
+                        "upper"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "unit": {
+                  "const": "tokens_per_attempt"
+                },
+                "coverage": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "required": [
+                "observed",
+                "interval",
+                "unit",
+                "coverage"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "success_delta": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "observed": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "interval": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "lower": {
+                          "type": "number"
+                        },
+                        "upper": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "lower",
+                        "upper"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "unit": {
+                  "const": "success_fraction"
+                },
+                "coverage": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "required": [
+                "observed",
+                "interval",
+                "unit",
+                "coverage"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "objective_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "intervention_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "baseline_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "label": {
+          "const": "observed_unbound"
+        }
+      },
+      "required": [
+        "pair_id",
+        "arm",
+        "partition",
+        "paired_objectives",
+        "task_families",
+        "effort_delta",
+        "success_delta",
+        "objective_refs",
+        "intervention_refs",
+        "baseline_refs",
+        "label"
       ]
     }
   }

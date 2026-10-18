@@ -34,10 +34,11 @@ type Normalizer struct {
 
 // OpenCodeSource returns the source entry of the OpenCode plugin adapter.
 func OpenCodeSource(key []byte, agentVersion string) Source {
-	s := Source{SourceID: hint.DeriveID(key, "source", "opencode-plugin", agentVersion), Agent: "opencode",
+	// the adapter version is part of the identity: another version can have other capabilities
+	s := Source{SourceID: hint.DeriveID(key, "source", "opencode-plugin", agentVersion, Version), Agent: "opencode",
 		Adapter: Adapter{Name: "opencode-plugin", Version: Version},
 		Capabilities: []string{"time.start", "time.end", "correlation.session_id", "correlation.tool_call_id",
-			"targets", "outcome.status", "outcome.exit_code", "size", "command_class", "content_delivery"},
+			"targets", "outcome.status", "outcome.exit_code", "size", "command_class", "content_delivery", "context"},
 		Unavailable: []string{"correlation.task_id", "correlation.turn_id", "correlation.trace_id",
 			"correlation.span_id", "usage", "coordination"}}
 	if agentVersion != "" {

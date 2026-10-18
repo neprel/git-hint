@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:5c26811e5eecffc3ccc57d5cf7692b7e24f3705c8808edc3adc57e882a5254d8",
+  "content_digest": "sha256:60a1d200ee3a267529825dddda3aa0846238d06955d36189a76a4db7471cde25",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
   "document_type": "recommendation_set",
@@ -15,7 +15,7 @@
       {
         "basis": [
           "expansion_is_normal",
-          "less_navigation_after_delivery",
+          "less_total_navigation",
           "no_worse_outcome_with_delivery"
         ],
         "basis_label": "heuristic",
@@ -48,6 +48,16 @@
           },
           {
             "coverage": [
+              3,
+              3
+            ],
+            "metric": "matched_groups",
+            "state": "observed",
+            "unit": "groups",
+            "value": 3
+          },
+          {
+            "coverage": [
               20,
               20
             ],
@@ -68,13 +78,23 @@
           },
           {
             "coverage": [
+              12,
+              12
+            ],
+            "metric": "total_navigation_per_task",
+            "state": "observed",
+            "unit": "operations_per_task",
+            "value": 4.5
+          },
+          {
+            "coverage": [
               15,
               15
             ],
-            "metric": "navigation_per_comparable_task",
+            "metric": "total_navigation_per_comparable_task",
             "state": "observed",
             "unit": "operations_per_task",
-            "value": 4
+            "value": 6
           },
           {
             "coverage": [
@@ -108,53 +128,26 @@
         "decision": {
           "alternatives": [
             {
-              "effort_delta": {
-                "coverage": [
-                  6,
-                  6
-                ],
-                "interval": {
-                  "lower": -400,
-                  "upper": 300
-                },
-                "observed": -120.5,
-                "unit": "tokens_per_attempt"
-              },
+              "effort_delta": null,
               "intervention": "CONTEXT_ONLY",
               "one_time_source": "configuration",
-              "scope": {
-                "arm": "context_only",
-                "paired_objectives": 6,
-                "partition": "held_out",
-                "task_families": 3
-              },
-              "state": "known",
-              "success_delta": {
-                "coverage": [
-                  6,
-                  6
-                ],
-                "interval": {
-                  "lower": 0,
-                  "upper": 0.2
-                },
-                "observed": 0.1,
-                "unit": "success_fraction"
-              }
+              "scope": null,
+              "state": "unbound",
+              "success_delta": null
             },
             {
               "effort_delta": null,
               "intervention": "REFACTOR_CODE",
               "one_time_source": "unknown",
               "scope": null,
-              "state": "unknown",
+              "state": "unbound",
               "success_delta": null
             }
           ],
           "basis": "heuristic",
           "chosen": "COLLECT_MORE_EVIDENCE",
           "cost_model": "unavailable",
-          "evidence": "project_eval_pairs"
+          "evidence": "unbound"
         },
         "evidence_state": "supported",
         "finding_id": "879476c356d6315ccc75baff1a56fdb8",
@@ -532,6 +525,49 @@
         "steps": [],
         "targets": [],
         "transformation": null
+      }
+    ],
+    "project_comparisons": [
+      {
+        "arm": "context_only",
+        "baseline_refs": [
+          "9e5a3b6729f04c019df37d08f386b929"
+        ],
+        "effort_delta": {
+          "coverage": [
+            6,
+            6
+          ],
+          "interval": {
+            "lower": -400,
+            "upper": 300
+          },
+          "observed": -120.5,
+          "unit": "tokens_per_attempt"
+        },
+        "intervention_refs": [
+          "17390008006439f2982a31c54b0251fa"
+        ],
+        "label": "observed_unbound",
+        "objective_refs": [
+          "c9d927e23010d856387f55b5836e77e7"
+        ],
+        "pair_id": "6926d4378b1e7d8417892ab70428dbc4",
+        "paired_objectives": 6,
+        "partition": "held_out",
+        "success_delta": {
+          "coverage": [
+            6,
+            6
+          ],
+          "interval": {
+            "lower": 0,
+            "upper": 0.2
+          },
+          "observed": 0.1,
+          "unit": "success_fraction"
+        },
+        "task_families": 3
       }
     ]
   },

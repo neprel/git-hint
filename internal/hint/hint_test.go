@@ -180,10 +180,12 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			delete(defs, "Abstention")
 			delete(defs, "Decision")
 			delete(defs, "ContextFeedback")
+			delete(defs, "ProjectComparison")
 			props := defs["RecommendationPayload"].(map[string]any)["properties"].(map[string]any)
 			delete(props, "findings")
 			delete(props, "abstentions")
 			delete(props, "context_feedback")
+			delete(props, "project_comparisons")
 		case "policy.schema.json":
 			var strip func(v any)
 			strip = func(v any) {

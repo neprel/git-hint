@@ -97,13 +97,10 @@ func findingsDoc(rec, act, ctx M) M {
 			M{"cause": "intentional_repeat", "state": "not_excluded", "basis": A{"repeat_after_own_edit"}}},
 		"interventions": A{"CONTEXT_ONLY", "COLLECT_MORE_EVIDENCE"},
 		"next_step":     M{"check": "refresh_index_and_recheck", "targets": A{targets[0]}}, "priority": "heuristic",
-		"decision": M{"chosen": "COLLECT_MORE_EVIDENCE", "cost_model": "unavailable", "basis": "heuristic", "evidence": "project_eval_pairs",
+		"decision": M{"chosen": "COLLECT_MORE_EVIDENCE", "cost_model": "unavailable", "basis": "heuristic", "evidence": "unbound",
 			"alternatives": A{
-				M{"intervention": "CONTEXT_ONLY", "state": "known", "one_time_source": "configuration",
-					"effort_delta":  M{"observed": -120.5, "interval": M{"lower": -400, "upper": 300}, "unit": "tokens_per_attempt", "coverage": A{6, 6}},
-					"success_delta": M{"observed": 0.1, "interval": M{"lower": 0, "upper": 0.2}, "unit": "success_fraction", "coverage": A{6, 6}},
-					"scope":         M{"arm": "context_only", "partition": "held_out", "paired_objectives": 6, "task_families": 3}},
-				M{"intervention": "REFACTOR_CODE", "state": "unknown", "one_time_source": "unknown", "effort_delta": nil, "success_delta": nil, "scope": nil}}}}
+				M{"intervention": "CONTEXT_ONLY", "state": "unbound", "one_time_source": "configuration", "effort_delta": nil, "success_delta": nil, "scope": nil},
+				M{"intervention": "REFACTOR_CODE", "state": "unbound", "one_time_source": "unknown", "effort_delta": nil, "success_delta": nil, "scope": nil}}}}
 	read := M{"finding_id": id("finding", "large-read"), "problem": "large_low_selectivity_read", "evidence_state": "limited",
 		"quantities": A{q("large_reads", "operations", 2, 2, 5), q("large_read_bytes", "bytes", nil, 2, 5)},
 		"scope":      M{"task_ids": A{task}, "task_count": 1, "snapshot_ids": A{snap}},
@@ -115,10 +112,16 @@ func findingsDoc(rec, act, ctx M) M {
 	p := obj(d, "payload")
 	p["findings"] = A{nav, read}
 	p["abstentions"] = A{M{"problem": "coordination_wait", "reason": "insufficient_coverage"}}
+	p["project_comparisons"] = A{M{"pair_id": id("pair", "context-only"), "arm": "context_only", "partition": "held_out", "paired_objectives": 6, "task_families": 3,
+		"effort_delta":   M{"observed": -120.5, "interval": M{"lower": -400, "upper": 300}, "unit": "tokens_per_attempt", "coverage": A{6, 6}},
+		"success_delta":  M{"observed": 0.1, "interval": M{"lower": 0, "upper": 0.2}, "unit": "success_fraction", "coverage": A{6, 6}},
+		"objective_refs": A{id("objective", "1")}, "intervention_refs": A{id("eval", "variant-1")}, "baseline_refs": A{id("eval", "baseline-1")},
+		"label": "observed_unbound"}}
 	p["context_feedback"] = A{M{"feedback_id": id("feedback", "policy-1"), "policy_ref": ctxPolicyRef, "proposal": "keep", "basis_label": "heuristic",
-		"basis": A{"expansion_is_normal", "less_navigation_after_delivery", "no_worse_outcome_with_delivery"},
-		"quantities": A{q("tasks_with_delivery", "tasks", 12, 12, 12), q("comparable_tasks", "tasks", 15, 15, 15), q("expansions", "operations", 9, 20, 20),
-			q("navigation_after_delivery_per_task", "operations_per_task", 2.5, 12, 12), q("navigation_per_comparable_task", "operations_per_task", 4.0, 15, 15),
+		"basis": A{"expansion_is_normal", "less_total_navigation", "no_worse_outcome_with_delivery"},
+		"quantities": A{q("tasks_with_delivery", "tasks", 12, 12, 12), q("comparable_tasks", "tasks", 15, 15, 15), q("matched_groups", "groups", 3, 3, 3),
+			q("expansions", "operations", 9, 20, 20), q("navigation_after_delivery_per_task", "operations_per_task", 2.5, 12, 12),
+			q("total_navigation_per_task", "operations_per_task", 4.5, 12, 12), q("total_navigation_per_comparable_task", "operations_per_task", 6.0, 15, 15),
 			q("pass_rate_with_delivery", "fraction", 0.92, 12, 12), q("pass_rate_comparable", "fraction", 0.87, 15, 15)},
 		"task_ids": A{task}, "observation_ids": A{oid(cobs[len(cobs)-6])}}}
 	return reseal(d)

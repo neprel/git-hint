@@ -31,10 +31,10 @@ func TestRenderFindings(t *testing.T) {
 		"- stale_index: **supported** (stale_context_measurement, repeat_without_observed_edit)", "| large_read_bytes | bytes | unknown | 2 of 5 |",
 		"Next step: **refresh_index_and_recheck** on billing/ledger.go", "- coordination_wait: insufficient_coverage", "### Finding 2: large_low_selectivity_read (limited)",
 		"Intervention comparison (heuristic; cost model unavailable, so no net value or break-even): **COLLECT_MORE_EVIDENCE**.",
-		"| CONTEXT_ONLY | known | -120.5 (-400 to 300; 6 of 6) | 0.1 (0 to 0.2; 6 of 6) | context_only, held_out, 6 objectives, 3 families |",
-		"| REFACTOR_CODE | unknown | unknown | unknown | none |",
-		"## Context policy feedback", "**keep** (expansion_is_normal, less_navigation_after_delivery, no_worse_outcome_with_delivery)",
-		"  - navigation_after_delivery_per_task: 2.5 operations_per_task"} {
+		"| CONTEXT_ONLY | unbound | unknown | unknown | none |", "No eval comparison is bound to this finding's objectives",
+		"## Project eval comparisons", "| context_only | held_out | 6 | -120.5 (-400 to 300; 6 of 6) | 0.1 (0 to 0.2; 6 of 6) |",
+		"## Context policy feedback", "**keep** (expansion_is_normal, less_total_navigation, no_worse_outcome_with_delivery)",
+		"  - total_navigation_per_task: 4.5 operations_per_task"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("missing %q in\n%s", want, md)
 		}
@@ -54,6 +54,7 @@ func TestRenderFindings(t *testing.T) {
 	delete(payload, "findings")
 	delete(payload, "abstentions")
 	delete(payload, "context_feedback")
+	delete(payload, "project_comparisons")
 	if md := Render(im, cur, "x.json"); strings.Contains(md, "## Findings") {
 		t.Error("a set without findings shows a findings section")
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 // Version is the adapter and normalizer version written into records.
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 // Observation is the HINT Observation record (hint-data §7).
 type Observation struct {
