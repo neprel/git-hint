@@ -57,7 +57,7 @@ func init() {
 		{"init", "writes local state; no network", "Create the local project store, the key and the repository list.", cmdInit},
 		{"status", "reads local state; no network", "Show repositories, snapshots, adapters, queued packages and the privacy profile.", cmdStatus},
 		{"collect", "reads the work trees; writes local state; no network", "Scan the repositories and store a new snapshot when they changed.", cmdCollect},
-		{"changes", "reads local state; no network", "Show the changes between the last two snapshots.", cmdChanges},
+		{"changes", "reads local state; no network; --declare-plan writes a local declaration", "Show the changes between the last two snapshots; declare a completed change as the application of a plan.", cmdChanges},
 		{"observe", "reads local state; no network", "Show how agent activity is collected.", cmdObserve},
 		{"export", "reads local state; writes files; no network", "Build, validate and write an export package (file mode).", cmdExport},
 		{"recommend", "reads local state; SENDS the package to the configured server", "Send the approved package and fetch the recommendations.", cmdRecommend},
@@ -303,14 +303,23 @@ func cmdCollect(e *Env, args []string) int {
 }
 
 func cmdChanges(e *Env, args []string) int {
-	fs := flags(e, "changes", "reads local state; no network")
+	fs := flags(e, "changes", "reads local state; no network; --declare-plan writes a local declaration")
 	format := fs.String("format", "text", "text (local names) or canonical (HINT change_set payload, no names)")
+	declare := fs.String("declare-plan", "", "declare the latest change of the plan's repository as the application of PLAN (an association only; sent with the next export)")
+	from := fs.String("from", "", "recommendation_set file for --declare-plan (default: the last one fetched by `git hint recommend`)")
 	if fs.Parse(args) != nil {
+		return 2
+	}
+	if *from != "" && *declare == "" {
+		fmt.Fprintln(e.Stderr, "git hint changes: --from needs --declare-plan")
 		return 2
 	}
 	s, err := open(e)
 	if err != nil {
 		return fail(e, err)
+	}
+	if *declare != "" {
+		return declarePlan(e, s, *declare, *from)
 	}
 	for _, r := range s.Cfg.Repos {
 		cur, err := project.LoadLatest(s, s.RepoID(r))
@@ -486,7 +495,15 @@ func cmdRecommend(e *Env, args []string) int {
 	retry := fs.Bool("retry", false, "send queued packages again")
 	server := fs.String("server", "", "server base URL (default: configuration or HINT_SERVER_URL)")
 	all := fs.Bool("all", false, "include observations that were already exported")
+	horizon := fs.String("forecast-horizon", "", "request a conditional forecast over N future tasks (1-100000)")
+	threshold := fs.String("forecast-threshold", "", "configured decision threshold in (0, 1] (needs --forecast-horizon; default 0.9)")
+	cost := fs.String("assumed-cost", "", "assumed one-time cost LO:HI in tokens; shown as a scenario, never a recommendation (needs --forecast-horizon)")
 	if fs.Parse(args) != nil {
+		return 2
+	}
+	policy, err := forecastPolicy(fs, *horizon, *threshold, *cost)
+	if err != nil {
+		fmt.Fprintln(e.Stderr, "git hint recommend:", err)
 		return 2
 	}
 	s, err := open(e)
@@ -561,7 +578,7 @@ func cmdRecommend(e *Env, args []string) int {
 		}
 	}
 	fmt.Fprintf(e.Stdout, "Sent %d documents to %s.\n", n, c.Origin())
-	raw, err := c.Recommendations(ctx, s.Cfg.ProjectNamespace)
+	raw, err := c.RecommendationsWith(ctx, s.Cfg.ProjectNamespace, policy)
 	if err != nil {
 		return fail(e, fmt.Errorf("fetch recommendations: %w", err))
 	}

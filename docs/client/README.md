@@ -54,6 +54,7 @@ Repository names are local. Exported documents name repositories only by opaque 
 |---|---|
 | After a task or a set of changes | `git hint collect` |
 | See what changed between the last two snapshots | `git hint changes` |
+| Declare that the last change applied a plan | `git hint changes --declare-plan PLAN [--from SETFILE]` |
 | Check the state of the store and the adapters | `git hint status`, `git hint doctor` |
 | Free disk space | `git hint cache clean` (keeps keys, mapping and state) |
 
@@ -101,6 +102,10 @@ git hint plan                                      # validate and write the loca
 ```
 
 The server address must use `https`; `http` is allowed only for a loopback address. There is no default server. `recommend` asks for approval in a terminal and refuses to send without `--yes` in a script. An optional bearer token comes from `HINT_SERVER_TOKEN`; HINT never stores it. If the server is unreachable, the package stays in `.hint/state/queue/`; `git hint recommend --retry --yes` sends it later.
+
+**Conditional forecast (optional).** `git hint recommend --forecast-horizon N` asks the server for a forecast of the model-token change per task over N future tasks (1–100,000). `--forecast-threshold P` sets the decision threshold in (0, 1] (default 0.9, a heuristic). `--assumed-cost LO:HI` adds an assumed one-time cost in tokens; the result is then a labeled scenario and never a recommendation. The threshold and the cost need an explicit horizon. HINT checks the values before it sends anything; an invalid value is a usage error (exit 2). The server answers with a forecast only when your project history passes its calibration check; otherwise the plans stay as without the option. Without a measured cost of comparable refactoring work there is no net value or break-even. The horizon, the threshold source and the scenario label appear in the plan.
+
+**Declared plan application.** After you apply a plan and run `git hint collect`, `git hint changes --declare-plan PLAN` records that this change (the latest snapshot against its parent) applied plan PLAN of the last fetched set (or of `--from SETFILE`). HINT checks the set with the normal import, the plan's repository and that the plan was made for the parent snapshot. It writes one local file below `.hint/state/declarations/` and calls no server. The next export or `recommend` sends the change set with this declaration; the declaration keeps the set, plan and both snapshots even after later changes. A repeat is accepted unchanged; a different plan for the same change is refused. The declaration is an association only: the server checks it against the stored set and the change mappings, and it is never taken as proof that the refactoring is correct or had an effect. A plan over several repositories cannot be declared yet.
 
 ## 7. Plans
 

@@ -197,9 +197,26 @@ func parseReceipt(b []byte) (map[string]any, error) {
 // Recommendations fetches the recommendation_set of a project namespace. The caller
 // validates it with the same import path as a file.
 func (c *Client) Recommendations(ctx context.Context, namespace string) ([]byte, error) {
-	status, body, err := c.do(ctx, http.MethodGet, "/hint/v0.1/recommendations?project_namespace="+url.QueryEscape(namespace), nil)
+	return c.RecommendationsWith(ctx, namespace, nil)
+}
+
+// RecommendationsWith adds the optional forecast request policy (typed query parameters,
+// validated by the caller) to the recommendation request. A refused policy is an error with
+// the server's reason; nothing falls back to a request without the policy.
+func (c *Client) RecommendationsWith(ctx context.Context, namespace string, policy url.Values) ([]byte, error) {
+	q := url.Values{"project_namespace": {namespace}}
+	for k, v := range policy {
+		q[k] = v
+	}
+	status, body, err := c.do(ctx, http.MethodGet, "/hint/v0.1/recommendations?"+q.Encode(), nil)
 	if err != nil {
 		return nil, err
+	}
+	if status == http.StatusBadRequest {
+		var e struct{ Error, Parameter, Detail string }
+		if json.Unmarshal(body, &e) == nil && e.Error == "invalid_forecast_policy" {
+			return nil, fmt.Errorf("the server refused the forecast policy: %s: %s", e.Parameter, e.Detail)
+		}
 	}
 	if status >= 500 {
 		return nil, fmt.Errorf("%w: server status %d", ErrNetwork, status)

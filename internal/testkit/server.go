@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ type Server struct {
 	mu       sync.Mutex
 	Docs     map[string][]byte // document_id -> raw bytes as received
 	Requests [][]byte          // every POST body, in order
+	Queries  []url.Values      // the query of every recommendation request, in order
 	Fail     bool              // answer 503 to every request (simulated outage)
 	// Mutate changes the recommendation payload before it is sealed (for negative tests).
 	Mutate func(doc map[string]any)
@@ -79,6 +81,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		write(w, status, rc)
 	case r.Method == http.MethodGet && r.URL.Path == "/hint/v0.1/recommendations":
+		s.mu.Lock()
+		s.Queries = append(s.Queries, r.URL.Query())
+		s.mu.Unlock()
 		ns := r.URL.Query().Get("project_namespace")
 		doc := s.recommend(ns)
 		if doc == nil {

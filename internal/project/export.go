@@ -137,41 +137,82 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 			return nil, err
 		}
 	}
-	// 3. change sets: latest snapshot against its parent
+	// 3. change sets: latest snapshot against its parent; a declared change (git hint changes
+	// --declare-plan) is sent with its frozen snapshots and plan_application
 	if allowed["Change"] {
 		for _, l := range latest {
-			if len(l.Record.ParentSnapshotIDs) == 0 {
-				continue
-			}
-			prev, err := LoadSnapshot(s, l.Record.RepoID, l.Record.ParentSnapshotIDs[0])
-			if err != nil {
-				continue // parent not stored (for example after a store reset)
-			}
-			cs, _ := snapshot.Diff(s.Key(), prev, l)
-			_, _, _, bd, err := tf.snapshot(prev, allowed)
+			decls, err := Declarations(s, l.Record.RepoID)
 			if err != nil {
 				return nil, err
 			}
-			_, _, _, ad, err := tf.snapshot(l, allowed)
-			if err != nil {
-				return nil, err
+			type pair struct {
+				prev, cur *snapshot.Local
+				decl      *Declaration
 			}
-			cs.BeforeSnapshot.Digest, cs.AfterSnapshot.Digest = bd, ad
-			payload, err := snapshot.Plain(cs)
-			if err != nil {
-				return nil, err
+			var pairs []pair
+			for i := range decls {
+				d := &decls[i]
+				if d.AfterSnapshotID == l.Record.SnapshotID {
+					continue
+				}
+				prev, err := LoadSnapshot(s, d.RepoID, d.BeforeSnapshotID)
+				if err != nil {
+					return nil, fmt.Errorf("declared change %s: %w", d.AfterSnapshotID, err)
+				}
+				cur, err := LoadSnapshot(s, d.RepoID, d.AfterSnapshotID)
+				if err != nil {
+					return nil, fmt.Errorf("declared change %s: %w", d.AfterSnapshotID, err)
+				}
+				pairs = append(pairs, pair{prev, cur, d})
 			}
-			var changes []any
-			for _, c := range payload["changes"].([]any) {
-				changes = append(changes, tf.filter("Change", c.(map[string]any)))
+			var latestDecl *Declaration
+			for i := range decls {
+				if decls[i].AfterSnapshotID == l.Record.SnapshotID {
+					latestDecl = &decls[i]
+				}
 			}
-			if changes == nil {
-				changes = []any{}
+			if len(l.Record.ParentSnapshotIDs) > 0 {
+				prev, err := LoadSnapshot(s, l.Record.RepoID, l.Record.ParentSnapshotIDs[0])
+				if err == nil {
+					pairs = append(pairs, pair{prev, l, latestDecl})
+				} else if latestDecl != nil {
+					return nil, fmt.Errorf("declared change %s: %w", latestDecl.AfterSnapshotID, err)
+				} // else: parent not stored (for example after a store reset)
 			}
-			payload["changes"] = changes
-			p.Report.Records["Change"] += len(changes)
-			if err := p.add(s, "change_set", []string{l.Record.RepoID}, []string{"Change"}, nil, payload, created); err != nil {
-				return nil, err
+			for _, pr := range pairs {
+				prev, l := pr.prev, pr.cur
+				cs, _ := snapshot.Diff(s.Key(), prev, l)
+				_, _, _, bd, err := tf.snapshot(prev, allowed)
+				if err != nil {
+					return nil, err
+				}
+				_, _, _, ad, err := tf.snapshot(l, allowed)
+				if err != nil {
+					return nil, err
+				}
+				cs.BeforeSnapshot.Digest, cs.AfterSnapshot.Digest = bd, ad
+				payload, err := snapshot.Plain(cs)
+				if err != nil {
+					return nil, err
+				}
+				var changes []any
+				for _, c := range payload["changes"].([]any) {
+					changes = append(changes, tf.filter("Change", c.(map[string]any)))
+				}
+				if changes == nil {
+					changes = []any{}
+				}
+				payload["changes"] = changes
+				if d := pr.decl; d != nil {
+					if d.BeforeSnapshotID != prev.Record.SnapshotID || bd != d.PlanSnapshotDigest {
+						return nil, fmt.Errorf("declared change %s: the parent snapshot no longer exports with the plan's snapshot digest", d.AfterSnapshotID)
+					}
+					payload["plan_application"] = d.planApplication()
+				}
+				p.Report.Records["Change"] += len(changes)
+				if err := p.add(s, "change_set", []string{l.Record.RepoID}, []string{"Change"}, nil, payload, created); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -316,6 +357,15 @@ func Validate(raw []byte, policy map[string]any) error {
 func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 	if s.Cfg.Policy.Profile == "aggregate" {
 		return version.SpecVersion, nil
+	}
+	for _, r := range s.Cfg.Repos { // a declared plan application is a draft v0.2 field
+		d, err := Declarations(s, s.RepoID(r))
+		if err != nil {
+			return "", err
+		}
+		if len(d) > 0 {
+			return "0.2.0", nil
+		}
 	}
 	obs, _, err := ReadSpool(s)
 	if err != nil {
