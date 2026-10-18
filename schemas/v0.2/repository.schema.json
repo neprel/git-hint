@@ -914,6 +914,28 @@
                 "group_id",
                 "repo_ids"
               ]
+            },
+            "work": {
+              "description": "The exact closed successful attempt of a declared work unit that this change realizes (eval report work_units).",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "unit_ref": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "attempt_ref": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                }
+              },
+              "required": [
+                "unit_ref",
+                "revision",
+                "attempt_ref"
+              ]
             }
           },
           "required": [

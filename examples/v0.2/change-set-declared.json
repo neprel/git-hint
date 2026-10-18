@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:a01067118ab79418e1c964ba8e2608411852675e50b6d8c54539d4caa3fcd16a",
+  "content_digest": "sha256:3038711ae0f63d955a1fd6613e9e988358552fe36300d83874dba6c3c81128e8",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "514ccb69d33efd2702ada482efe38579",
   "document_type": "change_set",
@@ -180,6 +180,11 @@
       "recommendation_set": {
         "content_digest": "sha256:a51083e96f353d5f2f706b8e97767b1c5170045f8a61b8913f0b1021bd777a83",
         "document_id": "fe4798b23a0ad03a54a5c2be583dbab3"
+      },
+      "work": {
+        "attempt_ref": "77efcf9dab54311a6b0746ad663e889b",
+        "revision": 3,
+        "unit_ref": "109952aee28699cb264d69ff0e0b29a2"
       }
     },
     "repo_id": "0a47f621aa46a0035f78c74eaae15d4c"

@@ -39,6 +39,7 @@ const (
 	CodeCoverage             = "coverage_inconsistent"
 	CodeSnapshotSet          = "plan_snapshot_set"
 	CodePlanApplication      = "plan_application_inconsistent"
+	CodeTaskFamily           = "task_family_conflict"
 )
 
 // Canary values of the conformance suite; also used by the negative tests.
@@ -330,8 +331,17 @@ func (c *checker) activity(payload map[string]any) {
 		sources[str(m["source_id"])] = true
 	}
 	measured := map[string]bool{}
+	family := map[string]string{} // task -> its declared family
 	for i, o := range list(payload["observations"]) {
 		m, _ := o.(map[string]any)
+		// one task declares one family; a second family for the same task is a conflict
+		if corr, _ := m["correlation"].(map[string]any); str(corr["task_family_id"]) != "" {
+			task, fam := str(corr["task_id"]), str(corr["task_family_id"])
+			if prev, ok := family[task]; ok && prev != fam {
+				c.add(CodeTaskFamily, "payload.observations[%d].correlation.task_family_id", i)
+			}
+			family[task] = fam
+		}
 		if !sources[str(m["source_id"])] {
 			c.add(CodeDangling, "payload.observations[%d].source_id", i)
 		}

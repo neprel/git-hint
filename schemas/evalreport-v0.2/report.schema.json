@@ -50,6 +50,14 @@
       "items": {
         "$ref": "#/$defs/Trial"
       }
+    },
+    "work_units": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/WorkUnitRevision"
+      },
+      "description": "Declared work units (project or controlled) as immutable revisions; a report may carry them without trials."
     }
   },
   "required": [
@@ -435,6 +443,579 @@
         "counters",
         "budget",
         "context_policy"
+      ]
+    },
+    "VersionState": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            }
+          },
+          "required": [
+            "state",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "enum": [
+                "not_applicable",
+                "unknown"
+              ]
+            }
+          },
+          "required": [
+            "state"
+          ]
+        }
+      ]
+    },
+    "RefState": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          },
+          "required": [
+            "state",
+            "ref"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        }
+      ]
+    },
+    "Configuration": {
+      "description": "The canonical effective configuration (the same form and derivations as HINT v0.2 sources[].configuration).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "opencode",
+                "claude-code",
+                "codex",
+                "nop",
+                "oracle",
+                "other",
+                "none"
+              ]
+            },
+            "version": {
+              "$ref": "#/$defs/VersionState"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        },
+        "model": {
+          "$ref": "#/$defs/RefState"
+        },
+        "harness": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "harbor",
+                "direct",
+                "other"
+              ]
+            },
+            "version": {
+              "$ref": "#/$defs/VersionState"
+            }
+          },
+          "required": [
+            "kind",
+            "version"
+          ]
+        },
+        "context_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "enabled",
+                "disabled",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "enabled"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "ref",
+                  "version"
+                ]
+              },
+              "else": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "ref"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "version"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "config_refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "known",
+                "unknown"
+              ]
+            },
+            "refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ref"
+              },
+              "uniqueItems": true,
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "known"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "refs"
+                ]
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "refs"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_requests": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "max_seconds": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "max_requests",
+            "max_seconds"
+          ]
+        },
+        "declared": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "model": {
+              "$ref": "#/$defs/RefState"
+            },
+            "context_policy_ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          }
+        }
+      },
+      "required": [
+        "agent",
+        "model",
+        "harness",
+        "context_policy",
+        "config_refs"
+      ]
+    },
+    "Attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempt_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "task_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true,
+          "maxItems": 1000,
+          "description": "Explicit member tasks (the same IDs as HINT activity task IDs)."
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "open",
+            "completed",
+            "failed",
+            "abandoned"
+          ]
+        },
+        "closure": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "validated",
+                "not_validated",
+                "unknown"
+              ]
+            },
+            "validation_task_id": {
+              "$ref": "#/$defs/Ref"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "validated"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "validation_task_id"
+                ]
+              }
+            }
+          ]
+        },
+        "application_change_set": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The declared change_set document of a realized completion; null for failed, abandoned, open and no-change attempts."
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "$ref": "#/$defs/Count"
+            },
+            "input_tokens": {
+              "$ref": "#/$defs/Count"
+            },
+            "output_tokens": {
+              "$ref": "#/$defs/Count"
+            },
+            "cache_tokens": {
+              "$ref": "#/$defs/Count"
+            }
+          },
+          "required": [
+            "requests",
+            "input_tokens",
+            "output_tokens",
+            "cache_tokens"
+          ]
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tasks": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "tasks_with_complete_usage": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "tasks",
+            "tasks_with_complete_usage"
+          ]
+        },
+        "late_tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "uniqueItems": true,
+          "maxItems": 1000,
+          "description": "Member tasks with activity after closure (the unit is stale for cost)."
+        }
+      },
+      "required": [
+        "attempt_ref",
+        "task_ids",
+        "outcome",
+        "closure",
+        "application_change_set",
+        "usage",
+        "coverage"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "outcome": {
+                "const": "completed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "closure": {
+                "properties": {
+                  "state": {
+                    "const": "validated"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "WorkUnitRevision": {
+      "description": "One immutable revision of a declared work unit. scope is frozen at start (scope_digest: SHA-256 of its RFC 8785 form); predecessor is the revision_digest of revision - 1 (null for revision 1); revision_digest is the SHA-256 of the RFC 8785 form of the revision without revision_digest. A declaration of work, never a confirmed effect.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "origin": {
+          "type": "string",
+          "enum": [
+            "project",
+            "controlled"
+          ]
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "declared_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": ":00:00Z$"
+            },
+            "plan": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "recommendation_set_id": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "plan_id": {
+                      "$ref": "#/$defs/Ref"
+                    }
+                  },
+                  "required": [
+                    "recommendation_set_id",
+                    "plan_id"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "objective_ref": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "base_snapshots": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Ref"
+              },
+              "uniqueItems": true,
+              "minItems": 1,
+              "maxItems": 100
+            },
+            "family_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "configuration": {
+              "$ref": "#/$defs/Configuration"
+            }
+          },
+          "required": [
+            "declared_at",
+            "plan",
+            "objective_ref",
+            "base_snapshots",
+            "family_ref",
+            "configuration"
+          ]
+        },
+        "scope_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "predecessor": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "open",
+            "closed"
+          ]
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Attempt"
+          },
+          "maxItems": 1000
+        },
+        "declared_by": {
+          "const": "user"
+        },
+        "revision_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "unit_ref",
+        "origin",
+        "scope",
+        "scope_digest",
+        "revision",
+        "predecessor",
+        "state",
+        "attempts",
+        "declared_by",
+        "revision_digest"
       ]
     }
   }

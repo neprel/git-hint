@@ -168,12 +168,24 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 		case "common.schema.json":
 			v1["$defs"].(map[string]any)["SpecVersion"].(map[string]any)["pattern"] = `^0\.2\.(0|[1-9][0-9]*)$`
 			fn := v2["$defs"].(map[string]any)["FieldName"].(map[string]any)
-			fn["enum"] = fn["enum"].([]any)[:len(fn["enum"].([]any))-1] // "context" (missing context coverage) is the last entry
+			var keep []any // "context" (missing context coverage) and "correlation.task_family_id" (C7B-E) are v0.2 entries
+			for _, x := range fn["enum"].([]any) {
+				if x != "context" && x != "correlation.task_family_id" {
+					keep = append(keep, x)
+				}
+			}
+			fn["enum"] = keep
+			for _, k := range []string{"Configuration", "VersionState", "RefState"} { // the canonical configuration identity (C7B-E)
+				delete(v2["$defs"].(map[string]any), k)
+			}
 		case "activity.schema.json":
 			o := v2["$defs"].(map[string]any)["Observation"].(map[string]any)
 			delete(o["properties"].(map[string]any), "context")
 			all := o["allOf"].([]any)
 			o["allOf"] = all[:len(all)-1] // the context condition is the last entry
+			corr := o["properties"].(map[string]any)["correlation"].(map[string]any)
+			delete(corr["properties"].(map[string]any), "task_family_id") // the declared task family (C7B-E)
+			delete(corr, "dependentRequired")
 		case "recommendation.schema.json":
 			defs := v2["$defs"].(map[string]any)
 			delete(defs, "Finding")
@@ -188,6 +200,9 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			delete(props, "abstentions")
 			delete(props, "context_feedback")
 			delete(props, "project_comparisons")
+		case "envelope.schema.json":
+			src := v2["properties"].(map[string]any)["sources"].(map[string]any)["items"].(map[string]any)
+			delete(src["properties"].(map[string]any), "configuration") // the canonical configuration identity (C7B-E)
 		case "repository.schema.json":
 			defs := v2["$defs"].(map[string]any)
 			delete(defs["ChangeSetPayload"].(map[string]any)["properties"].(map[string]any), "plan_application")

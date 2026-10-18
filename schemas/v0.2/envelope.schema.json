@@ -127,6 +127,9 @@
                 "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
               }
             }
+          },
+          "configuration": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/Configuration"
           }
         },
         "required": [

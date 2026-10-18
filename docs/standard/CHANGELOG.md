@@ -7,6 +7,7 @@
 - Optional `Plan.forecast_basis` (objective, horizon, model-conditional probability and net interval, threshold provenance, cost basis, evidence, conditions) and the semantic rule `forecast_inconsistent`.
 - Semantic rule `duplicate_measurement`.
 - Optional `ChangeSetPayload.plan_application`: a client-declared association of a change set with one plan of a stored recommendation set (set ID and digest, plan ID, optional cross-repository group). An association only, never a confirmed realization or effect. Semantic rule `plan_application_inconsistent`.
+- Optional `sources[].configuration` (canonical effective configuration with known/not_applicable/unknown states and the user's declared settings), `correlation.task_family_id` (declared task family) and `plan_application.work` (the realized attempt of a declared work unit). Semantic rule `task_family_conflict`.
 - The export policy lists `context` as an observation field.
 - Everything else is unchanged; v0.1 documents stay valid v0.1 documents.
 - Conformance: the "unsupported minor version" fixture now uses `0.3.0`, because `0.2` is supported.

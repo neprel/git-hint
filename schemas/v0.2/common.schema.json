@@ -414,7 +414,8 @@
         "content_delivery",
         "coordination",
         "agent_version",
-        "context"
+        "context",
+        "correlation.task_family_id"
       ]
     },
     "Agent": {
@@ -767,6 +768,280 @@
             }
           }
         }
+      ]
+    },
+    "VersionState": {
+      "description": "A version that is known, not applicable (for example a direct agent session has no separate runner version) or unknown. Unknown is never not_applicable.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "$ref": "#/$defs/SemVer"
+            }
+          },
+          "required": [
+            "state",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "enum": [
+                "not_applicable",
+                "unknown"
+              ]
+            }
+          },
+          "required": [
+            "state"
+          ]
+        }
+      ]
+    },
+    "RefState": {
+      "description": "A project-scoped opaque reference that is known or unknown.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "ref": {
+              "$ref": "#/$defs/OpaqueId"
+            }
+          },
+          "required": [
+            "state",
+            "ref"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "state"
+          ]
+        }
+      ]
+    },
+    "Configuration": {
+      "description": "The effective agent configuration of a run, in the canonical form shared with eval reports. References are project-scoped opaque values derived with the project key (the same derivations as eval reports); no raw model, configuration text or key. declared holds the user's explicit settings as provenance; a conflict with the effective values makes the run ineligible for comparison.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/Agent"
+            },
+            "version": {
+              "$ref": "#/$defs/VersionState"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        },
+        "model": {
+          "$ref": "#/$defs/RefState"
+        },
+        "harness": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "harbor",
+                "direct",
+                "other"
+              ]
+            },
+            "version": {
+              "$ref": "#/$defs/VersionState"
+            }
+          },
+          "required": [
+            "kind",
+            "version"
+          ]
+        },
+        "context_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "enabled carries the policy reference and version; disabled and not_applicable are known states without them; unknown is neither.",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "enabled",
+                "disabled",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "ref": {
+              "$ref": "#/$defs/OpaqueId"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "enabled"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "ref",
+                  "version"
+                ]
+              },
+              "else": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "ref"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "version"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "config_refs": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Digests of the observed effective configuration files; known with an empty list is a known empty set.",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "known",
+                "unknown"
+              ]
+            },
+            "refs": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/OpaqueId"
+              },
+              "uniqueItems": true,
+              "maxItems": 100
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "known"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "refs"
+                ]
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "refs"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_requests": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "max_seconds": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "max_requests",
+            "max_seconds"
+          ]
+        },
+        "declared": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "model": {
+              "$ref": "#/$defs/RefState"
+            },
+            "context_policy_ref": {
+              "$ref": "#/$defs/OpaqueId"
+            }
+          }
+        }
+      },
+      "required": [
+        "agent",
+        "model",
+        "harness",
+        "context_policy",
+        "config_refs"
       ]
     }
   }

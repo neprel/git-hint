@@ -52,6 +52,24 @@ func contextDoc(act M) M {
 			"policy_state": "disabled", "result": "delivered", "bytes": nil, "freshness": "unknown"}),
 	}
 	obj(d, "payload")["observations"] = append(obs, extra...)
+	// the canonical effective configuration of the plugin source and the declared task family
+	// of its task (HINT_TASK_FAMILY): opaque, project-scoped references only
+	src := d["sources"].([]any)[0].(map[string]any)
+	src["configuration"] = M{
+		"agent":          M{"name": "opencode", "version": M{"state": "known", "value": "2.0.26"}},
+		"model":          M{"state": "known", "ref": id("eval-report:model", "local-model")},
+		"harness":        M{"kind": "direct", "version": M{"state": "not_applicable"}},
+		"context_policy": M{"state": "enabled", "ref": ctxPolicyRef, "version": 1},
+		"config_refs":    M{"state": "known", "refs": A{}},
+		"budget":         M{"max_requests": nil, "max_seconds": nil},
+		"declared":       M{"model": M{"state": "known", "ref": id("eval-report:model", "local-model")}},
+	}
+	src["capabilities"] = append(src["capabilities"].([]any), "correlation.task_family_id")
+	for _, o := range obj(d, "payload")["observations"].([]any) {
+		if corr, ok := o.(map[string]any)["correlation"].(map[string]any); ok && corr["task_id"] != nil {
+			corr["task_family_id"] = id("eval-report:family", "billing-refactor")
+		}
+	}
 	return reseal(d)
 }
 
@@ -164,6 +182,7 @@ func declaredChangeSet(changes, findings M) M {
 		"recommendation_set": M{"document_id": findings["document_id"], "content_digest": findings["content_digest"]},
 		"plan_id":            obj(findings, "payload", "plans", 0)["plan_id"],
 		"declaration":        "client_declared_association",
+		"work":               M{"unit_ref": id("eval-report:work-unit", "split-ledger"), "revision": 3, "attempt_ref": id("eval-report:attempt", "split-ledger", "2")},
 	}
 	return reseal(d)
 }
@@ -180,6 +199,7 @@ func v02Invalid() []invalidCase {
 	}
 	ctx := func(d M, i int) M { return obj(d, "payload", "observations", first(d)+i, "context") }
 	o0 := func(d M) M { return obj(d, "payload", "observations", first(d)) }
+	cfg := func(d M) map[string]any { return d["sources"].([]any)[0].(map[string]any)["configuration"].(map[string]any) }
 	return []invalidCase{
 		{"context-on-edit-op", "activity-context.json", "schema", "observation", func(d M) {
 			o0(d)["op"] = "EDIT_INTENT"
@@ -298,6 +318,34 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"forecast-recommend-l2", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
 			obj(d, "payload", "plans", 0, "simulation")["level"] = "L2"
+		}, nil},
+		{"configuration-model-known-without-ref", "activity-context.json", "schema", "source", func(d M) {
+			delete(cfg(d)["model"].(map[string]any), "ref")
+		}, nil},
+		{"configuration-policy-enabled-without-ref", "activity-context.json", "schema", "source", func(d M) {
+			delete(cfg(d)["context_policy"].(map[string]any), "ref")
+		}, nil},
+		{"configuration-policy-disabled-with-ref", "activity-context.json", "schema", "source", func(d M) {
+			cfg(d)["context_policy"].(map[string]any)["state"] = "disabled"
+		}, nil},
+		{"configuration-unknown-refs-with-list", "activity-context.json", "schema", "source", func(d M) {
+			cfg(d)["config_refs"] = M{"state": "unknown", "refs": A{}}
+		}, nil},
+		{"configuration-unknown-version-with-value", "activity-context.json", "schema", "source", func(d M) {
+			cfg(d)["harness"] = M{"kind": "direct", "version": M{"state": "unknown", "value": "1.0.0"}}
+		}, nil},
+		{"configuration-raw-model-text", "activity-context.json", "schema", "content", func(d M) {
+			cfg(d)["model"] = M{"state": "known", "ref": forbidden["identifier"]}
+		}, nil},
+		{"task-family-without-task", "activity-context.json", "schema", "observation", func(d M) {
+			corr := o0(d)["correlation"].(map[string]any)
+			delete(corr, "task_id")
+		}, nil},
+		{"task-family-conflict", "activity-context.json", "semantic", "task_family_conflict", func(d M) {
+			o0(d)["correlation"].(map[string]any)["task_family_id"] = id("eval-report:family", "other")
+		}, nil},
+		{"plan-application-work-without-attempt", "change-set-declared.json", "schema", "change", func(d M) {
+			delete(obj(d, "payload", "plan_application", "work"), "attempt_ref")
 		}, nil},
 		{"plan-application-in-v01-document", "change-set-declared.json", "schema", "version", func(d M) {
 			d["hint_version"] = "0.1.0"

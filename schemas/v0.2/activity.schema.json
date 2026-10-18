@@ -209,7 +209,16 @@
             },
             "parent_observation_id": {
               "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "task_family_id": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId",
+              "description": "The task family that the run declared explicitly (HINT_TASK_FAMILY); a declaration, not a classification. The same derivation as the eval report task_family_ref."
             }
+          },
+          "dependentRequired": {
+            "task_family_id": [
+              "task_id"
+            ]
           }
         },
         "targets": {

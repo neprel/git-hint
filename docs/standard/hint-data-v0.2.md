@@ -84,6 +84,14 @@ A change set can declare that the client applied one plan of a stored recommenda
 
 **Semantic rule `plan_application_inconsistent`:** a declared group names the declaring repository (`repo_id`) among its `repo_ids`.
 
+## Configuration identity and declared task family
+
+- **`sources[].configuration`** (optional): the canonical effective configuration of a source's runs — agent name and version, model reference, harness (`harbor`, `direct` or `other`) and its version, context policy (state, reference, version), observed configuration references and budget, plus the user's explicit `declared` settings as provenance. Versions and references are `known`, `not_applicable` (versions only) or `unknown`; unknown is never not applicable. `enabled` context policies carry a reference and version; `disabled` and `not_applicable` carry neither. A known empty list of configuration references is known. References are project-scoped opaque values with the same derivations as eval reports; no raw model name, configuration text or key is sent. A source whose effective configuration changes gets a new source ID.
+- **`correlation.task_family_id`** (optional, needs `task_id`): the task family that the run declared explicitly (`HINT_TASK_FAMILY`), with the same derivation as the eval report `task_family_ref`. A declaration, not a classification by HINT. Capability name `correlation.task_family_id`.
+- **`plan_application.work`** (optional): the exact closed successful attempt (`unit_ref`, `revision`, `attempt_ref`) of a declared work unit of an eval report that this change realizes.
+
+**Semantic rule `task_family_conflict`:** one task declares one family in a document.
+
 ## Versions
 
 - The CLI and the server accept `0.1` and `0.2`. A v0.1 document cannot carry a context measurement or findings.

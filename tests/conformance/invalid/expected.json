@@ -19,6 +19,36 @@
     "code": "time_resolution",
     "level": "semantic"
   },
+  "configuration-model-known-without-ref.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
+  "configuration-policy-disabled-with-ref.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
+  "configuration-policy-enabled-without-ref.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
+  "configuration-raw-model-text.json": {
+    "base": "activity-context.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "configuration-unknown-refs-with-list.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
+  "configuration-unknown-version-with-value.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
   "content-assistant-answer.json": {
     "base": "activity-trace.json",
     "code": "content",
@@ -429,6 +459,11 @@
     "code": "change",
     "level": "schema"
   },
+  "plan-application-work-without-attempt.json": {
+    "base": "change-set-declared.json",
+    "code": "change",
+    "level": "schema"
+  },
   "plan-namespace-mismatch.json": {
     "base": "recommendation.json",
     "code": "namespace_mismatch",
@@ -573,6 +608,16 @@
     "base": "recommendation.json",
     "code": "dangling_reference",
     "level": "semantic"
+  },
+  "task-family-conflict.json": {
+    "base": "activity-context.json",
+    "code": "task_family_conflict",
+    "level": "semantic"
+  },
+  "task-family-without-task.json": {
+    "base": "activity-context.json",
+    "code": "observation",
+    "level": "schema"
   },
   "timestamp-with-offset.json": {
     "base": "single-repo.json",
