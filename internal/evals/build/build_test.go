@@ -220,3 +220,28 @@ func keysOf(m map[string]string) []string {
 	}
 	return out
 }
+
+// E05/E07: a change that renames and removes files keeps them in the agent's base and
+// puts the removals into the reference (deleted.txt) and the new path into its files.
+func TestRenameAndRemoveInTheReference(t *testing.T) {
+	l := lib(t)
+	in := input(t, l)
+	in.Base = mkTree(t, l, map[string]string{"go.mod": "module shop\n\ngo 1.26\n", "cart.go": bug, "cart_test.go": "package shop\n", "old.go": "package shop\n// old\n", "gone.go": "package shop\n// gone\n"})
+	in.Result = mkTree(t, l, map[string]string{"go.mod": "module shop\n\ngo 1.26\n", "cart.go": fix, "cart_test.go": "package shop\n", "discount_test.go": newTest, "renamed.go": "package shop\n// old\n"})
+	in.Paths = []string{"cart.go", "discount_test.go", "renamed.go", "old.go", "gone.go"}
+	b, err := Build(l, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := untar(t, l, b.Record["reference"].(string))
+	if ref["deleted.txt"] != "gone.go\nold.go" || ref["files/renamed.go"] != "package shop\n// old\n" || ref["files/old.go"] != "" {
+		t.Fatalf("reference %q %v", ref["deleted.txt"], keysOf(ref))
+	}
+	baseFiles := untar(t, l, b.Record["repositories"].([]any)[0].(map[string]any)["base_archive"].(string))
+	if baseFiles["old.go"] == "" || baseFiles["gone.go"] == "" || baseFiles["renamed.go"] != "" {
+		t.Fatalf("base %v", keysOf(baseFiles))
+	}
+	if rs := b.Record["reasons"].([]any); len(rs) != 0 {
+		t.Fatalf("reasons %v", rs)
+	}
+}

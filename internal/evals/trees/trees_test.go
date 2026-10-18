@@ -234,3 +234,59 @@ func TestMaterializeLinkChain(t *testing.T) {
 		}
 	}
 }
+
+// E05: an episode that renames and removes files between its base and result snapshots
+// gives exact trees: the new path with the old content, the old and removed paths absent.
+func TestSnapshotBaselinesWithRenameAndRemove(t *testing.T) {
+	l := lib(t)
+	base := t.TempDir()
+	testkit.WriteFile(t, base, "cart.go", "package shop\n")
+	testkit.WriteFile(t, base, "old.go", "package shop\n// old\n")
+	testkit.WriteFile(t, base, "gone.go", "package shop\n// gone\n")
+	gitDir, bt := snapshotRepo(t, base)
+	result := t.TempDir()
+	testkit.WriteFile(t, result, "cart.go", "package shop\n// changed\n")
+	testkit.WriteFile(t, result, "renamed.go", "package shop\n// old\n")
+	// the result snapshot goes into the same snapshot repository, as OpenCode does
+	cmd := exec.Command("sh", "-c", "git --git-dir \"$1\" --work-tree \"$2\" add -A . && git --git-dir \"$1\" --work-tree \"$2\" write-tree", "sh", gitDir, result)
+	cmd.Env = append(os.Environ(), "GIT_INDEX_FILE="+filepath.Join(t.TempDir(), "idx"))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatal(string(out))
+	}
+	rt := strings.TrimSpace(string(out))
+	bd, err := FromGitTree(context.Background(), l, []string{gitDir}, bt, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rd, err := FromGitTree(context.Background(), l, []string{gitDir}, rt, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := Load(l, bd)
+	r, _ := Load(l, rd)
+	added, removed, changed := Diff(b, r)
+	if strings.Join(added, ",") != "renamed.go" || strings.Join(removed, ",") != "gone.go,old.go" || strings.Join(changed, ",") != "cart.go" {
+		t.Fatalf("added %v removed %v changed %v", added, removed, changed)
+	}
+	digest := func(tr Tree, p string) string {
+		for _, f := range tr.Files {
+			if f.Path == p {
+				return f.Digest
+			}
+		}
+		return ""
+	}
+	if digest(r, "renamed.go") != digest(b, "old.go") {
+		t.Fatal("the renamed file lost its content")
+	}
+	dir := t.TempDir()
+	if err := Materialize(l, rd, dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"old.go", "gone.go"} {
+		if _, err := os.Lstat(filepath.Join(dir, p)); !os.IsNotExist(err) {
+			t.Fatalf("%s is in the result state", p)
+		}
+	}
+}
