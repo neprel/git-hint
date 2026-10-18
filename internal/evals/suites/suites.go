@@ -196,6 +196,12 @@ type TrialInput struct {
 	// Objective is the baseline eval ID; Baseline, BaselineDigest and EvalDigest bind the
 	// immutable versions (the eval that ran is the baseline or its variant)
 	Objective, Baseline, BaselineDigest, EvalDigest string
+	// ContextPolicy is the HINT context policy state of the run ("" = unknown) and, when
+	// enabled, its identity; DeclaredChanges are the controls the arm changes on purpose
+	ContextPolicy                        string
+	ContextPolicyID, ContextPolicyDigest string
+	ContextPolicyVersion                 int
+	DeclaredChanges                      []string
 }
 
 // RecordTrial stores one trial (every attempt, whatever its outcome).
@@ -259,6 +265,21 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 	if in.Objective != "" {
 		rec["objective"] = in.Objective
 		rec["binding"] = map[string]any{"baseline": in.Baseline, "baseline_digest": in.BaselineDigest, "eval_digest": in.EvalDigest}
+	}
+	cp := map[string]any{"state": "unknown"}
+	switch in.ContextPolicy {
+	case "enabled":
+		cp = map[string]any{"state": "enabled", "id": in.ContextPolicyID, "version": in.ContextPolicyVersion, "digest": in.ContextPolicyDigest}
+	case "disabled", "not_applicable":
+		cp = map[string]any{"state": in.ContextPolicy}
+	}
+	rec["context_policy"] = cp
+	if len(in.DeclaredChanges) > 0 {
+		dc := []any{}
+		for _, c := range in.DeclaredChanges {
+			dc = append(dc, c)
+		}
+		rec["declared_changes"] = dc
 	}
 	if len(in.Artifacts) > 0 {
 		arts := []any{}

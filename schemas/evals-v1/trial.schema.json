@@ -13,6 +13,32 @@
     "eval": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalRef", "x-hint-class": "reportable"},
     "attempt": {"type": "integer", "minimum": 1, "x-hint-class": "reportable"},
     "objective": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalID", "x-hint-class": "reportable", "description": "The task objective: the baseline eval ID, the same for the baseline and its variants. Trials pair only within one objective."},
+    "context_policy": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "local",
+      "description": "The HINT context policy of the run: the immutable canonical effective configuration (id, version, digest) when enabled; disabled, not_applicable and unknown are distinct states.",
+      "properties": {
+        "state": {"type": "string", "enum": ["enabled", "disabled", "not_applicable", "unknown"]},
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"},
+        "version": {"type": "integer", "minimum": 1},
+        "digest": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}
+      },
+      "required": ["state"],
+      "if": {"properties": {"state": {"const": "enabled"}}},
+      "then": {"required": ["id", "version", "digest"]},
+      "else": {"not": {"anyOf": [{"required": ["id"]}, {"required": ["version"]}, {"required": ["digest"]}]}}
+    },
+    "declared_changes": {
+      "type": "array", "uniqueItems": true, "x-hint-class": "reportable",
+      "description": "Controls that this arm changes on purpose (the declared treatment).",
+      "items": {"type": "string", "enum": ["agent_version", "model", "runner_version", "budget", "context_policy", "harness_settings"]}
+    },
+    "observed_config": {
+      "type": "array", "x-hint-class": "local",
+      "description": "Actual run overrides, as observed; never a replacement of the immutable eval.",
+      "items": {"type": "object", "additionalProperties": false,
+        "properties": {"kind": {"type": "string", "enum": ["setting_override", "dependency_lock"]}, "digest": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}},
+        "required": ["kind", "digest"]}
+    },
     "binding": {
       "type": "object", "additionalProperties": false, "x-hint-class": "local",
       "description": "The immutable versions this trial ran: the baseline and the eval that ran (the baseline itself or its variant).",

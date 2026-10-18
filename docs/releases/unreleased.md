@@ -29,7 +29,7 @@ These notes describe changes that are not released yet. They name no version, an
   - `--arm context_only --with FILE...` and `--arm refactor --with WORKTREE` run variants of the same tasks with added context files or on your refactored code. A refactoring variant is used only when the original change ports onto it; otherwise it stays `needs_review`.
   - `git hint eval compare` shows every attempt and its resources per task objective; unknown usage stays unknown.
 - **Library.** Immutable versions, retention with pins (`git hint eval pin`), `forget`, and private bundles for your other machines (`eval pack`, `eval unpack`).
-- **Reports.** `git hint eval report [--send]` writes a minimized result report: outcomes, checks, counters and project-scoped references only, no task text, code, paths or commands. Sending needs the policy and your approval.
+- **Reports.** `git hint eval report [--send]` writes a minimized result report (evalreport v0.2): outcomes, checks, counters, the context policy state and project-scoped references only, no task text, code, paths or commands. Sending needs the policy and your approval.
 
 ## HINT data standard v0.2
 

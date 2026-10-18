@@ -1,4 +1,5 @@
-// Package report builds and checks minimized eval result reports (evalreport v0.1).
+// Package report builds and checks minimized eval result reports (evalreport v0.2; Check
+// also reads v0.1).
 //
 // A report carries only allowlisted fields of trial records. Every local identifier and
 // model name becomes a project-scoped opaque reference (HMAC with the project key), times
@@ -25,35 +26,52 @@ import (
 	"github.com/neprel/git-hint/internal/version"
 )
 
-// Version of the report format.
-const Version = "0.1.0"
+// Version of the report format that Build writes. Check reads 0.1 and 0.2.
+const Version = "0.2.0"
 
 // MediaType of a report on the wire.
 const MediaType = "application/vnd.hint-evalreport+json"
 
 var (
 	once    sync.Once
-	schema  *jsonschema.Schema
+	schemas map[string]*jsonschema.Schema // "0.1", "0.2"
 	errLoad error
 )
 
-func compiled() (*jsonschema.Schema, error) {
+func compiled() (map[string]*jsonschema.Schema, error) {
 	once.Do(func() {
-		c := jsonschema.NewCompiler()
-		c.DefaultDraft(jsonschema.Draft2020)
-		c.AssertFormat()
-		doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(githint.SchemaEvalReportV01))
-		if err != nil {
-			errLoad = err
-			return
+		schemas = map[string]*jsonschema.Schema{}
+		for v, raw := range map[string][]byte{"0.1": githint.SchemaEvalReportV01, "0.2": githint.SchemaEvalReportV02} {
+			c := jsonschema.NewCompiler()
+			c.DefaultDraft(jsonschema.Draft2020)
+			c.AssertFormat()
+			doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+			if err != nil {
+				errLoad = err
+				return
+			}
+			id := "urn:hint:schema:evalreport:v" + v + ":report"
+			if err = c.AddResource(id, doc); err != nil {
+				errLoad = err
+				return
+			}
+			if schemas[v], errLoad = c.Compile(id); errLoad != nil {
+				return
+			}
 		}
-		if err = c.AddResource("urn:hint:schema:evalreport:v0.1:report", doc); err != nil {
-			errLoad = err
-			return
-		}
-		schema, errLoad = c.Compile("urn:hint:schema:evalreport:v0.1:report")
 	})
-	return schema, errLoad
+	return schemas, errLoad
+}
+
+// reportMinor returns "0.1" or "0.2" for a supported report version, "" otherwise.
+func reportMinor(v string) string {
+	switch {
+	case v == "0.1.0":
+		return "0.1"
+	case regexp.MustCompile(`^0\.2\.(0|[1-9][0-9]*)$`).MatchString(v):
+		return "0.2"
+	}
+	return ""
 }
 
 // ErrInvalid is returned by Check.
@@ -68,13 +86,16 @@ func Check(data []byte) error {
 	if err := dec.Decode(&raw); err != nil || dec.More() {
 		return fmt.Errorf("%w: not one JSON object", ErrInvalid)
 	}
-	if v, _ := raw["report_version"].(string); v != Version {
+	v, _ := raw["report_version"].(string)
+	minor := reportMinor(v)
+	if minor == "" {
 		return fmt.Errorf("%w: unsupported report version", ErrInvalid)
 	}
-	s, err := compiled()
+	all, err := compiled()
 	if err != nil {
 		return err
 	}
+	s := all[minor]
 	doc, err := jsonschema.UnmarshalJSON(bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("%w: not JSON", ErrInvalid)
@@ -206,10 +227,31 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 		// environment, as project-scoped references only
 		if obj := str(t["objective"]); obj != "" {
 			bind, _ := t["binding"].(map[string]any)
-			env, _ := ev["environment"].(map[string]any)
 			tr["objective_ref"] = b.ref("objective", obj)
 			tr["baseline_ref"] = b.ref("eval", str(bind["baseline"]))
-			tr["environment_ref"] = b.ref("environment", str(env["image"]), str(env["setup"]))
+			tr["environment_ref"] = b.ref("environment", environmentIdentity(ev)...)
+		}
+		// the context policy: the full identity becomes one project reference; the other
+		// states stay distinct (a trial recorded before the field is unknown)
+		cp := map[string]any{"state": "unknown"}
+		if c, ok := t["context_policy"].(map[string]any); ok {
+			cp = map[string]any{"state": c["state"]}
+			if c["state"] == "enabled" {
+				cp["ref"] = b.ref("context-policy", str(c["id"]), fmt.Sprint(c["version"]), str(c["digest"]))
+				cp["version"] = c["version"]
+			}
+		}
+		tr["context_policy"] = cp
+		if dc, ok := t["declared_changes"].([]any); ok && len(dc) > 0 {
+			tr["declared_changes"] = dc
+		}
+		if oc, ok := t["observed_config"].([]any); ok && len(oc) > 0 {
+			var refs []any
+			for _, x := range oc {
+				m, _ := x.(map[string]any)
+				refs = append(refs, b.ref("observed-config", str(m["kind"]), str(m["digest"])))
+			}
+			tr["observed_config_refs"] = refs
 		}
 		trials = append(trials, tr)
 		used = append(used, n)
@@ -233,6 +275,21 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 		return nil, nil, err
 	}
 	return out, used, nil
+}
+
+// environmentIdentity is the canonical environment identity of an eval version: image,
+// setup and the dependency locks it names (the immutable eval record is the source).
+func environmentIdentity(ev map[string]any) []string {
+	env, _ := ev["environment"].(map[string]any)
+	parts := []string{str(env["image"]), str(env["setup"])}
+	deps, _ := ev["dependencies"].([]any)
+	var ds []string
+	for _, d := range deps {
+		b, _ := json.Marshal(d)
+		ds = append(ds, string(b))
+	}
+	sort.Strings(ds)
+	return append(parts, ds...)
 }
 
 var semver = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)

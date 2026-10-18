@@ -110,10 +110,21 @@ func variants(base map[string]any) map[string][]byte {
 	mk("duplicate-trial", func(m map[string]any) { m["trials"] = append(m["trials"].([]any), m["trials"].([]any)[0]) }, true)
 	mk("unknown-as-text", func(m map[string]any) { tr(m)["counters"].(map[string]any)["input_tokens"] = "unknown" }, true)
 	mk("minute-resolution", func(m map[string]any) { m["created_at"] = "2026-10-18T09:41:00Z" }, true)
-	mk("future-version", func(m map[string]any) { m["report_version"] = "0.2.0" }, true)
+	mk("future-version", func(m map[string]any) { m["report_version"] = "0.3.0" }, true)
 	mk("command-field", func(m map[string]any) { tr(m)["command"] = "go test ./..." }, true)
 	mk("free-outcome", func(m map[string]any) { tr(m)["outcome"] = "mostly passed" }, true)
 	mk("negative-tokens", func(m map[string]any) { tr(m)["counters"].(map[string]any)["output_tokens"] = -1 }, true)
+	// v0.2: the context policy state, declared changes and observed config
+	ref := strings.Repeat("c", 32)
+	mk("context-policy-missing", func(m map[string]any) { delete(tr(m), "context_policy") }, true)
+	mk("context-enabled-without-ref", func(m map[string]any) { tr(m)["context_policy"] = map[string]any{"state": "enabled", "version": 1} }, true)
+	mk("context-disabled-with-ref", func(m map[string]any) { tr(m)["context_policy"] = map[string]any{"state": "disabled", "ref": ref} }, true)
+	mk("context-unknown-with-version", func(m map[string]any) { tr(m)["context_policy"] = map[string]any{"state": "unknown", "version": 2} }, true)
+	mk("context-policy-name", func(m map[string]any) {
+		tr(m)["context_policy"] = map[string]any{"state": "enabled", "ref": "default-context-policy", "version": 1}
+	}, true)
+	mk("undeclared-change-kind", func(m map[string]any) { tr(m)["declared_changes"] = []any{"temperature 0.7"} }, true)
+	mk("observed-config-raw", func(m map[string]any) { tr(m)["observed_config_refs"] = []any{"max_tokens=4096"} }, true)
 	return out
 }
 
@@ -122,13 +133,16 @@ func TestFixtures(t *testing.T) {
 	b, m := build(t)
 	dir := filepath.Join("..", "..", "..", "tests", "evalreport")
 	if os.Getenv("HINT_WRITE_FIXTURES") == "1" {
-		os.WriteFile(filepath.Join(dir, "valid", "report-three-trials.json"), append(b, '\n'), 0o644)
-		empty := clone(m)
-		empty["trials"] = []any{}
-		empty["report_id"] = strings.Repeat("e", 32)
-		os.WriteFile(filepath.Join(dir, "valid", "report-empty.json"), append(reseal(empty), '\n'), 0o644)
+		// v0.2 fixtures; the committed v0.1 fixtures stay as they are
+		os.WriteFile(filepath.Join(dir, "valid", "report-v02-three-trials.json"), append(b, '\n'), 0o644)
+		enabled := clone(m)
+		tr := enabled["trials"].([]any)
+		tr[1].(map[string]any)["context_policy"] = map[string]any{"state": "enabled", "ref": strings.Repeat("d", 32), "version": 3}
+		tr[1].(map[string]any)["declared_changes"] = []any{"context_policy"}
+		tr[2].(map[string]any)["context_policy"] = map[string]any{"state": "not_applicable"}
+		os.WriteFile(filepath.Join(dir, "valid", "report-v02-context-states.json"), append(reseal(enabled), '\n'), 0o644)
 		for name, v := range variants(m) {
-			os.WriteFile(filepath.Join(dir, "invalid", name+".json"), append(v, '\n'), 0o644)
+			os.WriteFile(filepath.Join(dir, "invalid", "v02-"+name+".json"), append(v, '\n'), 0o644)
 		}
 	}
 	valid, _ := filepath.Glob(filepath.Join(dir, "valid", "*.json"))

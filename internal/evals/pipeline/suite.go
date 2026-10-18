@@ -162,7 +162,8 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			}
 			b := bind[ref]
 			in := suites.TrialInput{Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
-				Started: started, MaxSeconds: lim.TrialSeconds, Objective: b.Objective, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, EvalDigest: b.EvalDigest}
+				Started: started, MaxSeconds: lim.TrialSeconds, Objective: b.Objective, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, EvalDigest: b.EvalDigest,
+				ContextPolicy: "disabled"} // HINT delivers no managed context in eval trials yet
 			var reqs, retries int64
 			if counter != nil {
 				reqs, retries = counter.Requests(), counter.Retries()

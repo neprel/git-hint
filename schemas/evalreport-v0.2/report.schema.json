@@ -1,0 +1,437 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:schema:evalreport:v0.2:report",
+  "title": "HINT eval result report v0.1",
+  "description": "Minimized results of local eval trials. Separate from the HINT v0.1 documents: it carries no task text, code, path, command, log, content digest or local identifier. Every reference is a project-scoped opaque value derived with the project key. Unknown is null, never zero. A local qualification state is the client's claim, with its policy name.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "report_version": {
+      "type": "string",
+      "pattern": "^0\\.2\\.(0|[1-9][0-9]*)$"
+    },
+    "report_id": {
+      "$ref": "#/$defs/Ref"
+    },
+    "project_namespace": {
+      "$ref": "#/$defs/Ref"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": ":00:00Z$",
+      "description": "Hour resolution."
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "const": "git-hint"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-(alpha|beta|rc|dev)(\\.[0-9]+)?)?$"
+        }
+      },
+      "required": [
+        "tool",
+        "version"
+      ]
+    },
+    "content_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "SHA-256 of the RFC 8785 form of the report without this field."
+    },
+    "trials": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "$ref": "#/$defs/Trial"
+      }
+    }
+  },
+  "required": [
+    "report_version",
+    "report_id",
+    "project_namespace",
+    "created_at",
+    "producer",
+    "content_digest",
+    "trials"
+  ],
+  "$defs": {
+    "Ref": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "Count": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "Seconds": {
+      "oneOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 31536000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "Trial": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trial_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "suite_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "eval_ref": {
+          "$ref": "#/$defs/Ref",
+          "description": "One immutable eval version."
+        },
+        "objective_ref": {
+          "$ref": "#/$defs/Ref",
+          "description": "The task objective (the baseline eval), the same for the baseline and its variants. Trials of a variant pair with baseline trials only through it."
+        },
+        "baseline_ref": {
+          "$ref": "#/$defs/Ref",
+          "description": "The exact baseline eval version that this trial's eval is (equal to eval_ref) or is a variant of. Same reference scheme as eval_ref."
+        },
+        "environment_ref": {
+          "$ref": "#/$defs/Ref",
+          "description": "The task environment (image and setup) of the eval version."
+        },
+        "task_family_ref": {
+          "$ref": "#/$defs/Ref"
+        },
+        "family": {
+          "type": "string",
+          "enum": [
+            "bug_fix",
+            "feature",
+            "compatibility",
+            "refactor"
+          ]
+        },
+        "partition": {
+          "type": "string",
+          "enum": [
+            "calibration",
+            "held_out"
+          ]
+        },
+        "arm": {
+          "type": "string",
+          "enum": [
+            "baseline",
+            "configuration",
+            "no_change",
+            "context_only",
+            "refactor"
+          ]
+        },
+        "qualification": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "policy": {
+              "type": "string",
+              "pattern": "^q[1-9][0-9]*$"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "validated",
+                "reproducible",
+                "packaged",
+                "needs_review",
+                "unsupported",
+                "quarantined"
+              ]
+            },
+            "basis": {
+              "const": "client_claim"
+            }
+          },
+          "required": [
+            "policy",
+            "state",
+            "basis"
+          ]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "agent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "nop",
+                "oracle",
+                "opencode"
+              ]
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            },
+            "model_ref": {
+              "$ref": "#/$defs/Ref"
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "runner": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "const": "harbor"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "verifier_error",
+            "infrastructure_error",
+            "timeout",
+            "cancelled",
+            "budget_exhausted"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "check_ref": {
+                "$ref": "#/$defs/Ref"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "fail",
+                  "error",
+                  "not_run"
+                ]
+              }
+            },
+            "required": [
+              "check_ref",
+              "status"
+            ]
+          }
+        },
+        "counters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests": {
+              "$ref": "#/$defs/Count"
+            },
+            "retries": {
+              "$ref": "#/$defs/Count"
+            },
+            "input_tokens": {
+              "$ref": "#/$defs/Count"
+            },
+            "output_tokens": {
+              "$ref": "#/$defs/Count"
+            },
+            "cache_tokens": {
+              "$ref": "#/$defs/Count"
+            },
+            "wall_seconds": {
+              "$ref": "#/$defs/Seconds"
+            },
+            "agent_seconds": {
+              "$ref": "#/$defs/Seconds"
+            }
+          },
+          "required": [
+            "requests",
+            "retries",
+            "input_tokens",
+            "output_tokens",
+            "cache_tokens",
+            "wall_seconds",
+            "agent_seconds"
+          ]
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_requests": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "max_seconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "stop_reason": {
+              "type": "string",
+              "enum": [
+                "completed",
+                "request_limit",
+                "time_limit",
+                "cancelled",
+                "error"
+              ]
+            }
+          },
+          "required": [
+            "max_requests",
+            "max_seconds",
+            "stop_reason"
+          ]
+        },
+        "context_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The HINT context policy of the trial. enabled carries the project reference of the full identity (id, version, digest); disabled, not_applicable and unknown are different states.",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "enabled",
+                "disabled",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "state": {
+                    "const": "enabled"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "ref",
+                  "version"
+                ]
+              },
+              "else": {
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "ref"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "version"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "declared_changes": {
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Controls that this arm changes on purpose (the declared treatment); every other control must match its baseline for a comparison.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "agent_version",
+              "model",
+              "runner_version",
+              "budget",
+              "context_policy",
+              "harness_settings"
+            ]
+          }
+        },
+        "observed_config_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Project references of actual run overrides (observed, never a replacement of the immutable eval).",
+          "items": {
+            "$ref": "#/$defs/Ref"
+          }
+        }
+      },
+      "required": [
+        "trial_ref",
+        "suite_ref",
+        "eval_ref",
+        "task_family_ref",
+        "family",
+        "partition",
+        "arm",
+        "qualification",
+        "attempt",
+        "agent",
+        "runner",
+        "outcome",
+        "checks",
+        "counters",
+        "budget",
+        "context_policy"
+      ]
+    }
+  }
+}
