@@ -99,12 +99,22 @@ func TestMapFileRefusals(t *testing.T) {
 		},
 		"bad claim": func(f *MapFile) { f.Alternatives = []MapAlternative{{Worktree: ".", ClaimedBy: "model"}} },
 	}
-	for name, change := range cases {
+	// G10-7: the case name must not shadow the eval reference; every case except the
+	// unknown eval keeps the file's eval, so it must fail on its own check, not the target
+	want := map[string]error{"changed digest": ErrStale, "unknown eval": ErrTarget, "unknown test": build.ErrMapping,
+		"wrong quote": build.ErrMapping, "part left out": build.ErrMapping, "bad claim": nil}
+	for caseName, change := range cases {
 		g := f
 		g.Requirements = append([]build.Link{}, f.Requirements...)
 		change(&g)
-		if _, _, err := ApplyMapFile(context.Background(), l, name, encode(t, g), t.TempDir(), mapNow); err == nil {
-			t.Fatalf("%s: accepted", name)
+		_, _, err := ApplyMapFile(context.Background(), l, name, encode(t, g), t.TempDir(), mapNow)
+		switch {
+		case err == nil:
+			t.Fatalf("%s: accepted", caseName)
+		case want[caseName] != nil && !errors.Is(err, want[caseName]):
+			t.Fatalf("%s: %v, want %v", caseName, err, want[caseName])
+		case caseName != "unknown eval" && errors.Is(err, ErrTarget):
+			t.Fatalf("%s: refused for the target, not for its own check: %v", caseName, err)
 		}
 	}
 	if _, _, err := ApplyMapFile(context.Background(), l, "x", []byte(`{"map_version":1,"eval":"x","digest":"y","requirements":[],"context":[],"alternatives":[],"extra":1}`), "", mapNow); err == nil {
