@@ -1359,7 +1359,7 @@
         "quantities": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 12,
+          "maxItems": 16,
           "items": {
             "type": "object",
             "additionalProperties": false,
