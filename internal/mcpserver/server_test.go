@@ -22,7 +22,7 @@ import (
 )
 
 // gh runs a git-hint CLI command in dir.
-func gh(t *testing.T, dir string, args ...string) string {
+func gh(t testing.TB, dir string, args ...string) string {
 	t.Helper()
 	var out, errb bytes.Buffer
 	if code := cli.Run(args, &cli.Env{Dir: dir, Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb}); code != 0 {

@@ -61,3 +61,22 @@ func TestRenderFindings(t *testing.T) {
 		t.Error("a set without findings shows a findings section")
 	}
 }
+
+// BenchmarkRender measures the local report of the v0.2 example set (3 plans, 2 findings,
+// 1 comparison, 1 feedback entry).
+// Run: go test ./internal/project -run '^$' -bench Render -benchmem
+func BenchmarkRender(b *testing.B) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "examples", "v0.2", "recommendation-findings.json"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	var doc map[string]any
+	_ = json.Unmarshal(raw, &doc)
+	im := &Imported{Result: hint.ImportResult{Document: "accepted"}, Doc: doc}
+	cur := &Current{Names: map[string]string{}}
+	var n int
+	for i := 0; i < b.N; i++ {
+		n = len(Render(im, cur, "x.json"))
+	}
+	b.ReportMetric(float64(n), "report_bytes")
+}
