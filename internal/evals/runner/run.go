@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -133,7 +134,15 @@ func (h *Harbor) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 		return nil, err
 	}
 	defer os.RemoveAll(work)
-	args := []string{"run", "-p", taskDir, "-a", o.Agent, "-k", fmt.Sprint(o.Attempts), "-n", "1",
+	agent, env := o.Agent, o.Env
+	if o.Agent == "opencode" && openCodeV2(o.AgentArgs) {
+		// OpenCode v2 runs through HINT's Harbor agent class (pinned, hash-checked binary)
+		if err := os.WriteFile(filepath.Join(work, "hint_opencode_v2.py"), openCodeV2Adapter, 0o600); err != nil {
+			return nil, err
+		}
+		agent, env = "hint_opencode_v2:OpenCodeV2", append(append([]string{}, env...), "PYTHONPATH="+work)
+	}
+	args := []string{"run", "-p", taskDir, "-a", agent, "-k", fmt.Sprint(o.Attempts), "-n", "1",
 		"-o", o.JobsDir, "--job-name", o.JobName, "-e", "docker", "-q", "-y"}
 	for _, a := range o.AgentArgs {
 		args = append(args, "--ak", a)
@@ -145,7 +154,7 @@ func (h *Harbor) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 	defer cancel()
 	cmd := exec.CommandContext(ctx, h.Bin, args...)
 	cmd.Dir = work // Harbor loads ./.env.local: keep the working directory empty
-	cmd.Env = append(baseEnv(), o.Env...)
+	cmd.Env = append(baseEnv(), env...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	runErr := cmd.Run()
@@ -157,6 +166,19 @@ func (h *Harbor) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 		return nil, perr
 	}
 	return trials, nil
+}
+
+//go:embed hint_opencode_v2.py
+var openCodeV2Adapter []byte
+
+// openCodeV2 reports whether the agent arguments pin an OpenCode 2.x release.
+func openCodeV2(args []string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, "version=2.") {
+			return true
+		}
+	}
+	return false
 }
 
 // baseEnv is the runner environment: PATH, HOME and the Docker settings only, with
