@@ -486,3 +486,38 @@ func TestReportVariantPairs(t *testing.T) {
 		runArm(s, variant, "context_only", "oracle", variantNow.Add(time.Minute))
 	})
 }
+
+// G10-9 (remainder): the same bytes at another path, or with another mode, are another
+// intervention; an unchanged input reuses its variant.
+func TestContextVariantInputIdentity(t *testing.T) {
+	_, l := validatedProject(t)
+	base := baselineRef(t, l)
+	x := []byte("Run go test ./... before you finish.\n")
+	mk := func(path, mode string) Variant {
+		v, err := MakeVariant(l, base, VariantInput{Arm: "context_only", Context: []ContextFile{{Path: path, Data: x, Mode: mode}}}, variantNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	agents := mk("AGENTS.md", "")
+	readme := mk("README.md", "")
+	exec := mk("AGENTS.md", "100755")
+	again := mk("AGENTS.md", "100644")
+	if readme.Ref == agents.Ref || exec.Ref == agents.Ref || readme.Ref == exec.Ref || !readme.Created || !exec.Created {
+		t.Fatalf("other path or mode reused a variant: %s %s %s", agents.Ref, readme.Ref, exec.Ref)
+	}
+	if again.Ref != agents.Ref || again.Created {
+		t.Fatalf("the unchanged input made a new variant: %+v", again)
+	}
+	var rec map[string]any
+	l.Manifest("eval", readme.Ref, &rec)
+	tr, _ := trees.Load(l, rec["repositories"].([]any)[0].(map[string]any)["base_tree"].(string))
+	paths := map[string]bool{}
+	for _, f := range tr.Files {
+		paths[f.Path] = true
+	}
+	if !paths["README.md"] || paths["AGENTS.md"] {
+		t.Fatalf("the README variant's base: %v", paths)
+	}
+}

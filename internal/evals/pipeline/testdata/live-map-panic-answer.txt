@@ -1,0 +1,21 @@
+
+
+{
+  "requirements": [
+    {
+      "source": "R1",
+      "quote": "Fix Total so it subtracts the discount from the price.",
+      "tests": [
+        "discount_test.go::TestDiscount"
+      ]
+    },
+    {
+      "source": "R1",
+      "quote": "Total must panic on a negative discount.",
+      "tests": []
+    }
+  ],
+  "context": [
+    "R1: Total ignores the discount."
+  ]
+}

@@ -136,8 +136,14 @@ func MakeVariant(l *library.Library, baseline string, in VariantInput, now time.
 				mode = "100644"
 			}
 			files = append(files, trees.File{Path: c.Path, Mode: mode, Size: int64(len(c.Data)), Digest: d})
-			inputs = append(inputs, d)
 		}
+		// the input is the canonical set of (path, mode, content): a tree of the context
+		// files only, so the same bytes at another path or mode are another input (G10-9)
+		ctxTree, err := trees.Put(l, append([]trees.File{}, files...))
+		if err != nil {
+			return Variant{}, err
+		}
+		inputs = append(inputs, ctxTree)
 		if bin.Base, err = overlay(l, base, files); err != nil {
 			return Variant{}, err
 		}

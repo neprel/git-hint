@@ -123,7 +123,7 @@
         "arm": {"type": "string", "enum": ["context_only", "refactor"]},
         "of": {"type": "string", "pattern": "^ev-[0-9a-f]{16}@[1-9][0-9]*$", "description": "The baseline eval version."},
         "of_digest": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "description": "Digest of the baseline record."},
-        "inputs": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}, "description": "Context file objects, or the refactored repository tree."},
+        "inputs": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}, "description": "context_only: a tree of the context files only (path, mode, content); refactor: the refactored repository tree."},
         "reference": {"type": "string", "enum": ["original", "reconstructed_patch", "missing"], "description": "original: the baseline's change applies unchanged; reconstructed_patch: the change ported onto the refactored base with a strict patch; missing: no reference (never validated)."}
       },
       "required": ["arm", "of", "of_digest", "inputs", "reference"]
