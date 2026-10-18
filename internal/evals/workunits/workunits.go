@@ -24,11 +24,13 @@ import (
 
 // Member is one frozen suite member of a run.
 type Member struct {
-	Eval       string `json:"eval"`
-	Baseline   string `json:"baseline"`
-	Objective  string `json:"objective"`
-	TaskFamily string `json:"task_family"`
-	Eligible   bool   `json:"eligible"` // a refactor-family eval run by a live agent
+	Eval           string `json:"eval"`
+	EvalDigest     string `json:"eval_digest"`
+	Baseline       string `json:"baseline"`
+	BaselineDigest string `json:"baseline_digest"`
+	Objective      string `json:"objective"`
+	TaskFamily     string `json:"task_family"`
+	Eligible       bool   `json:"eligible"` // a refactor-family eval run by a live agent
 }
 
 // Manifest is the immutable plan of one run, written before the first attempt.
@@ -88,6 +90,13 @@ func Start(s *store.Store, l *library.Library, m Manifest, now time.Time) error 
 		if err := l.Manifest("eval", mb.Eval, &ev); err != nil {
 			return err
 		}
+		// the frozen versions: the member's digests must be those of the immutable records
+		if d, err := l.ManifestDigest("eval", mb.Eval); err != nil || d != mb.EvalDigest || mb.EvalDigest == "" {
+			return fmt.Errorf("member %s: the eval digest does not match its record", mb.Eval)
+		}
+		if d, err := l.ManifestDigest("eval", mb.Baseline); err != nil || d != mb.BaselineDigest || mb.BaselineDigest == "" {
+			return fmt.Errorf("member %s: the baseline digest does not match its record", mb.Eval)
+		}
 		ref := func(kind string, parts ...string) string { return hint.EvalRef(s.Key(), kind, parts...) }
 		cfg := map[string]any{
 			"agent":          map[string]any{"name": m.Agent, "version": version(m.AgentVersion)},
@@ -139,7 +148,16 @@ func Record(s *store.Store, l *library.Library, runID, eval, name string) error 
 	// the trial must be the one this run planned for this member (CU3, C7BE-7): checked before
 	// the journal changes; a refused trial record stays in the library with its spent usage and
 	// the planned slot stays open
-	if err := bound(r.Manifest, eval, t); err != nil {
+	var member *Member
+	for i := range r.Manifest.Members {
+		if r.Manifest.Members[i].Eval == eval {
+			member = &r.Manifest.Members[i]
+		}
+	}
+	if member == nil {
+		return fmt.Errorf("trial %s: %s is not a member of this run", name, eval)
+	}
+	if err := bound(r.Manifest, *member, t); err != nil {
 		return fmt.Errorf("trial %s does not belong to this run's plan: %w", name, err)
 	}
 	ord := int(num(t["attempt"]))
@@ -344,8 +362,10 @@ func str(v any) string { s, _ := v.(string); return s }
 // bound checks that a trial record is the planned one: run, suite, member, arm, agent and
 // version, model, runner version, limits, the launch configuration digest and an ordinal of
 // the schedule.
-func bound(m Manifest, eval string, t map[string]any) error {
+func bound(m Manifest, mb Member, t map[string]any) error {
+	eval := mb.Eval
 	ag, _ := t["agent"].(map[string]any)
+	bind, _ := t["binding"].(map[string]any)
 	run, _ := t["runner"].(map[string]any)
 	bud, _ := t["budget"].(map[string]any)
 	launch := ""
@@ -363,9 +383,13 @@ func bound(m Manifest, eval string, t map[string]any) error {
 		{"agent", str(ag["name"]), m.Agent}, {"agent version", str(ag["version"]), m.AgentVersion}, {"model", str(ag["model"]), m.ModelLabel},
 		{"runner version", str(run["version"]), m.RunnerVersion}, {"time limit", num(bud["max_seconds"]), float64(m.MaxSeconds)},
 		{"request limit", num(bud["max_requests"]), float64(m.MaxRequests)}, {"launch configuration", launch, m.LaunchDigest},
+		// the exact task: objective, baseline version and both digests (a missing value is a
+		// refusal, never filled in from the plan)
+		{"objective", str(t["objective"]), mb.Objective}, {"baseline", str(bind["baseline"]), mb.Baseline},
+		{"baseline digest", str(bind["baseline_digest"]), mb.BaselineDigest}, {"eval digest", str(bind["eval_digest"]), mb.EvalDigest},
 	}
 	for _, c := range checks {
-		if c.got != c.want {
+		if c.got != c.want || c.got == "" {
 			return fmt.Errorf("%s differs", c.what)
 		}
 	}

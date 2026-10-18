@@ -33,23 +33,33 @@ func project(t *testing.T) (*store.Store, *library.Library, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if digests[ref], err = l.ManifestDigest("eval", ref); err != nil {
+		t.Fatal(err)
+	}
 	return s, l, ref
 }
 
 var launch = "sha256:" + strings.Repeat("a", 64)
 
-// planned is a trial input that matches the test manifest exactly.
+// digests holds the immutable record digest of each eval version (set by project).
+var digests = map[string]string{}
+
+// planned is a trial input like the real producer writes it for the test manifest: run,
+// schedule slot, launch, limits and the exact task binding (objective, baseline, digests).
 func planned(ref string, attempt int) suites.TrialInput {
+	obj, _, _ := strings.Cut(ref, "@")
 	return suites.TrialInput{RunID: "jb-0000000000000001", Suite: "su-0000000000000001", Eval: ref, Attempt: attempt, Arm: "baseline", Agent: "opencode",
 		AgentVersion: "2.0.26", Model: "m", RunnerVersion: "0.23.0", MaxSeconds: 900, MaxRequests: 40, ModelCheck: "verified",
-		Started: time.Date(2026, 10, 18, 10, attempt, 0, 0, time.UTC), ObservedConfig: []map[string]string{{"kind": "setting_override", "digest": launch}}}
+		Started: time.Date(2026, 10, 18, 10, attempt, 0, 0, time.UTC), ObservedConfig: []map[string]string{{"kind": "setting_override", "digest": launch}},
+		Objective: obj, Baseline: ref, BaselineDigest: digests[ref], EvalDigest: digests[ref]}
 }
 
 func manifest(ref string, attempts int) Manifest {
 	obj, _, _ := strings.Cut(ref, "@")
 	return Manifest{RunID: "jb-0000000000000001", Suite: "su-0000000000000001", Agent: "opencode", AgentVersion: "2.0.26", Arm: "baseline", Attempts: attempts,
 		RunnerVersion: "0.23.0", ModelLabel: "m", LaunchDigest: launch, MaxRequests: 40, MaxSeconds: 900,
-		Members: []Member{{Eval: ref, Baseline: ref, Objective: obj, TaskFamily: "fam", Eligible: true}, {Eval: "ev-x@1", Eligible: false}}}
+		Members: []Member{{Eval: ref, EvalDigest: digests[ref], Baseline: ref, BaselineDigest: digests[ref], Objective: obj, TaskFamily: "fam", Eligible: true},
+			{Eval: "ev-x@1", Eligible: false}}}
 }
 
 func TestAPlannedUnitIsOpenBeforeAnyAttempt(t *testing.T) {
@@ -182,6 +192,11 @@ func TestOnlyThePlannedTrialEntersTheJournal(t *testing.T) {
 		func(in *suites.TrialInput) { in.Arm = "configuration" },
 		func(in *suites.TrialInput) { in.AgentVersion = "2.0.27" },
 		func(in *suites.TrialInput) { in.Attempt = 3 }, // not a planned slot
+		func(in *suites.TrialInput) { in.Objective = "ev-0000000000000000" },
+		func(in *suites.TrialInput) { in.Objective = "" }, // no objective: the trial record then carries no binding at all
+		func(in *suites.TrialInput) { in.Baseline = "ev-0000000000000000@1" },
+		func(in *suites.TrialInput) { in.BaselineDigest = "sha256:" + strings.Repeat("c", 64) },
+		func(in *suites.TrialInput) { in.EvalDigest = "sha256:" + strings.Repeat("d", 64) },
 	} {
 		in := planned(ref, 1)
 		change(&in)
@@ -211,5 +226,20 @@ func TestOnlyThePlannedTrialEntersTheJournal(t *testing.T) {
 	last := revs[len(revs)-1].(map[string]any)
 	if last["state"] != "open" || len(last["attempts"].([]any)) != 1 || last["attempts"].([]any)[0].(map[string]any)["ordinal"].(float64) != 1 {
 		t.Fatalf("journal %v", last)
+	}
+}
+
+// a member whose frozen digests do not match the immutable records is refused at start
+func TestStartRefusesMemberDigestsThatDoNotMatch(t *testing.T) {
+	s, l, ref := project(t)
+	m := manifest(ref, 1)
+	m.Members[0].BaselineDigest = "sha256:" + strings.Repeat("e", 64)
+	if err := Start(s, l, m, time.Now()); err == nil || !strings.Contains(err.Error(), "baseline digest") {
+		t.Fatalf("start: %v", err)
+	}
+	m = manifest(ref, 1)
+	m.Members[0].EvalDigest = ""
+	if err := Start(s, l, m, time.Now()); err == nil || !strings.Contains(err.Error(), "eval digest") {
+		t.Fatalf("start: %v", err)
 	}
 }

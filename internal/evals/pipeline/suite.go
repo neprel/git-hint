@@ -131,7 +131,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				continue
 			}
 			b := bind[ref]
-			m.Members = append(m.Members, workunits.Member{Eval: ref, Baseline: b.Baseline, Objective: b.Objective,
+			m.Members = append(m.Members, workunits.Member{Eval: ref, EvalDigest: b.EvalDigest, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, Objective: b.Objective,
 				TaskFamily: str(mm.(map[string]any)["task_family"]), Eligible: str(rec["family"]) == "refactor"})
 		}
 		if err := workunits.Start(s, l, m, now); err != nil {
