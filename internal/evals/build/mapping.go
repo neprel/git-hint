@@ -21,7 +21,9 @@ type Link struct {
 
 // Mapping is a requirement-to-test matrix for the request and the corrections of an eval.
 // Context lists quoted sentences that state no requirement (background, a description of
-// the defect). By is "model" or "user".
+// the defect). By is "model" or "user". Only the user can confirm context: a sentence that
+// the model calls context stays an unmapped requirement, because a model answer must not
+// remove a requested condition (G10-3, review round 2).
 type Mapping struct {
 	Links   []Link   `json:"requirements"`
 	Context []string `json:"context"`
@@ -41,6 +43,9 @@ var word = regexp.MustCompile(`[\pL\pN_][\pL\pN_'-]*`)
 var connectors = map[string]bool{"and": true, "also": true, "then": true, "but": true, "the": true, "please": true, "too": true}
 
 func norm(s string) string { return strings.ToLower(strings.Join(strings.Fields(s), " ")) }
+
+// sentenceBreak finds a sentence boundary inside a quote.
+var sentenceBreak = regexp.MustCompile(`[.!?;]\s+\S`)
 
 // uncovered returns the first content word of text that no quote occurrence covers.
 func uncovered(text string, quotes []string) string {
@@ -98,11 +103,14 @@ func C1Tests(rec map[string]any) []string {
 }
 
 // ApplyMapping replaces the unmapped request and correction requirements of rec by the
-// atomic requirements of m and returns the new requirement list. An atomic requirement
-// without a test stays unmapped (no check). It refuses a mapping that quotes text the
-// user did not write, names a test that C1 does not run, or leaves a content word of a
-// source outside every requirement and context quote (an omitted requirement must not
-// disappear silently).
+// atomic requirements of m and returns the new requirement list. Each atomic requirement
+// keeps the original request or correction as its source. An atomic requirement without
+// a test stays unmapped (no check). It refuses a mapping that quotes text the user did not
+// write, names a test that C1 does not run, or leaves a content word of a source outside
+// every requirement and context quote (an omitted requirement must not disappear
+// silently). An exact quote is not evidence of coverage, so a model mapping gets less
+// trust: its context sentences and its links that join several sentences stay unmapped
+// requirements, which keep the eval in needs_review until the user confirms them.
 func ApplyMapping(l *library.Library, rec map[string]any, m Mapping) ([]any, error) {
 	if m.By != "model" && m.By != "user" {
 		return nil, fmt.Errorf("%w: unknown origin", ErrMapping)
@@ -138,7 +146,31 @@ func ApplyMapping(l *library.Library, rec map[string]any, m Mapping) ([]any, err
 		return nil, fmt.Errorf("%w: nothing to map", ErrMapping)
 	}
 	quotes := map[string][]string{} // source -> normalized quotes
-	for _, ln := range m.Links {
+	links := append([]Link{}, m.Links...)
+	// a context quote must be the user's text too; a model's context stays a requirement
+	var context []string
+	for _, c := range m.Context {
+		q := strings.Trim(norm(c), " .!?;:,")
+		if q == "" {
+			continue
+		}
+		in := ""
+		for _, id := range order {
+			if strings.Contains(norm(sources[id].text), q) {
+				in = id
+				break
+			}
+		}
+		if in == "" {
+			return nil, fmt.Errorf("%w: a context quote is not in the user's text", ErrMapping)
+		}
+		if m.By == "model" {
+			links = append(links, Link{Source: in, Quote: strings.Trim(strings.TrimSpace(c), " ")})
+			continue
+		}
+		context = append(context, q)
+	}
+	for _, ln := range links {
 		src, ok := sources[ln.Source]
 		if !ok {
 			return nil, fmt.Errorf("%w: unknown source %q", ErrMapping, ln.Source)
@@ -159,15 +191,16 @@ func ApplyMapping(l *library.Library, rec map[string]any, m Mapping) ([]any, err
 	}
 	for _, id := range order {
 		qs := append([]string{}, quotes[id]...)
-		for _, c := range m.Context {
-			qs = append(qs, norm(c))
-		}
+		qs = append(qs, context...)
 		if w := uncovered(norm(sources[id].text), qs); w != "" {
 			return nil, fmt.Errorf("%w: a part of %s is neither a requirement nor context", ErrMapping, id)
 		}
 	}
 	var out []any
-	for _, ln := range m.Links {
+	for _, ln := range links {
+		if m.By == "model" && sentenceBreak.MatchString(strings.Trim(strings.TrimSpace(ln.Quote), " .!?;:,")) {
+			ln.Tests = nil // a model link for several sentences is not trusted
+		}
 		src := sources[ln.Source].req
 		d, err := l.PutObject([]byte(strings.TrimSpace(ln.Quote)))
 		if err != nil {
@@ -178,7 +211,7 @@ func ApplyMapping(l *library.Library, rec map[string]any, m Mapping) ([]any, err
 			ts = append(ts, t)
 		}
 		r := map[string]any{"kind": "behavior", "origin": src["origin"], "text": d, "evidence": src["evidence"],
-			"checks": []any{"C1"}, "tests": ts, "mapping": m.By}
+			"checks": []any{"C1"}, "tests": ts, "mapping": m.By, "source": src["text"]}
 		switch {
 		case len(ts) == 0:
 			// an atomic requirement that no test verifies stays without a check

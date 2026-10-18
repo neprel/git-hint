@@ -53,6 +53,7 @@
           "tests": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9._/+-]+::[A-Za-z_][A-Za-z0-9_]*$"}, "uniqueItems": true,
             "description": "The tests of the checks that verify this requirement; absent means the whole check."},
           "generator": {"$ref": "#/$defs/Generator", "description": "Provenance of a model mapping."},
+          "source": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "description": "The original request or correction that this atomic requirement was split from (kept unchanged)."},
           "mapping": {"type": "string", "enum": ["construction", "model", "user", "none"],
             "description": "How the requirement-to-check link was made: by construction (existing tests, derived API check), by the local model (not independent), by the user, or not at all. Absent means construction (manifests before G10-3)."}
         },

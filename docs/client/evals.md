@@ -65,8 +65,10 @@ check. So your request and each correction start without a link to a check. With
 model allowed in the eval policy, HINT asks it once per eval to split the text into
 requirements and to link each one to hidden tests. HINT accepts the answer only when every
 quote is your exact text, every test exists, and every part of your text is either a
-requirement or marked as background. A requirement that no test checks stays without a
-check and is shown as missing evidence. Without the model, these evals stay
+requirement or marked as background. The model cannot remove text: a sentence that it
+marks as background, or a link that joins several sentences, stays a requirement without
+a check. Each requirement keeps your original request or correction as its source. A
+requirement that no test checks stays without a check and is shown as missing evidence. Without the model, these evals stay
 `needs_review` with the reason `requirement_coverage_missing`. A model link is labeled
 `model`; it is not independent evidence. `git hint eval show <id>` lists each requirement,
 its link and its coverage.

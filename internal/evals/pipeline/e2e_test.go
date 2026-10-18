@@ -143,7 +143,9 @@ func mappingServer(t *testing.T, answer string) (*httptest.Server, *int) {
 	return srv, &calls
 }
 
-const e2eMapping = `{"requirements": [{"source": "R1", "quote": "Fix Total so it subtracts the discount from the price.", "tests": ["discount_test.go::TestDiscount"]}], "context": ["Total ignores the discount."]}`
+// e2eMapping links every sentence of the request to the test; a model's context sentence
+// would stay an unmapped requirement (TestModelContextNeedsReview).
+const e2eMapping = `{"requirements": [{"source": "R1", "quote": "Total ignores the discount.", "tests": ["discount_test.go::TestDiscount"]}, {"source": "R1", "quote": "Fix Total so it subtracts the discount from the price.", "tests": ["discount_test.go::TestDiscount"]}], "context": []}`
 
 // G10-3: without the local model the request stays unmapped, and the eval is not
 // validated although every other check passes.
@@ -189,6 +191,29 @@ func TestIncompleteMappingIsRefused(t *testing.T) {
 	l.Manifest("eval", names[0], &v1)
 	if *calls != 1 || len(build.Unmapped(v1)) != 1 || !strings.Contains(fmt.Sprint(v1["reasons"]), "requirement_mapping_incomplete") {
 		t.Fatalf("calls %d reasons %v", *calls, v1["reasons"])
+	}
+}
+
+// G10-3, review round 2: a model answer that calls a sentence of the request context
+// does not remove it; the eval needs review although every other check passes.
+func TestModelContextNeedsReview(t *testing.T) {
+	s, env := e2eProject(t)
+	srv, calls := mappingServer(t, `{"requirements": [{"source": "R1", "quote": "Fix Total so it subtracts the discount from the price.", "tests": ["discount_test.go::TestDiscount"]}], "context": ["Total ignores the discount."]}`)
+	p := evals.Enabled([]string{"opencode"})
+	p.Model = &evals.Model{Use: "lan", BaseURL: srv.URL + "/v1", Model: "local-coder", KeyEnv: "HINT_TEST_MODEL_KEY"}
+	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	s.Cfg.Evals = &p
+	Run(context.Background(), s, env)
+	q := Qualify(context.Background(), s, &e2eRunner{}, env.Now())
+	if *calls != 1 || q.States["needs_review"] != 1 {
+		t.Fatalf("calls %d qualify %+v", *calls, q)
+	}
+	l := library.Open(s, 0)
+	names, _ := l.Manifests("eval")
+	var v2 map[string]any
+	l.Manifest("eval", names[len(names)-1], &v2)
+	if u := build.Unmapped(v2); len(u) != 1 || !strings.Contains(fmt.Sprint(v2["reasons"]), "requirement_coverage_missing") {
+		t.Fatalf("unmapped %v reasons %v", u, v2["reasons"])
 	}
 }
 
@@ -258,7 +283,8 @@ func TestSessionToQualifiedEval(t *testing.T) {
 // Replay of the LAN model's answer for the reviewer's G10-3 case (recorded 2026-10-18,
 // 1 request): the model linked the subtraction to TestDiscount, gave the panic no test and
 // put the defect description in context with the prompt's source label. The label is
-// removed; the panic requirement stays unmapped, so the eval cannot be validated.
+// removed; the panic requirement and the model's context sentence stay unmapped, so the
+// eval cannot be validated.
 func TestReplayLiveMappingOfThePanicCase(t *testing.T) {
 	answer, err := os.ReadFile(filepath.Join("testdata", "live-map-panic-answer.txt"))
 	if err != nil {
@@ -277,7 +303,7 @@ func TestReplayLiveMappingOfThePanicCase(t *testing.T) {
 	if *calls != 1 || d.Cause != "" || why != "requirement_coverage_missing" {
 		t.Fatalf("calls %d why %q cause %q", *calls, why, d.Cause)
 	}
-	if u := build.Unmapped(rec); len(u) != 1 || u[0] != "R2" {
+	if u := build.Unmapped(rec); len(u) != 2 || u[0] != "R2" || u[1] != "R3" {
 		t.Fatalf("unmapped %v", u)
 	}
 	r1 := rec["requirements"].([]any)[0].(map[string]any)
