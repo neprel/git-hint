@@ -254,3 +254,37 @@ func TestSessionToQualifiedEval(t *testing.T) {
 		t.Fatalf("repeat %+v", q)
 	}
 }
+
+// Replay of the LAN model's answer for the reviewer's G10-3 case (recorded 2026-10-18,
+// 1 request): the model linked the subtraction to TestDiscount, gave the panic no test and
+// put the defect description in context with the prompt's source label. The label is
+// removed; the panic requirement stays unmapped, so the eval cannot be validated.
+func TestReplayLiveMappingOfThePanicCase(t *testing.T) {
+	answer, err := os.ReadFile(filepath.Join("testdata", "live-map-panic-answer.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, calls := mappingServer(t, string(answer))
+	l := evaltest.Library(t)
+	c := evaltest.PanicRequirement()
+	b, err := evaltest.Package(t, l, c, "go test ./...")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := evals.Enabled(nil)
+	p.Model = &evals.Model{Use: "lan", BaseURL: srv.URL + "/v1", Model: "ai01", KeyEnv: "HINT_TEST_MODEL_KEY"}
+	rec, why, d := mapRequirementsDetail(context.Background(), l, &p, b, evaltest.Tree(t, l, c.Result))
+	if *calls != 1 || d.Cause != "" || why != "requirement_coverage_missing" {
+		t.Fatalf("calls %d why %q cause %q", *calls, why, d.Cause)
+	}
+	if u := build.Unmapped(rec); len(u) != 1 || u[0] != "R2" {
+		t.Fatalf("unmapped %v", u)
+	}
+	r1 := rec["requirements"].([]any)[0].(map[string]any)
+	if r1["mapping"] != "model" || r1["tests"].([]any)[0] != evaltest.GoBugFixTest || r1["generator"] == nil {
+		t.Fatalf("R1 %v", r1)
+	}
+	if err := evals.ValidateValue("eval", rec); err != nil {
+		t.Fatal(err)
+	}
+}

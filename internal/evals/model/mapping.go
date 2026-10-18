@@ -34,7 +34,7 @@ type MapAnswer struct {
 
 const mapSystem = `You split a user's coding request into atomic requirements and link each requirement to the tests that verify it.
 Answer with one JSON object only:
-{"requirements": [{"source": "R1", "quote": "<exact words of the user>", "tests": ["<test ID>"]}], "context": ["<exact words>"]}
+{"requirements": [{"source": "R1", "quote": "<exact words of the user>", "tests": ["<test ID>"]}], "context": ["<exact words of the user>"]}
 Rules:
 - Copy every quote exactly from the user's text.
 - Every part of the user's text must be in one requirement quote or in context.
@@ -46,10 +46,16 @@ var jsonObject = regexp.MustCompile(`(?s)\{.*\}`)
 
 // Generate returns the parsed answer.
 func (m RequirementMap) Generate(ctx context.Context, c *Client) (MapAnswer, error) {
+	ans, _, err := m.GenerateRaw(ctx, c)
+	return ans, err
+}
+
+// GenerateRaw also returns the raw answer text (local diagnosis only).
+func (m RequirementMap) GenerateRaw(ctx context.Context, c *Client) (MapAnswer, string, error) {
 	var b strings.Builder
-	b.WriteString("User's text:\n")
+	b.WriteString("User's text (quote only the text between the markers):\n")
 	for _, id := range m.Order {
-		fmt.Fprintf(&b, "%s: %s\n", id, strings.TrimSpace(m.Sources[id]))
+		fmt.Fprintf(&b, "<<<%s\n%s\n>>>\n", id, strings.TrimSpace(m.Sources[id]))
 	}
 	b.WriteString("\nTest IDs:\n")
 	for _, id := range m.TestIDs {
@@ -70,21 +76,22 @@ func (m RequirementMap) Generate(ctx context.Context, c *Client) (MapAnswer, err
 	}
 	var ans MapAnswer
 	if b.Len() > 64<<10 {
-		return ans, fmt.Errorf("the request and tests are too large for a mapping")
+		return ans, "", fmt.Errorf("the request and tests are too large for a mapping")
 	}
 	out, err := c.Chat(ctx, []Message{{Role: "system", Content: mapSystem}, {Role: "user", Content: b.String()}}, 1500)
 	if err != nil {
-		return ans, err
+		return ans, "", err
 	}
+	raw := out
 	if m := fence.FindStringSubmatch(out); m != nil {
 		out = m[1]
 	}
 	j := jsonObject.FindString(out)
 	if j == "" || json.Unmarshal([]byte(j), &ans) != nil {
-		return ans, fmt.Errorf("the mapping answer is not JSON")
+		return ans, raw, fmt.Errorf("the mapping answer is not JSON")
 	}
 	if len(ans.Requirements) == 0 || len(ans.Requirements) > 50 {
-		return ans, fmt.Errorf("the mapping answer has no usable requirement list")
+		return ans, raw, fmt.Errorf("the mapping answer has no usable requirement list")
 	}
-	return ans, nil
+	return ans, raw, nil
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"regexp"
 
 	"github.com/neprel/git-hint/internal/evals"
 	"github.com/neprel/git-hint/internal/evals/build"
@@ -22,13 +23,25 @@ import (
 // is not usable, the requirements stay unmapped: qualification then reports them as
 // missing evidence, and the eval is not validated.
 func mapRequirements(ctx context.Context, l *library.Library, p *evals.Policy, b *build.Built, result string) (map[string]any, string) {
+	rec, why, _ := mapRequirementsDetail(ctx, l, p, b, result)
+	return rec, why
+}
+
+// mapDetail is the model's raw answer and the cause of a refusal, for diagnosis (local).
+type mapDetail struct {
+	Answer string
+	Cause  string
+}
+
+func mapRequirementsDetail(ctx context.Context, l *library.Library, p *evals.Policy, b *build.Built, result string) (map[string]any, string, mapDetail) {
+	var d mapDetail
 	rec := b.Record
 	unmapped := build.Unmapped(rec)
 	if len(unmapped) == 0 {
-		return rec, ""
+		return rec, "", d
 	}
 	if p.Check(evals.OpModel, "") != nil {
-		return rec, "model_disabled"
+		return rec, "model_disabled", d
 	}
 	ids := build.C1Tests(rec)
 	rm := model.RequirementMap{Sources: map[string]string{}, Order: unmapped, TestIDs: ids, Files: map[string]string{},
@@ -48,7 +61,7 @@ func mapRequirements(ctx context.Context, l *library.Library, p *evals.Policy, b
 		if m["mapping"] == "none" {
 			t, err := l.GetObject(m["text"].(string))
 			if err != nil {
-				return rec, "requirement_mapping_incomplete"
+				return rec, "requirement_mapping_incomplete", d
 			}
 			rm.Sources[m["req_id"].(string)] = string(t)
 			inputs = append(inputs, m["text"])
@@ -56,7 +69,7 @@ func mapRequirements(ctx context.Context, l *library.Library, p *evals.Policy, b
 	}
 	tree, err := trees.Load(l, result)
 	if err != nil {
-		return rec, "requirement_mapping_incomplete"
+		return rec, "requirement_mapping_incomplete", d
 	}
 	for _, f := range tree.Files {
 		for _, h := range b.Hidden {
@@ -70,27 +83,33 @@ func mapRequirements(ctx context.Context, l *library.Library, p *evals.Policy, b
 	job := "jb-" + hex.EncodeToString(h[:8])
 	c, err := model.New(p, l, job)
 	if err != nil {
-		return rec, "requirement_mapping_incomplete" // also when this eval's mapping job ran before
+		return rec, "requirement_mapping_incomplete", d // also when this eval's mapping job ran before
 	}
 	defer c.Close()
-	ans, err := rm.Generate(ctx, c)
+	ans, raw0, err := rm.GenerateRaw(ctx, c)
+	d.Answer = raw0
 	if err != nil {
-		return rec, "requirement_mapping_incomplete"
+		d.Cause = err.Error()
+		return rec, "requirement_mapping_incomplete", d
 	}
 	raw, _ := json.Marshal(ans)
 	out, err := l.PutObject(raw)
 	if err != nil {
-		return rec, "requirement_mapping_incomplete"
+		return rec, "requirement_mapping_incomplete", d
 	}
 	st, _ := l.Job(job)
 	m := build.Mapping{By: "model", Context: ans.Context, Generator: map[string]any{
 		"name": "git-hint lan-requirement-map", "version": "1", "model": p.Model.Model, "inputs": inputs, "output": out, "requests": st.Requests}}
 	for _, r := range ans.Requirements {
-		m.Links = append(m.Links, build.Link{Source: r.Source, Quote: r.Quote, Tests: r.Tests})
+		m.Links = append(m.Links, build.Link{Source: r.Source, Quote: stripLabel(r.Quote), Tests: r.Tests})
+	}
+	for i, c := range m.Context {
+		m.Context[i] = stripLabel(c)
 	}
 	reqs, err := build.ApplyMapping(l, rec, m)
 	if err != nil {
-		return rec, "requirement_mapping_incomplete"
+		d.Cause = err.Error()
+		return rec, "requirement_mapping_incomplete", d
 	}
 	next := map[string]any{}
 	for k, v := range rec {
@@ -98,9 +117,9 @@ func mapRequirements(ctx context.Context, l *library.Library, p *evals.Policy, b
 	}
 	next["requirements"] = reqs
 	if len(build.Unmapped(next)) > 0 {
-		return next, "requirement_coverage_missing"
+		return next, "requirement_coverage_missing", d
 	}
-	return next, ""
+	return next, "", d
 }
 
 // archiveFile returns one file of a stored tar archive, or "".
@@ -121,3 +140,9 @@ func archiveFile(l *library.Library, digest, name string) string {
 		}
 	}
 }
+
+var sourceLabel = regexp.MustCompile(`^\s*R[1-9][0-9]{0,2}:\s*`)
+
+// stripLabel removes a leading source label ("R1: ") that a model copies from the prompt
+// layout; the quote itself must still be the user's exact text.
+func stripLabel(q string) string { return sourceLabel.ReplaceAllString(q, "") }
