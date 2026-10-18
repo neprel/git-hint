@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/neprel/git-hint/internal/activity"
 	"github.com/neprel/git-hint/internal/evals/evaltest"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/runner"
@@ -341,5 +342,14 @@ func TestSourceTaskIDIsOpaque(t *testing.T) {
 	m["trials"].([]any)[0].(map[string]any)["source_task_id"] = "chain-task-01"
 	if err := Check(reseal(m)); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("a raw task ID passed: %v", err)
+	}
+}
+
+func TestActivityAndReportShareReferenceDerivations(t *testing.T) {
+	key := []byte("project-key")
+	b := Builder{Key: key}
+	if b.ref("family", "billing") != activity.FamilyRef(key, "billing") || b.ref("model", "m1") != activity.ModelRef(key, "m1") ||
+		b.ref("observed-config", "setting_override", "sha256:aa") != activity.ConfigRef(key, "setting_override", "sha256:aa") {
+		t.Fatal("activity and report derive different references for the same raw value")
 	}
 }

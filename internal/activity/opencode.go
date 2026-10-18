@@ -31,31 +31,53 @@ type Normalizer struct {
 	// TaskID is the opaque ID of the task that the orchestrator declared for this agent run
 	// (DeriveID(key, "task", raw), as hint_collect derives it); empty: undeclared.
 	TaskID string
+	// TaskFamilyID is the declared family of that task (HINT_TASK_FAMILY, FamilyRef); empty:
+	// not declared.
+	TaskFamilyID string
 	// OnStats receives the counter lines of the plugin (hook "hint.stats"), if set.
 	OnStats func(line []byte)
 }
 
-// OpenCodeSource returns the source entry of the OpenCode plugin adapter. taskDeclared: the
-// orchestrator declared the task of this agent run (HINT_TASK_ID), so every record of the run
-// carries it; it is another source (another identity and capability list), never a model fact.
-func OpenCodeSource(key []byte, agentVersion string, taskDeclared bool) Source {
+// SourceOptions describe one OpenCode agent run as the orchestrator declared it.
+type SourceOptions struct {
+	AgentVersion   string
+	TaskDeclared   bool           // HINT_TASK_ID: every record of the run carries the task
+	FamilyDeclared bool           // HINT_TASK_FAMILY: and its declared family
+	Configuration  *Configuration // the canonical effective configuration, if built
+}
+
+// OpenCodeSource returns the source entry of the OpenCode plugin adapter. A declared task or
+// family and the effective configuration are part of the source identity (another identity
+// and capability list), never a model fact: a changed effective configuration is a new source.
+func OpenCodeSource(key []byte, o SourceOptions) Source {
 	// the adapter version is part of the identity: another version can have other capabilities
 	mode := "undeclared-task"
-	if taskDeclared {
+	if o.TaskDeclared {
 		mode = "declared-task"
 	}
-	s := Source{SourceID: hint.DeriveID(key, "source", "opencode-plugin", agentVersion, Version, mode), Agent: "opencode",
+	parts := []string{"opencode-plugin", o.AgentVersion, Version, mode}
+	if o.FamilyDeclared {
+		parts = append(parts, "declared-family")
+	}
+	if o.Configuration != nil {
+		parts = append(parts, "configuration", o.Configuration.Digest())
+	}
+	s := Source{SourceID: hint.DeriveID(key, "source", parts...), Agent: "opencode",
 		Adapter: Adapter{Name: "opencode-plugin", Version: Version},
 		Capabilities: []string{"time.start", "time.end", "correlation.session_id", "correlation.tool_call_id",
 			"targets", "outcome.status", "outcome.exit_code", "size", "command_class", "content_delivery", "context"},
 		Unavailable: []string{"correlation.task_id", "correlation.turn_id", "correlation.trace_id",
-			"correlation.span_id", "usage", "coordination"}}
-	if taskDeclared {
+			"correlation.span_id", "usage", "coordination"},
+		Configuration: o.Configuration}
+	if o.TaskDeclared {
 		s.Capabilities = append(s.Capabilities, "correlation.task_id")
 		s.Unavailable = s.Unavailable[1:]
 	}
-	if agentVersion != "" {
-		s.AgentVersion = &agentVersion
+	if o.FamilyDeclared {
+		s.Capabilities = append(s.Capabilities, "correlation.task_family_id")
+	}
+	if o.AgentVersion != "" {
+		s.AgentVersion = &o.AgentVersion
 	} else {
 		s.Unavailable = append(s.Unavailable, "agent_version")
 	}
@@ -304,6 +326,9 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 			}
 			if n.TaskID != "" { // declared for the whole run by the orchestrator
 				o.Correlation["task_id"] = n.TaskID
+				if n.TaskFamilyID != "" {
+					o.Correlation["task_family_id"] = n.TaskFamilyID
+				}
 				o.Missing = slices.DeleteFunc(o.Missing, func(s string) bool { return s == "correlation.task_id" })
 			}
 			if ef.op == "READ" {

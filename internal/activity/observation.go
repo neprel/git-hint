@@ -77,6 +77,8 @@ type Source struct {
 	Adapter      Adapter  `json:"adapter"`
 	Capabilities []string `json:"capabilities"`
 	Unavailable  []string `json:"unavailable"`
+	// Configuration is the canonical effective configuration (hint-data v0.2 only).
+	Configuration *Configuration `json:"configuration,omitempty"`
 }
 
 // Adapter names the adapter of a source.

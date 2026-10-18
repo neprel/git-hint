@@ -95,6 +95,13 @@ func w3c(v string, n int) (string, bool) {
 	return v, true
 }
 
+// EvalRef is the project reference of the eval report domains ("eval-report:" + kind). The
+// HINT activity configuration and task family use the same derivations, so one raw value gives
+// one reference in both channels.
+func EvalRef(key []byte, kind string, parts ...string) string {
+	return DeriveID(key, "eval-report:"+kind, parts...)
+}
+
 // Convenience wrappers for the identifier domains of hint-data §4.
 func NamespaceID(key []byte) string                    { return DeriveID(key, "namespace") }
 func RepoID(key []byte, name string) string            { return DeriveID(key, "repo", name) }

@@ -209,7 +209,7 @@ func (b Builder) sourceTask(l *library.Library, evalRef string, episodes []map[s
 }
 
 func (b Builder) ref(kind string, parts ...string) string {
-	return hint.DeriveID(b.Key, "eval-report:"+kind, parts...)
+	return hint.EvalRef(b.Key, kind, parts...)
 }
 
 var hexRef = regexp.MustCompile(`^[0-9a-f]{32}$`)

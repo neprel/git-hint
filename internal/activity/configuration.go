@@ -1,0 +1,79 @@
+package activity
+
+import (
+	"encoding/json"
+
+	"github.com/neprel/git-hint/internal/hint"
+)
+
+// VersionState is a version that is known, not applicable or unknown (unknown is never not
+// applicable).
+type VersionState struct {
+	State string `json:"state"` // known, not_applicable, unknown
+	Value string `json:"value,omitempty"`
+}
+
+// RefState is a project-scoped opaque reference that is known or unknown.
+type RefState struct {
+	State string `json:"state"` // known, unknown
+	Ref   string `json:"ref,omitempty"`
+}
+
+// ConfigPolicy is the effective context policy of a run (enabled carries ref and version).
+type ConfigPolicy struct {
+	State   string `json:"state"` // enabled, disabled, not_applicable, unknown
+	Ref     string `json:"ref,omitempty"`
+	Version int    `json:"version,omitempty"`
+}
+
+// ConfigRefs are the digests of the observed effective configuration files; known with an
+// empty list is a known empty set.
+type ConfigRefs struct {
+	State string   `json:"state"` // known, unknown
+	Refs  []string `json:"refs,omitempty"`
+}
+
+// Declared holds the user's explicit settings (provenance only; never the effective value).
+type Declared struct {
+	Model *RefState `json:"model,omitempty"`
+}
+
+// Configuration is the canonical effective configuration of a source's runs (hint-data v0.2
+// sources[].configuration; the same form and derivations as eval report work units).
+type Configuration struct {
+	Agent struct {
+		Name    string       `json:"name"`
+		Version VersionState `json:"version"`
+	} `json:"agent"`
+	Model   RefState `json:"model"`
+	Harness struct {
+		Kind    string       `json:"kind"` // harbor, direct, other
+		Version VersionState `json:"version"`
+	} `json:"harness"`
+	ContextPolicy ConfigPolicy `json:"context_policy"`
+	ConfigRefs    ConfigRefs   `json:"config_refs"`
+	Declared      *Declared    `json:"declared,omitempty"`
+}
+
+// Digest is the identity of the effective configuration (without the declared settings).
+func (c Configuration) Digest() string {
+	e := c
+	e.Declared = nil
+	b, _ := json.Marshal(e)
+	var v any
+	_ = json.Unmarshal(b, &v)
+	d, _ := hint.Digest(v)
+	return d
+}
+
+// ModelRef derives the project reference of a raw model name (the eval report derivation).
+func ModelRef(key []byte, raw string) string { return hint.EvalRef(key, "model", raw) }
+
+// ConfigRef derives the project reference of an observed configuration file (kind, digest).
+func ConfigRef(key []byte, kind, digest string) string {
+	return hint.EvalRef(key, "observed-config", kind, digest)
+}
+
+// FamilyRef derives the project reference of a raw task family label (the eval report
+// task_family_ref derivation).
+func FamilyRef(key []byte, raw string) string { return hint.EvalRef(key, "family", raw) }

@@ -10,6 +10,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -106,7 +109,27 @@ func adapterOpenCode(e *Env, args []string) int {
 	if declared && !project.ValidTaskID(rawTask) {
 		return fail(e, errors.New("HINT_TASK_ID is not a usable task ID (1-200 bytes of printable text); nothing was written"))
 	}
-	src := activity.OpenCodeSource(s.Key(), *agentVersion, declared)
+	// HINT_TASK_FAMILY: the declared family of that task (a declaration, not a classification);
+	// HINT_MODEL: the model the user declared (provenance; the effective model is not reported
+	// by the plugin, so it stays unknown); HINT_CONFIG_REFS: kind:sha256-digest pairs of the
+	// observed effective configuration files. All checked before any write; raw values stay local.
+	rawFamily := os.Getenv("HINT_TASK_FAMILY")
+	if rawFamily != "" && !declared {
+		return fail(e, errors.New("HINT_TASK_FAMILY needs HINT_TASK_ID; nothing was written"))
+	}
+	if rawFamily != "" && !project.ValidTaskID(rawFamily) {
+		return fail(e, errors.New("HINT_TASK_FAMILY is not a usable family label (1-200 bytes of printable text); nothing was written"))
+	}
+	// the configuration is attached only when the orchestrator declares something explicit;
+	// otherwise the source identity and the v0.1 export stay as before
+	var cfg *activity.Configuration
+	if rawFamily != "" || os.Getenv("HINT_MODEL") != "" || os.Getenv("HINT_CONFIG_REFS") != "" {
+		if cfg, err = runConfiguration(s, *agentVersion, os.Getenv("HINT_MODEL"), os.Getenv("HINT_CONFIG_REFS")); err != nil {
+			return fail(e, fmt.Errorf("%w; nothing was written", err))
+		}
+	}
+	src := activity.OpenCodeSource(s.Key(), activity.SourceOptions{AgentVersion: *agentVersion, TaskDeclared: declared,
+		FamilyDeclared: rawFamily != "", Configuration: cfg})
 	if err := project.RegisterSource(s, src); err != nil {
 		return fail(e, err)
 	}
@@ -131,6 +154,9 @@ func adapterOpenCode(e *Env, args []string) int {
 	n := &activity.Normalizer{Key: s.Key(), SourceID: src.SourceID, Cwd: cleanAbs(*dir), Resolve: resolver(s), Now: e.Now}
 	if declared {
 		n.TaskID = project.TaskID(s.Key(), rawTask)
+		if rawFamily != "" {
+			n.TaskFamilyID = activity.FamilyRef(s.Key(), rawFamily)
+		}
 	}
 	n.OnStats = func(line []byte) {
 		statsLines++
@@ -223,4 +249,48 @@ func resolver(s *store.Store) activity.Resolver {
 		}
 		return "", false
 	}
+}
+
+// the kinds and digest form of eval trial observed_config (evals v1), so one file gives one ref
+var configRefForm = regexp.MustCompile(`^(setting_override|dependency_lock):sha256:[0-9a-f]{64}$`)
+
+// runConfiguration builds the canonical effective configuration of a direct OpenCode run.
+func runConfiguration(s *store.Store, agentVersion, rawModel, configRefs string) (*activity.Configuration, error) {
+	c := &activity.Configuration{}
+	c.Agent.Name = "opencode"
+	c.Agent.Version = activity.VersionState{State: "unknown"}
+	if agentVersion != "" {
+		c.Agent.Version = activity.VersionState{State: "known", Value: agentVersion}
+	}
+	c.Model = activity.RefState{State: "unknown"} // the plugin does not report the effective model
+	if rawModel != "" {
+		if !project.ValidTaskID(rawModel) {
+			return nil, errors.New("HINT_MODEL is not a usable model name (1-200 bytes of printable text)")
+		}
+		c.Declared = &activity.Declared{Model: &activity.RefState{State: "known", Ref: activity.ModelRef(s.Key(), rawModel)}}
+	}
+	c.Harness.Kind = "direct"
+	c.Harness.Version = activity.VersionState{State: "not_applicable"} // a direct session has no separate runner
+	state, id, version, digest := s.Cfg.ContextPolicyIdentity()
+	c.ContextPolicy = activity.ConfigPolicy{State: state}
+	if state == "enabled" {
+		c.ContextPolicy.Ref, c.ContextPolicy.Version = hint.EvalRef(s.Key(), "context-policy", id, strconv.Itoa(version), digest), version
+	}
+	c.ConfigRefs = activity.ConfigRefs{State: "unknown"}
+	if configRefs != "" {
+		refs := []string{}
+		if configRefs != "none" { // "none": a known empty set
+			for _, p := range strings.Split(configRefs, ",") {
+				if !configRefForm.MatchString(p) {
+					return nil, errors.New("HINT_CONFIG_REFS must be setting_override or dependency_lock :sha256:<hex> pairs separated by commas, or none")
+				}
+				kind, digest, _ := strings.Cut(p, ":")
+				refs = append(refs, activity.ConfigRef(s.Key(), kind, digest))
+			}
+			slices.Sort(refs)
+			refs = slices.Compact(refs)
+		}
+		c.ConfigRefs = activity.ConfigRefs{State: "known", Refs: refs}
+	}
+	return c, nil
 }

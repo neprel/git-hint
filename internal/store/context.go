@@ -60,6 +60,22 @@ func ContextPolicyRef(key []byte, l ContextLimits) string {
 	return hint.DeriveID(key, "context-policy", string(b))
 }
 
+// ContextPolicyIdentity is the canonical identity of the current local policy for the
+// configuration identity (C7B-E): state enabled with (id, version, digest of the canonical
+// limits and implementation), or disabled without an active policy. The project reference is
+// hint.EvalRef(key, "context-policy", id, version, digest), as in eval reports.
+func (c *Config) ContextPolicyIdentity() (state, id string, version int, digest string) {
+	l := c.Context.Active()
+	if l == nil {
+		return "disabled", "", 0, ""
+	}
+	b, _ := json.Marshal(map[string]any{"depth": l.Depth, "impl": ContextImpl, "max_bytes": l.MaxBytes, "max_entities": l.MaxEntities, "max_ms": l.MaxMillis})
+	var v any
+	_ = json.Unmarshal(b, &v)
+	d, _ := hint.Digest(v)
+	return "enabled", "hint-context", c.Context.Current, d
+}
+
 // applyContextLimits changes the policy: "off", "restore=N", or "key=value,..." (keys depth,
 // items, bytes, ms; unnamed keys take the defaults). Each change is a new version.
 func (c *Config) applyContextLimits(spec string, now time.Time) error {

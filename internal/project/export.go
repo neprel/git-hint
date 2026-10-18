@@ -381,8 +381,16 @@ func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 			done[id] = true
 		}
 	}
+	srcs, err := Sources(s)
+	if err != nil {
+		return "", err
+	}
 	for _, o := range obs {
-		if !done[o.ObservationID] && (o.Context != nil || slices.Contains(o.Missing, "context")) {
+		if done[o.ObservationID] {
+			continue
+		}
+		// v0.2 fields: a context measurement, a declared task family, a source configuration
+		if o.Context != nil || slices.Contains(o.Missing, "context") || o.Correlation["task_family_id"] != "" || srcs[o.SourceID].Configuration != nil {
 			return "0.2.0", nil
 		}
 	}
@@ -657,6 +665,7 @@ func sourceFor(src activity.Source, ver string) activity.Source {
 	if ver != version.SpecVersion {
 		return src
 	}
-	src.Capabilities = slices.DeleteFunc(slices.Clone(src.Capabilities), func(c string) bool { return c == "context" })
+	src.Capabilities = slices.DeleteFunc(slices.Clone(src.Capabilities), func(c string) bool { return c == "context" || c == "correlation.task_family_id" })
+	src.Configuration = nil
 	return src
 }
