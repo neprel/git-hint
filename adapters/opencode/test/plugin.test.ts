@@ -168,6 +168,69 @@ describe("OpenCode adapter plugin, offline", () => {
       }
     })
 
+  test("hint_context: the agent gets the context as text, the adapter only the measurement", async () => {
+    // the real MCP answer, converted as a text-only client sees it: the text parts only
+    const line = readFileSync(process.env.HINT_TEST_MCP ?? "", "utf8").split("\n").find((l) => l.includes('"id":2'))
+    const result = JSON.parse(line ?? "{}").result
+    expect(result.isError).not.toBe(true)
+    const parts = result.content.filter((p: any) => p.type === "text")
+    expect(parts.length).toBe(2)
+    expect(parts[0].text).toContain("func Rate(a, b int) int") // useful context: source
+    expect(parts[0].text).toMatch(/"ref":"hc1\.[0-9a-f]{32}\.[0-9a-f]{32}"/) // and expandable refs
+    expect(parts[1].text.startsWith("hint-context-measurement/1 ")).toBe(true)
+    expect(/Rate|canary|HINTCANARY|\.go/.test(parts[1].text)).toBe(false) // metadata only
+    const sid = "ses_canary_ctx"
+    const tool = "githint_hint_context"
+    const ev = (id: string, t: string, content: any[]) => [
+      { hook: "execute.before", event: { tool: t, sessionID: sid, id, input: { seed: "Rate" } } },
+      { hook: "execute.after", event: { tool: t, sessionID: sid, id, input: { seed: "Rate" }, status: "completed", result: { content, metadata: {} } } },
+    ]
+    const bad = parts[1].text.replace('"result":"delivered"', '"result":"HINTCANARY_BAD"')
+    const recs = [
+      ...ev("call_canary_ctx1", tool, parts),
+      // the marker inside ordinary file output, or under another tool name, is no measurement
+      ...ev("call_canary_ctx2", "read", [{ type: "text", text: parts[1].text }]),
+      ...ev("call_canary_ctx3", "evil_hint_context", parts),
+      // a damaged marker: missing context coverage, never an invented measurement
+      ...ev("call_canary_ctx4", tool, [parts[0], { type: "text", text: bad }]),
+    ]
+    const dir = mkdtempSync(join(tmpdir(), "hint-ctx-"))
+    const cap = join(dir, "pipe.jsonl")
+    const fake = join(dir, "capture.sh")
+    writeFileSync(fake, `#!/bin/sh\ncat > "${cap}"\n`)
+    chmodSync(fake, 0o755)
+    try {
+      await replay(recs, PROJECT, fake)
+      await Bun.sleep(100)
+      const pipe = readFileSync(cap, "utf8")
+      expect(/func Rate|HINTCANARY_RATE_COMMENT|"ref":"hc1/.test(pipe)).toBe(false) // no source or refs leave the plugin
+      const sent = pipe.split("\n").filter((l) => l.includes("execute.after")).map((l) => JSON.parse(l))
+      const byId = (id: string) => sent.find((e) => e.input.callID === id).output
+      const total = parts.reduce((n: number, p: any) => n + new TextEncoder().encode(p.text).length, 0)
+      expect(byId("call_canary_ctx1").output).toBe(`[redacted:len=${total}]`) // every text part the hook saw
+      expect(byId("call_canary_ctx1").context.context.stage).toBe("raw_tool_output")
+      expect(byId("call_canary_ctx2").context).toBeUndefined()
+      expect(byId("call_canary_ctx3").context).toBeUndefined()
+      expect(byId("call_canary_ctx4").context_invalid).toBe(true)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+    // through the real child: two stages of one call, and a missing context for the damaged one
+    const before = spool(PROJECT).length
+    const { st } = await replay(recs, PROJECT, BIN)
+    expect(st.hookErrors).toBe(0)
+    const obs = spool(PROJECT).slice(before)
+    const ctx = obs.filter((o) => o.context)
+    expect(ctx.map((o) => o.context.stage).sort()).toEqual(["delivered_context", "raw_tool_output"])
+    expect(new Set(ctx.map((o) => o.correlation.tool_call_id)).size).toBe(1)
+    const total = parts.reduce((n: number, p: any) => n + new TextEncoder().encode(p.text).length, 0)
+    expect(ctx.find((o) => o.context.stage === "delivered_context").context.bytes).toBe(total)
+    expect(ctx.find((o) => o.context.stage === "raw_tool_output").context.bytes).toBeGreaterThan(total) // structured + text as sent
+    for (const o of ctx) expect(o.op).toBe("DISCOVER")
+    expect(obs.filter((o) => (o.missing ?? []).includes("context")).length).toBe(1)
+    expect(CANARY.test(JSON.stringify(obs))).toBe(false)
+  })
+
   test("hook latency for 1000 events: p95 under 5 ms", async () => {
     const one = events(PROJECT)
     const recs: any[] = []

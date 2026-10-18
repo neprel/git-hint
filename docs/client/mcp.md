@@ -33,7 +33,7 @@ Every tool description starts with its side effect. Every result carries `side_e
 | `hint_find_definition` | `name` (for example `Rate`, `tax.Rate`, `Cart.Total`), optional `repository` | file, line, kind and qualified name of each matching declaration | none |
 | `hint_importers` | `package` (directory relative to the repository root), optional `repository` | files that import the package | none |
 | `hint_file_outline` | `path`, optional `repository` | declarations of the file with kinds and lines | none |
-| `hint_context` | `seed` (a declaration name, file path or package directory) or `ref` (from an earlier answer); optional `repository`, `depth` (1–2), `max_entities` (1–100), `max_bytes` (2048–65536), `max_ms` (100–5000) | a bounded context: the definition with its source, the other declarations of its file, imports, importers and tests, each with a `ref`; snapshot ID and digest, freshness, limits, what the limits left out, and an artifact ID | none |
+| `hint_context` | `seed` (a declaration name, file path or package directory) or `ref` (from an earlier answer); optional `repository`, `depth` (1–2), `max_entities` (1–100), `max_bytes` (4096–65536), `max_ms` (100–5000) | a bounded context: the definition with its source, the other declarations of its file, imports, importers and tests, each with a `ref`; snapshot ID and digest, freshness, limits, what the limits left out, and an artifact ID | none |
 
 The three navigation tools answer from the local index of the last collected snapshot. They read no file content and write nothing.
 
@@ -42,7 +42,8 @@ The three navigation tools answer from the local index of the last collected sna
 - A `ref` names one snapshot and one entity. It reads that snapshot. When the file changed after the snapshot, the answer is `refused_stale` with no items; it never returns other source.
 - A seed that matches several entities gives `ambiguous` with candidate refs and no source.
 - Items, bytes, depth and time are hard limits; `omitted` counts what they left out. `max_bytes` bounds the whole answer: the structured result and the text summary, before the transport envelope. `used.bytes` and `measurement.bytes` are that exact size; `used.item_bytes` is the part taken by the items. Every result (delivered, ambiguous, missing, refused) keeps the limit.
-- The answer carries `measurement`, the HINT v0.2 context measurement of the call (opaque IDs only; tokens are an estimate), for an adapter that records the call.
+- The answer has two text parts for clients that read text only: the summary with the same context as JSON (items with source and refs), and one metadata line `hint-context-measurement/1 {...}` with the HINT v0.2 context measurement (stage `raw_tool_output`; opaque IDs only; tokens are an estimate) for an agent adapter. The structured result carries the same `measurement`. The byte limit counts the structured result and both text parts.
+- With a local context policy (`git hint init --context-limits`), the policy gives the default limits; the measurement then has `policy_state: enabled` and the project reference of the effective limits.
 - There is no call graph: links are file declarations, imports of repository packages and test files (Go at syntax level; other languages at file level). Declarations exist for Go only; other languages are at file level. Lines can be out of date after edits; `hint_collect` refreshes the index.
 
 `git hint mcp --tools <names>` serves only the listed tools (comma-separated), for example a read-only navigation set: `--tools hint_find_definition,hint_importers,hint_file_outline,hint_context`.

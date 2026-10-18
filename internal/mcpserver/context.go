@@ -33,15 +33,10 @@ import (
 // same content as its snapshot or is refused as stale; it never returns other source.
 
 const (
-	ctxDefaultDepth, ctxMaxDepth       = 1, 2
-	ctxDefaultEntities, ctxMaxEntities = 20, 100
-	ctxMinBytes                        = 2048 // room for the metadata of an answer
-	ctxDefaultBytes, ctxMaxBytes       = 16 << 10, 64 << 10
-	ctxDefaultMillis, ctxMaxMillis     = 1000, 5000
-	ctxMaxFileBytes                    = 4 << 20 // a larger file gives no source
-	ctxMaxHashBytes                    = 8 << 20 // freshness checks read at most this much
-	ctxRefPrefix                       = "hc1."
-	ctxCoverage                        = "Go declarations, imports and test files of the snapshot (syntax level, no call graph); source only when the file hash equals the snapshot"
+	ctxMaxFileBytes = 4 << 20 // a larger file gives no source
+	ctxMaxHashBytes = 8 << 20 // freshness checks read at most this much
+	ctxRefPrefix    = "hc1."
+	ctxCoverage     = "Go declarations, imports and test files of the snapshot (syntax level, no call graph); source only when the file hash equals the snapshot"
 )
 
 var ctxRefPattern = regexp.MustCompile(`^hc1\.[0-9a-f]{32}\.[0-9a-f]{32}$`)
@@ -52,7 +47,7 @@ type ContextIn struct {
 	Repo        string `json:"repository,omitempty" jsonschema:"local repository name; default all"`
 	Depth       int    `json:"depth,omitempty" jsonschema:"graph hops from the start (1 or 2; default 1)"`
 	MaxEntities int    `json:"max_entities,omitempty" jsonschema:"at most this many items (1-100; default 20)"`
-	MaxBytes    int    `json:"max_bytes,omitempty" jsonschema:"at most this many UTF-8 bytes of the whole answer (2048-65536; default 16384)"`
+	MaxBytes    int    `json:"max_bytes,omitempty" jsonschema:"at most this many UTF-8 bytes of the whole answer (4096-65536; default 16384)"`
 	MaxMillis   int    `json:"max_ms,omitempty" jsonschema:"time limit in milliseconds (100-5000; default 1000)"`
 }
 
@@ -105,6 +100,7 @@ type ContextMeasurement struct {
 	RefID       string         `json:"ref_id,omitempty"`
 	SnapshotID  string         `json:"snapshot_id,omitempty"`
 	PolicyState string         `json:"policy_state"`
+	PolicyRef   string         `json:"policy_ref,omitempty"`
 	Freshness   string         `json:"freshness"`
 	Result      string         `json:"result"`
 	Bytes       int            `json:"bytes"`
@@ -125,6 +121,9 @@ type ContextOut struct {
 	ArtifactID  string             `json:"artifact_id,omitempty" jsonschema:"opaque ID of this exact answer (snapshot, items and source)"`
 	Measurement ContextMeasurement `json:"measurement"`
 	Coverage    string             `json:"coverage"`
+
+	policyRef string // project reference of the effective context policy identity, if configured
+	startFile string // the file of the start or expanded entity
 }
 
 func (h *handlers) registerContext(s *mcp.Server, ro *mcp.ToolAnnotations) {
@@ -132,16 +131,24 @@ func (h *handlers) registerContext(s *mcp.Server, ro *mcp.ToolAnnotations) {
 		Description: "Side effect: none (read-only, local index; stores nothing). A small context around one entity: the definition with its source, the other declarations of its file, imports, importers and tests, as items with refs. Call again with ref to expand one item. Limits: depth, items, bytes, time. A ref reads its own snapshot; when the file changed since then, the answer is refused_stale (call hint_collect)."}, h.contextTool)
 }
 
-func (o *ContextIn) limits() (ContextLimits, bool) {
+// limits returns the effective limits of a call: its arguments, else the active local
+// context policy, else the defaults.
+func (o *ContextIn) limits(pol *store.ContextLimits) (ContextLimits, bool) {
 	l := ContextLimits{Depth: o.Depth, Entities: o.MaxEntities, Bytes: o.MaxBytes, MaxMillis: o.MaxMillis}
-	def := func(v *int, d, lo, hi int) bool {
+	def := store.ContextLimits{Depth: store.ContextRanges["depth"][0], MaxEntities: store.ContextRanges["max_entities"][0],
+		MaxBytes: store.ContextRanges["max_bytes"][0], MaxMillis: store.ContextRanges["max_ms"][0]}
+	if pol != nil {
+		def = *pol
+	}
+	set := func(v *int, d int, key string) bool {
 		if *v == 0 {
 			*v = d
 		}
-		return *v >= lo && *v <= hi
+		r := store.ContextRanges[key]
+		return *v >= r[1] && *v <= r[2]
 	}
-	ok := def(&l.Depth, ctxDefaultDepth, 1, ctxMaxDepth) && def(&l.Entities, ctxDefaultEntities, 1, ctxMaxEntities) &&
-		def(&l.Bytes, ctxDefaultBytes, ctxMinBytes, ctxMaxBytes) && def(&l.MaxMillis, ctxDefaultMillis, 100, ctxMaxMillis)
+	ok := set(&l.Depth, def.Depth, "depth") && set(&l.Entities, def.MaxEntities, "max_entities") &&
+		set(&l.Bytes, def.MaxBytes, "max_bytes") && set(&l.MaxMillis, def.MaxMillis, "max_ms")
 	return l, ok
 }
 
@@ -358,9 +365,17 @@ func excerpt(b []byte, line, n int) string {
 }
 
 func (h *handlers) contextTool(ctx context.Context, _ *mcp.CallToolRequest, in ContextIn) (*mcp.CallToolResult, ContextOut, error) {
-	lim, ok := in.limits()
-	if !ok || (in.Seed == "") == (in.Ref == "") || len(in.Repo) > 200 || (in.Ref != "" && !ctxRefPattern.MatchString(in.Ref)) ||
+	if (in.Seed == "") == (in.Ref == "") || len(in.Repo) > 200 || (in.Ref != "" && !ctxRefPattern.MatchString(in.Ref)) ||
 		(in.Seed != "" && !validQuery(in.Seed)) {
+		return nil, ContextOut{}, h.fail("hint_context", toolErr("invalid_argument"))
+	}
+	s, err := h.open()
+	if err != nil {
+		return nil, ContextOut{}, h.fail("hint_context", err)
+	}
+	pol := s.Cfg.Context.Active()
+	lim, ok := in.limits(pol)
+	if !ok {
 		return nil, ContextOut{}, h.fail("hint_context", toolErr("invalid_argument"))
 	}
 	now := h.o.Now
@@ -369,12 +384,11 @@ func (h *handlers) contextTool(ctx context.Context, _ *mcp.CallToolRequest, in C
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
-	s, err := h.open()
-	if err != nil {
-		return nil, ContextOut{}, h.fail("hint_context", err)
-	}
 	out := ContextOut{SideEffect: effectNone, Action: "deliver", Items: []ContextItem{}, Limits: lim, Coverage: ctxCoverage,
 		Omitted: ContextOmitted{Reasons: []string{}}}
+	if pol != nil { // the identity of the effective limits, call arguments included
+		out.policyRef = store.ContextPolicyRef(s.Key(), store.ContextLimits{Depth: lim.Depth, MaxEntities: lim.Entities, MaxBytes: lim.Bytes, MaxMillis: lim.MaxMillis})
+	}
 	var snap *ctxSnap
 	var seed string
 	if in.Ref != "" {
@@ -463,6 +477,7 @@ func (h *handlers) contextTool(ctx context.Context, _ *mcp.CallToolRequest, in C
 			}
 		}
 	}
+	out.startFile = snap.fileOf(seed)
 	h.ctxWalk(snap, seed, lim, newCtxAdder(&out, lim, now, deadline), rd, &out)
 	out.Result = "delivered"
 	out.Freshness = "current"
@@ -526,25 +541,27 @@ type ctxAdder struct {
 }
 
 func newCtxAdder(out *ContextOut, lim ContextLimits, now func() time.Time, deadline time.Time) *ctxAdder {
-	return &ctxAdder{out: out, lim: lim, now: now, deadline: deadline, room: lim.Bytes - metaReserve(out)}
+	// the items are sent twice: in the structured result and in the text view
+	return &ctxAdder{out: out, lim: lim, now: now, deadline: deadline, room: (lim.Bytes - metaReserve(out)) / 2}
 }
 
-// metaReserve is the size of the answer without items, with the longest values that
-// ctxFinish fills in (artifact and ref IDs, numbers, every omission reason, the summary).
+// metaReserve is the size of the answer without items (structured result, text view and
+// measurement part), with the longest values that ctxFinish fills in.
 func metaReserve(out *ContextOut) int {
 	m := *out
 	m.Items = []ContextItem{}
 	m.Omitted = ContextOmitted{Entities: 1 << 30, SourceBytes: 1 << 30, Reasons: []string{"entities", "bytes", "time", "depth"}}
 	m.Used = ContextUsed{Entities: 1 << 30, Bytes: 1 << 30, ItemBytes: 1 << 30, ElapsedMS: 1 << 30}
-	m.ArtifactID = strings.Repeat("0", 32)
-	m.Measurement = ContextMeasurement{Action: "retrieve_original", Stage: "delivered_context", ArtifactID: m.ArtifactID, RefID: m.ArtifactID,
-		SnapshotID: m.ArtifactID, PolicyState: "not_applicable", Freshness: "unknown", Result: "refused_stale", Bytes: 1 << 30, Omitted: 1 << 30,
+	id := strings.Repeat("0", 32)
+	m.ArtifactID = id
+	m.Measurement = ContextMeasurement{Action: "retrieve_original", Stage: "raw_tool_output", ArtifactID: id, RefID: id, SnapshotID: id,
+		PolicyState: "not_applicable", PolicyRef: id, Freshness: "unknown", Result: "refused_stale", Bytes: 1 << 30, Omitted: 1 << 30,
 		Tokens: map[string]any{"value": 1 << 30, "estimator": "bytes-div-4", "estimator_version": "1", "label": "estimate"}}
 	if m.Snapshot == nil {
-		m.Snapshot = &ContextSnapshot{SnapshotRef: SnapshotRef{SnapshotID: m.ArtifactID, CapturedAt: "2006-01-02T15:04:05Z"}, Digest: "sha256:" + strings.Repeat("0", 64)}
+		m.Snapshot = &ContextSnapshot{SnapshotRef: SnapshotRef{SnapshotID: id, CapturedAt: "2006-01-02T15:04:05Z"}, Digest: "sha256:" + strings.Repeat("0", 64)}
 	}
-	b, _ := json.Marshal(m)
-	return len(b) + ctxMaxSummary
+	n, _ := wire(&m, strings.Repeat("x", ctxMaxSummary), []string{id})
+	return n
 }
 
 const ctxMaxSummary = 160 // the text summary of an answer is shorter
@@ -700,16 +717,59 @@ func (h *handlers) refSnapshot(s *store.Store, repo, snapID string) (*ctxSnap, e
 	return nil, nil
 }
 
-// ctxFinish measures the answer and builds its v0.2 context measurement. The measured bytes
-// are the whole answer as returned (structured result and text summary). When the answer is
-// larger than max_bytes, items are dropped from the end and counted as omitted.
+// MeasurementMarker starts the text part that carries the context measurement of a
+// hint_context answer for an agent adapter (metadata only: enumerations, numbers, opaque IDs).
+const MeasurementMarker = "hint-context-measurement/1 "
+
+// ctxView is the text form of an answer for clients that read text parts only.
+type ctxView struct {
+	Result     string           `json:"result"`
+	Freshness  string           `json:"freshness"`
+	Snapshot   *ContextSnapshot `json:"snapshot,omitempty"`
+	Items      []ContextItem    `json:"items"`
+	Omitted    ContextOmitted   `json:"omitted"`
+	ArtifactID string           `json:"artifact_id,omitempty"`
+}
+
+// MeasurementPart is the JSON after MeasurementMarker: the measurement and the file IDs it
+// is about (for the observation targets).
+type MeasurementPart struct {
+	Targets []string           `json:"targets"`
+	Context ContextMeasurement `json:"context"`
+}
+
+// wire returns the size of the whole answer as sent (structured result, text view and
+// measurement part) and the text parts.
+func wire(out *ContextOut, summary string, targets []string) (int, []string) {
+	b, _ := json.Marshal(out)
+	view, _ := json.Marshal(ctxView{Result: out.Result, Freshness: out.Freshness, Snapshot: out.Snapshot, Items: out.Items, Omitted: out.Omitted, ArtifactID: out.ArtifactID})
+	mp, _ := json.Marshal(MeasurementPart{Targets: targets, Context: out.Measurement})
+	parts := []string{summary + "\n" + string(view), MeasurementMarker + string(mp)}
+	return len(b) + len(parts[0]) + len(parts[1]), parts
+}
+
+// ctxFinish measures the answer and builds its v0.2 context measurement (stage
+// raw_tool_output: the tool's whole answer as sent; an adapter measures what it receives as
+// delivered_context). When the answer is larger than max_bytes, items are dropped from the
+// end and counted as omitted.
 func (h *handlers) ctxFinish(s *store.Store, out *ContextOut, in ContextIn, start time.Time, format string, a ...any) (*mcp.CallToolResult, ContextOut, error) {
-	res := text(format, a...)
-	summary := len(res.Content[0].(*mcp.TextContent).Text)
+	summary := fmt.Sprintf(format, a...)
+	var targets []string
+	if out.Snapshot != nil && len(out.Items) > 0 && out.Result != "ambiguous" {
+		if f := h.ctxTarget(out); f != "" {
+			targets = []string{f}
+		}
+	}
+	if targets == nil {
+		targets = []string{}
+	}
 	for {
 		items, _ := json.Marshal(out.Items)
-		m := ContextMeasurement{Action: out.Action, Stage: "delivered_context", PolicyState: "not_applicable", Freshness: out.Freshness,
+		m := ContextMeasurement{Action: out.Action, Stage: "raw_tool_output", PolicyState: "not_applicable", Freshness: out.Freshness,
 			Result: out.Result, Omitted: out.Omitted.Entities}
+		if out.policyRef != "" {
+			m.PolicyState, m.PolicyRef = "enabled", out.policyRef
+		}
 		if m.Result == "ambiguous" {
 			// candidates were delivered; candidates of several snapshots have no single snapshot
 			m.Result = "delivered"
@@ -736,17 +796,20 @@ func (h *handlers) ctxFinish(s *store.Store, out *ContextOut, in ContextIn, star
 		out.Used = ContextUsed{Entities: len(out.Items), ItemBytes: len(items), ElapsedMS: int(h.o.Now().Sub(start).Milliseconds())}
 		// the size names itself: repeat until the number of digits is stable
 		total := 0
+		var parts []string
 		for range 6 {
 			out.Used.Bytes, m.Bytes = total, total
 			m.Tokens = map[string]any{"value": total / 4, "estimator": "bytes-div-4", "estimator_version": "1", "label": "estimate"}
 			out.Measurement = m
-			b, _ := json.Marshal(out)
-			if len(b)+summary == total {
+			n, p := wire(out, summary, targets)
+			parts = p
+			if n == total {
 				break
 			}
-			total = len(b) + summary
+			total = n
 		}
-		if total <= in.limitsOrZero() || len(out.Items) == 0 {
+		if total <= out.limitsOrZero() || len(out.Items) == 0 {
+			res := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: parts[0]}, &mcp.TextContent{Text: parts[1]}}}
 			return res, *out, nil
 		}
 		out.Items = out.Items[:len(out.Items)-1]
@@ -757,8 +820,18 @@ func (h *handlers) ctxFinish(s *store.Store, out *ContextOut, in ContextIn, star
 	}
 }
 
-// limitsOrZero is the effective byte limit of a valid input.
-func (o ContextIn) limitsOrZero() int {
-	l, _ := o.limits()
-	return l.Bytes
+// ctxTarget is the file of the answer's first item (the start or the expanded entity): the
+// observation target of the call.
+func (h *handlers) ctxTarget(out *ContextOut) string {
+	it := out.Items[0]
+	if it.Kind == "directory" || it.Kind == "repository" {
+		return ""
+	}
+	if it.Kind == "file" {
+		return it.idOf()
+	}
+	return out.startFile
 }
+
+// limitsOrZero is the effective byte limit of the answer.
+func (o ContextOut) limitsOrZero() int { return o.Limits.Bytes }

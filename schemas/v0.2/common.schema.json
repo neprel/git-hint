@@ -413,7 +413,8 @@
         "mutation_attribution",
         "content_delivery",
         "coordination",
-        "agent_version"
+        "agent_version",
+        "context"
       ]
     },
     "Agent": {

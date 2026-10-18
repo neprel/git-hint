@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/neprel/git-hint/internal/hint"
 )
@@ -60,6 +61,8 @@ type Config struct {
 	MCP              MCP    `json:"mcp"`
 	// Evals is the local eval policy; nil (the default) collects no eval evidence.
 	Evals *evals.Policy `json:"evals,omitempty"`
+	// Context is the local context policy of hint_context; nil: none (the tool's defaults).
+	Context *ContextPolicy `json:"context,omitempty"`
 }
 
 // MCP holds the local rules of the MCP server. Only the user changes them (CLI or the
@@ -146,6 +149,10 @@ type InitOptions struct {
 	ServerURL  string
 	MCPUpload  string // "", "allow" or "deny"
 	MCPEvalRun string // "", "allow" or "deny"
+	// ContextLimits changes the local context policy: "" (no change), "off", "restore=N" or
+	// "depth=1,items=20,bytes=16384,ms=1000".
+	ContextLimits string
+	Now           time.Time
 }
 
 // Init creates the store in the Git work tree that contains dir. It is idempotent for an
@@ -206,6 +213,15 @@ func Init(dir string, opt InitOptions) (*Store, bool, error) {
 		s.Cfg.MCP.EvalRun = opt.MCPEvalRun
 	default:
 		return nil, false, fmt.Errorf("mcp eval run rule %q: use allow or deny", opt.MCPEvalRun)
+	}
+	if opt.ContextLimits != "" {
+		now := opt.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		if err := s.Cfg.applyContextLimits(opt.ContextLimits, now); err != nil {
+			return nil, false, err
+		}
 	}
 	if err := s.SaveConfig(); err != nil {
 		return nil, false, err

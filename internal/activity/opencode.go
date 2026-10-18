@@ -59,10 +59,12 @@ type ocEvent struct {
 		CallID    string `json:"callID"`
 	} `json:"input"`
 	Output struct {
-		Args     map[string]any `json:"args"`
-		Output   any            `json:"output"`
-		Metadata map[string]any `json:"metadata"`
-		Status   string         `json:"status"`
+		Args           map[string]any  `json:"args"`
+		Output         any             `json:"output"`
+		Metadata       map[string]any  `json:"metadata"`
+		Status         string          `json:"status"`
+		Context        json.RawMessage `json:"context"`
+		ContextInvalid bool            `json:"context_invalid"`
 	} `json:"output"`
 }
 
@@ -84,6 +86,13 @@ func str(m map[string]any, keys ...string) string {
 	}
 	return ""
 }
+
+// ContextTools are the OpenCode names of the hint_context tool of the git-hint MCP server
+// ("<server>_hint_context"; the documented server name is githint). Only their calls can carry
+// a context measurement.
+var ContextTools = []string{"githint_hint_context"}
+
+func isContextTool(tool string) bool { return slices.Contains(ContextTools, tool) }
 
 func isShellTool(tool string) bool {
 	switch strings.ToLower(tool) {
@@ -114,6 +123,9 @@ func toolEffect(tool string, args map[string]any) effect {
 		return effect{op: "EDIT_INTENT", precision: "exact", source: "plugin", targets: nonEmpty(str(args, "filePath", "file_path", "path"))}
 	case "task", "agent", "subagent":
 		return effect{op: "DELEGATE", precision: "exact", source: "plugin", missing: []string{"coordination"}}
+	}
+	if isContextTool(tool) {
+		return effect{op: "DISCOVER", precision: "exact", source: "plugin"}
 	}
 	if isShellTool(tool) {
 		cmd := str(args, "command", "cmd")
@@ -327,14 +339,22 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 			} else if isShellOp(o) {
 				o.Missing = append(o.Missing, "outcome.exit_code")
 			}
+			delivered := -1
 			if s, ok := e.Output.Output.(string); ok {
-				q := scan.Known("bytes", float64(redactedLen(s)), "plugin_output_length")
+				delivered = redactedLen(s)
+				q := scan.Known("bytes", float64(delivered), "plugin_output_length")
 				o.Size = &q
 			} else {
 				o.Missing = append(o.Missing, "size")
 			}
+			raw, ok := n.contextStages(&o, e, delivered)
 			if err := emit(n.finish(o)); err != nil {
 				return skipped, fmt.Errorf("emit: %w", err)
+			}
+			if ok {
+				if err := emit(n.finish(raw)); err != nil {
+					return skipped, fmt.Errorf("emit: %w", err)
+				}
 			}
 		default:
 			skipped++
@@ -378,3 +398,40 @@ func (n *Normalizer) finish(o Observation) Observation {
 	}
 	return o
 }
+
+// contextStages adds the context measurement of a HINT context call: the observation itself
+// is the delivered_context stage (the text parts that the hook received), and the returned
+// observation is the raw_tool_output stage of the same call (the tool's answer as sent). Two
+// stages of one call share the tool call ID; they are not two calls. A missing or invalid
+// measurement leaves "context" missing.
+func (n *Normalizer) contextStages(o *Observation, e ocEvent, delivered int) (Observation, bool) {
+	if o.Op != "DISCOVER" || o.Source != "plugin" || !isContextToolCall(e) || e.Output.Status == "error" {
+		return Observation{}, false
+	}
+	p, ok := parseContextPart(e.Output.Context)
+	if !ok || e.Output.ContextInvalid || delivered < 0 {
+		o.Missing = append(o.Missing, "context")
+		return Observation{}, false
+	}
+	for _, t := range p.Targets {
+		if tg := (Target{EntityID: t}); !slices.Contains(o.Targets, tg) {
+			o.Targets = append(o.Targets, tg)
+		}
+	}
+	if len(o.Targets) > 0 {
+		o.Missing = slices.DeleteFunc(o.Missing, func(s string) bool { return s == "targets" })
+	}
+	raw := *o
+	raw.ObservationID = hint.DeriveID(n.Key, "event", n.SourceID, e.Input.SessionID, e.Input.CallID, "raw_tool_output")
+	raw.Size = nil
+	raw.Missing = slices.DeleteFunc(slices.Clone(o.Missing), func(s string) bool { return s == "size" })
+	rc := p.Context
+	raw.Context = &rc
+	dc := p.Context
+	dc.Stage, dc.Bytes = "delivered_context", &delivered
+	dc.Tokens = &ContextTokens{Value: delivered / 4, Estimator: "bytes-div-4", EstimatorVersion: "1", Label: "estimate"}
+	o.Context = &dc
+	return raw, true
+}
+
+func isContextToolCall(e ocEvent) bool { return isContextTool(e.Input.Tool) }

@@ -135,6 +135,7 @@ func cmdInit(e *Env, args []string) int {
 	server := fs.String("server", "", "HINT server base URL (https; http only for a loopback host)")
 	mcpUpload := fs.String("mcp-upload", "", "allow or deny: may the MCP tool hint_recommend send data (default deny)")
 	mcpEvalRun := fs.String("mcp-eval-run", "", "allow or deny: may the MCP tool hint_eval_run run eval trials (default deny)")
+	ctxLimits := fs.String("context-limits", "", "local context policy of hint_context: depth=1,items=20,bytes=16384,ms=1000 (a new version), off, or restore=N")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -149,7 +150,7 @@ func cmdInit(e *Env, args []string) int {
 		}
 		opt.ServerURL = *server
 	}
-	opt.MCPUpload, opt.MCPEvalRun = *mcpUpload, *mcpEvalRun
+	opt.MCPUpload, opt.MCPEvalRun, opt.ContextLimits, opt.Now = *mcpUpload, *mcpEvalRun, *ctxLimits, e.Now()
 	s, created, err := store.Init(e.Dir, opt)
 	if err != nil {
 		return fail(e, err)
@@ -172,6 +173,13 @@ func cmdInit(e *Env, args []string) int {
 		upload = "allow"
 	}
 	fmt.Fprintf(e.Stdout, "MCP upload rule: %s\n", upload)
+	if p := s.Cfg.Context; p != nil {
+		if l := p.Active(); l != nil {
+			fmt.Fprintf(e.Stdout, "Context policy: version %d (depth %d, items %d, bytes %d, ms %d); %d versions kept\n", p.Current, l.Depth, l.MaxEntities, l.MaxBytes, l.MaxMillis, len(p.Versions))
+		} else {
+			fmt.Fprintf(e.Stdout, "Context policy: off (version %d); %d versions kept\n", p.Current, len(p.Versions))
+		}
+	}
 	fmt.Fprintf(e.Stdout, "Next: git hint collect --full\n")
 	return 0
 }

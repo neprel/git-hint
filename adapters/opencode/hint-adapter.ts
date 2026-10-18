@@ -17,7 +17,8 @@
 // counters always stay in memory (globalThis[Symbol.for("hint.opencode-adapter.stats")]).
 //
 // Environment (optional): HINT_BIN (path of git-hint; default "git-hint" on PATH),
-// HINT_DISABLE=1 (turn the adapter off).
+// HINT_DISABLE=1 (turn the adapter off), HINT_MCP_SERVER (the name of the git-hint MCP server
+// in opencode.json; default "githint").
 
 const ARG_ALLOW = ["filePath", "path", "offset", "limit", "command", "workdir"]
 
@@ -48,6 +49,58 @@ function contentLen(result: any): number | undefined {
   return undefined
 }
 
+// HINT context measurements (hint_context of the git-hint MCP server). Only a text part that
+// is entirely one marker line, and only for the HINT tool names, is read; it holds metadata
+// only (enumerations, numbers, opaque IDs). Anything else is no measurement: a marker inside
+// file or shell output is ignored, a damaged one is reported as invalid (missing coverage).
+const MARKER = "hint-context-measurement/1 "
+const MAX_MARKER = 2048
+const CONTEXT_TOOLS = new Set(["githint_hint_context", `${process.env.HINT_MCP_SERVER || "githint"}_hint_context`])
+const HEX32 = /^[0-9a-f]{32}$/
+const ENUMS: Record<string, string[]> = {
+  action: ["deliver", "expand", "retrieve_original"],
+  stage: ["raw_tool_output"],
+  policy_state: ["enabled", "disabled", "not_applicable", "unknown"],
+  freshness: ["current", "stale", "unknown"],
+  result: ["delivered", "refused_stale", "missing", "error"],
+}
+const COUNT = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1e9
+
+function validContext(c: any): boolean {
+  if (!c || typeof c !== "object" || Array.isArray(c)) return false
+  const allowed = new Set([...Object.keys(ENUMS), "artifact_id", "ref_id", "snapshot_id", "policy_ref", "bytes", "omitted", "tokens"])
+  for (const k of Object.keys(c)) if (!allowed.has(k)) return false
+  for (const [k, vals] of Object.entries(ENUMS)) if (!(k in c) ? k !== "freshness" : !vals.includes(c[k])) return false
+  for (const k of ["artifact_id", "ref_id", "snapshot_id", "policy_ref"]) if (k in c && !HEX32.test(String(c[k]))) return false
+  if (!COUNT(c.bytes) || ("omitted" in c && !COUNT(c.omitted))) return false
+  const t = c.tokens
+  if (t !== undefined) {
+    if (!t || typeof t !== "object" || Object.keys(t).sort().join() !== "estimator,estimator_version,label,value") return false
+    if (!COUNT(t.value) || t.estimator !== "bytes-div-4" || !/^[0-9]{1,4}(\.[0-9]{1,4}){0,2}$/.test(String(t.estimator_version)) || t.label !== "estimate")
+      return false
+  }
+  return true
+}
+
+// contextOf returns the validated measurement of a HINT context call, "invalid", or undefined.
+function contextOf(tool: string, result: any): { targets: string[]; context: any } | "invalid" | undefined {
+  if (!CONTEXT_TOOLS.has(tool)) return undefined
+  const parts = Array.isArray(result?.content) ? result.content : []
+  const marks = parts.filter((p: any) => p?.type === "text" && typeof p.text === "string" && p.text.startsWith(MARKER))
+  if (marks.length !== 1) return "invalid"
+  const text: string = marks[0].text
+  if (byteLen(text) > MAX_MARKER || text.includes("\n")) return "invalid"
+  try {
+    const m = JSON.parse(text.slice(MARKER.length))
+    if (!m || typeof m !== "object" || Object.keys(m).sort().join() !== "context,targets") return "invalid"
+    if (!Array.isArray(m.targets) || m.targets.length > 4 || !m.targets.every((x: unknown) => HEX32.test(String(x)))) return "invalid"
+    if (!validContext(m.context)) return "invalid"
+    return { targets: m.targets, context: m.context }
+  } catch {
+    return "invalid"
+  }
+}
+
 function base(hook: string, ev: any) {
   return {
     hook,
@@ -72,6 +125,9 @@ function reduceAfter(ev: any) {
   const out: Record<string, unknown> = { metadata, status: ev?.status === "error" ? "error" : "completed" }
   const n = ev?.status === "completed" ? contentLen(ev?.result) : undefined
   if (n !== undefined) out.output = `[redacted:len=${n}]`
+  const c = ev?.status === "completed" ? contextOf(String(ev?.tool ?? ""), ev?.result) : undefined
+  if (c === "invalid") out.context_invalid = true
+  else if (c) out.context = c
   return { ...base("tool.execute.after", ev), output: out }
 }
 

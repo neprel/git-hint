@@ -1,6 +1,7 @@
 package mcpserver_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/neprel/git-hint/internal/cli"
 	"github.com/neprel/git-hint/internal/hint"
 	"github.com/neprel/git-hint/internal/mcpserver"
 	"github.com/neprel/git-hint/internal/store"
@@ -79,7 +81,7 @@ func TestContextAroundADeclarationAndExpansion(t *testing.T) {
 	}
 	ctxExact(t, cs, map[string]any{"seed": "Rate"}, 16384)
 	ms := m["measurement"].(map[string]any)
-	if ms["action"] != "deliver" || ms["stage"] != "delivered_context" || ms["result"] != "delivered" || ms["artifact_id"] != m["artifact_id"] ||
+	if ms["action"] != "deliver" || ms["stage"] != "raw_tool_output" || ms["result"] != "delivered" || ms["artifact_id"] != m["artifact_id"] ||
 		ms["snapshot_id"] != snap["snapshot_id"] || ms["policy_state"] != "not_applicable" || ms["bytes"] != used["bytes"] ||
 		ms["tokens"].(map[string]any)["label"] != "estimate" || ms["ref_id"] != nil {
 		t.Fatalf("measurement: %v", ms)
@@ -140,9 +142,9 @@ func TestContextLimitsAndCycles(t *testing.T) {
 	if len(ctxItems(m)) != 2 || om["entities"].(float64) < 1 || !strings.Contains(strings.Join(anyStrings(om["reasons"]), ","), "entities") {
 		t.Fatalf("entity limit: %v", m)
 	}
-	m = ctxExact(t, cs, map[string]any{"seed": "Rate", "max_bytes": 2048}, 2048)
+	m = ctxExact(t, cs, map[string]any{"seed": "Rate", "max_bytes": 4096}, 4096)
 	used := m["used"].(map[string]any)
-	if used["bytes"].(float64) > 2048 {
+	if used["bytes"].(float64) > 4096 {
 		t.Fatalf("byte limit: %v", used)
 	}
 	if len(ctxItems(m)) == 0 || !strings.Contains(strings.Join(anyStrings(m["omitted"].(map[string]any)["reasons"]), ","), "bytes") {
@@ -154,7 +156,7 @@ func TestContextLimitsAndCycles(t *testing.T) {
 	}
 	for _, args := range []map[string]any{
 		{}, {"seed": "Rate", "ref": "hc1." + strings.Repeat("a", 32) + "." + strings.Repeat("b", 32)}, {"ref": "hc1.x.y"},
-		{"seed": "Rate", "depth": 3}, {"seed": "Rate", "max_entities": 101}, {"seed": "Rate", "max_bytes": 2047}, {"seed": "Rate", "max_ms": 99999},
+		{"seed": "Rate", "depth": 3}, {"seed": "Rate", "max_entities": 101}, {"seed": "Rate", "max_bytes": 4095}, {"seed": "Rate", "max_ms": 99999},
 		{"seed": "../etc/passwd; x"},
 	} {
 		if _, errText := call(t, cs, "hint_context", args); !strings.Contains(errText, "invalid_argument") {
@@ -350,7 +352,7 @@ func TestContextByteLimitOnEveryBranch(t *testing.T) {
 	testkit.WriteFile(t, shop, "canary_dir_e1d2/many/many.go", b.String())
 	gh(t, shop, "collect", "--full")
 	cs := session(t, mcpserver.Options{Dir: shop})
-	for _, lim := range []int{2048, 4096} {
+	for _, lim := range []int{4096, 8192} {
 		m := ctxExact(t, cs, map[string]any{"seed": "RepeatName", "max_entities": 100, "max_bytes": lim}, lim)
 		om := m["omitted"].(map[string]any)
 		if m["result"] != "ambiguous" || len(ctxItems(m))+int(om["entities"].(float64)) != 30 || !strings.Contains(fmt.Sprint(om["reasons"]), "bytes") {
@@ -365,8 +367,8 @@ func TestContextByteLimitOnEveryBranch(t *testing.T) {
 			t.Fatalf("escaped source: %v", def)
 		}
 	}
-	ctxExact(t, cs, map[string]any{"seed": "NoSuchName", "max_bytes": 2048}, 2048)
-	ctxExact(t, cs, map[string]any{"ref": "hc1." + strings.Repeat("a", 32) + "." + strings.Repeat("b", 32), "max_bytes": 2048}, 2048)
+	ctxExact(t, cs, map[string]any{"seed": "NoSuchName", "max_bytes": 4096}, 4096)
+	ctxExact(t, cs, map[string]any{"ref": "hc1." + strings.Repeat("a", 32) + "." + strings.Repeat("b", 32), "max_bytes": 4096}, 4096)
 }
 
 // C11B-1: the time limit on the full tool path: a clock that jumps past the limit stops the
@@ -391,5 +393,63 @@ func TestContextTimeLimitOnTheToolPath(t *testing.T) {
 	m = ctxExact(t, cs, map[string]any{"seed": "canary_dir_e1d2/billing", "max_ms": 100}, 16384)
 	if len(ctxItems(m)) != 1 || !strings.Contains(fmt.Sprint(m["omitted"].(map[string]any)["reasons"]), "time") {
 		t.Fatalf("time limit on a package: %v", m["omitted"])
+	}
+}
+
+// D06: the local context policy sets the defaults of hint_context; the measurement names the
+// identity of the effective limits (call arguments included); changes and restores keep every
+// version and leave the other project settings alone.
+func TestContextPolicyVersionsAndIdentity(t *testing.T) {
+	shop, _ := project_(t, "--mcp-upload", "allow")
+	gh(t, shop, "collect", "--full")
+	s0, _ := store.Open(shop)
+	before := s0.Cfg
+	cs := session(t, mcpserver.Options{Dir: shop})
+	m := mustCall(t, cs, "hint_context", map[string]any{"seed": "Rate"})
+	if ms := m["measurement"].(map[string]any); ms["policy_state"] != "not_applicable" || ms["policy_ref"] != nil {
+		t.Fatalf("without a policy: %v", ms)
+	}
+	gh(t, shop, "init", "--context-limits", "depth=2,items=7")
+	m = mustCall(t, cs, "hint_context", map[string]any{"seed": "Rate"})
+	s1, _ := store.Open(shop)
+	want := store.ContextPolicyRef(s1.Key(), store.ContextLimits{Depth: 2, MaxEntities: 7, MaxBytes: 16384, MaxMillis: 1000})
+	if ms := m["measurement"].(map[string]any); ms["policy_state"] != "enabled" || ms["policy_ref"] != want || len(ctxItems(m)) > 7 {
+		t.Fatalf("with a policy: %v (%d items)", ms, len(ctxItems(m)))
+	}
+	if l := m["limits"].(map[string]any); l["depth"].(float64) != 2 || l["max_entities"].(float64) != 7 {
+		t.Fatalf("limits: %v", l)
+	}
+	// a call argument changes the effective identity; it is not hidden under the policy's digest
+	o := mustCall(t, cs, "hint_context", map[string]any{"seed": "Rate", "max_entities": 3})
+	if ref := o["measurement"].(map[string]any)["policy_ref"]; ref == want || ref == nil {
+		t.Fatalf("override identity: %v", ref)
+	}
+	gh(t, shop, "init", "--context-limits", "off")
+	if ms := mustCall(t, cs, "hint_context", map[string]any{"seed": "Rate"})["measurement"].(map[string]any); ms["policy_state"] != "not_applicable" {
+		t.Fatalf("off: %v", ms)
+	}
+	out := gh(t, shop, "init", "--context-limits", "restore=1")
+	if !strings.Contains(out, "Context policy: version 3 (depth 2, items 7, bytes 16384, ms 1000); 3 versions kept") {
+		t.Fatalf("restore: %s", out)
+	}
+	if ms := mustCall(t, cs, "hint_context", map[string]any{"seed": "Rate"})["measurement"].(map[string]any); ms["policy_ref"] != want {
+		t.Fatalf("restored identity: %v", ms)
+	}
+	s2, _ := store.Open(shop)
+	p := s2.Cfg.Context
+	if p.Current != 3 || p.Versions[0].Change != "set" || p.Versions[1].Change != "off" || p.Versions[1].Limits != nil ||
+		p.Versions[2].Change != "restore" || p.Versions[2].RestoredFrom != 1 || *p.Versions[2].Limits != *p.Versions[0].Limits {
+		t.Fatalf("history: %+v", p)
+	}
+	if s2.Cfg.KeyID != before.KeyID || s2.Cfg.MCP != before.MCP || s2.Cfg.ProjectNamespace != before.ProjectNamespace || len(s2.Cfg.Repos) != len(before.Repos) {
+		t.Fatal("a policy change touched other settings")
+	}
+	// an invalid change is refused and changes nothing
+	var o2, e2 bytes.Buffer
+	if code := cli.Run([]string{"init", "--context-limits", "items=500"}, &cli.Env{Dir: shop, Stdin: strings.NewReader(""), Stdout: &o2, Stderr: &e2}); code == 0 {
+		t.Fatal("an invalid limit was accepted")
+	}
+	if s3, _ := store.Open(shop); len(s3.Cfg.Context.Versions) != 3 {
+		t.Fatal("a refused change was stored")
 	}
 }

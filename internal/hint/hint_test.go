@@ -147,8 +147,8 @@ func TestIDVectors(t *testing.T) {
 	}
 }
 
-// v0.2 is v0.1 plus the context measurement of an observation and the effort findings of a
-// recommendation set: with the version strings replaced and these additions removed, every
+// v0.2 is v0.1 plus the context measurement of an observation (and "context" as a missing
+// field) and the effort findings of a recommendation set: with the version strings replaced and these additions removed, every
 // v0.2 schema equals its v0.1 schema.
 func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join("..", "..", "schemas", "v0.1", "*.schema.json"))
@@ -167,6 +167,8 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 		switch filepath.Base(f) {
 		case "common.schema.json":
 			v1["$defs"].(map[string]any)["SpecVersion"].(map[string]any)["pattern"] = `^0\.2\.(0|[1-9][0-9]*)$`
+			fn := v2["$defs"].(map[string]any)["FieldName"].(map[string]any)
+			fn["enum"] = fn["enum"].([]any)[:len(fn["enum"].([]any))-1] // "context" (missing context coverage) is the last entry
 		case "activity.schema.json":
 			o := v2["$defs"].(map[string]any)["Observation"].(map[string]any)
 			delete(o["properties"].(map[string]any), "context")

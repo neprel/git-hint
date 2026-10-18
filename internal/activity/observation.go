@@ -30,6 +30,7 @@ type Observation struct {
 	MutationAttribution string            `json:"mutation_attribution,omitempty"`
 	ContentDelivery     string            `json:"content_delivery,omitempty"`
 	Coordination        *Coordination     `json:"coordination,omitempty"`
+	Context             *Context          `json:"context,omitempty"`
 	Missing             []string          `json:"missing"`
 	Provenance          Provenance        `json:"provenance"`
 }

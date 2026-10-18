@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ type Doc struct {
 
 // Package is a validated export package.
 type Package struct {
+	Version         string // hint_version of every document
 	Docs            []Doc
 	Policy          map[string]any    // export_policy payload
 	Observations    []string          // observation IDs in the package
@@ -61,7 +63,11 @@ type ExportOptions struct {
 // network and writes nothing. Every document passes the schema, the semantic rules and the
 // export policy; otherwise BuildPackage fails (deny by default).
 func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
-	pol, err := policyPayload(s)
+	ver, err := packageVersion(s, opt)
+	if err != nil {
+		return nil, err
+	}
+	pol, err := policyPayload(s, ver)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +82,7 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 		allowed[rt] = true
 	}
 	fields := pol["fields"].(map[string][]string)
-	p := &Package{Policy: pol, SnapshotDigests: map[string]string{}, Report: Report{Profile: s.Cfg.Policy.Profile,
+	p := &Package{Version: ver, Policy: pol, SnapshotDigests: map[string]string{}, Report: Report{Profile: s.Cfg.Policy.Profile,
 		TimeResolutionSeconds: res, PolicyID: pol["policy_id"].(string), Documents: map[string]int{},
 		Records: map[string]int{}, EntityKinds: map[string]int{}, Ops: map[string]int{}, Fields: fields,
 		RemovedFields: map[string]int{}}}
@@ -249,7 +255,7 @@ func (p *Package) add(s *store.Store, docType string, repos, types []string, sou
 		return err
 	}
 	doc := map[string]any{
-		"hint_version": version.SpecVersion, "document_type": docType,
+		"hint_version": p.Version, "document_type": docType,
 		"document_id":       hint.DeriveID(s.Key(), "document", docType, digest),
 		"project_namespace": s.Cfg.ProjectNamespace, "repositories": repos,
 		"producer":   map[string]any{"tool": "hint-cli", "version": version.Version},
@@ -305,8 +311,36 @@ func Validate(raw []byte, policy map[string]any) error {
 	return nil
 }
 
-// policyPayload builds the export_policy payload from the configuration.
-func policyPayload(s *store.Store) (map[string]any, error) {
+// packageVersion is the HINT version of an export package: v0.2 when an observation to export
+// holds a context measurement or misses one ("context"), else v0.1 (hint-data v0.2).
+func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
+	if s.Cfg.Policy.Profile == "aggregate" {
+		return version.SpecVersion, nil
+	}
+	obs, _, err := ReadSpool(s)
+	if err != nil {
+		return "", err
+	}
+	st, err := loadExportState(s)
+	if err != nil {
+		return "", err
+	}
+	done := map[string]bool{}
+	if !opt.All {
+		for _, id := range st.Observations {
+			done[id] = true
+		}
+	}
+	for _, o := range obs {
+		if !done[o.ObservationID] && (o.Context != nil || slices.Contains(o.Missing, "context")) {
+			return "0.2.0", nil
+		}
+	}
+	return version.SpecVersion, nil
+}
+
+// policyPayload builds the export_policy payload of a package version from the configuration.
+func policyPayload(s *store.Store, ver string) (map[string]any, error) {
 	cp := s.Cfg.Policy
 	switch cp.Profile {
 	case "detailed":
@@ -321,7 +355,7 @@ func policyPayload(s *store.Store) (map[string]any, error) {
 	default:
 		return nil, fmt.Errorf("unknown profile %q", cp.Profile)
 	}
-	all, err := hint.RecordFields()
+	all, err := hint.RecordFieldsFor(ver[:strings.LastIndexByte(ver, '.')])
 	if err != nil {
 		return nil, err
 	}

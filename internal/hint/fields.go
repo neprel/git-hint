@@ -16,11 +16,20 @@ var recordDefs = map[string][2]string{
 	"Plan": {"recommendation", "Plan"}, "Effect": {"recommendation", "Effect"},
 }
 
-// RecordFields returns the top-level fields of every record type, from the embedded schemas.
-func RecordFields() (map[string][]string, error) {
+// RecordFields returns the top-level fields of every record type, from the embedded v0.1
+// schemas.
+func RecordFields() (map[string][]string, error) { return RecordFieldsFor("0.1") }
+
+// RecordFieldsFor returns the top-level fields of every record type of a supported
+// major.minor version ("0.1" or "0.2").
+func RecordFieldsFor(v string) (map[string][]string, error) {
+	fsys := map[string]fs.FS{"0.1": githint.SchemasV01, "0.2": githint.SchemasV02}[v]
+	if fsys == nil {
+		return nil, fs.ErrNotExist
+	}
 	out := map[string][]string{}
 	for rt, d := range recordDefs {
-		b, err := fs.ReadFile(githint.SchemasV01, "schemas/v0.1/"+d[0]+".schema.json")
+		b, err := fs.ReadFile(fsys, "schemas/v"+v+"/"+d[0]+".schema.json")
 		if err != nil {
 			return nil, err
 		}

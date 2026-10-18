@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -967,4 +968,67 @@ func TestMCPStdoutCarriesOnlyProtocolMessages(t *testing.T) {
 	if strings.Contains(out, "HINTCANARY_KEY") || strings.Contains(out, "HINTCANARY_LITERAL") {
 		t.Fatal("source content in MCP output")
 	}
+}
+
+// D06: a hint_context call with a measurement makes the export package v0.2: the call gives two
+// stages (one tool call ID), a damaged measurement leaves "context" missing, and every
+// document passes the v0.2 schema, the semantic rules and the policy.
+func TestExportWithContextMeasurementIsV02(t *testing.T) {
+	shop, _ := setup(t)
+	must(t, run(t, shop, "", "collect"))
+	ev := func(hook, call string, t0 int64, out map[string]any) string {
+		b, _ := json.Marshal(map[string]any{"hook": hook, "t_wall_ms": t0,
+			"input": map[string]any{"tool": "githint_hint_context", "sessionID": "ses_HINTCANARY_C", "callID": call}, "output": out})
+		return string(b) + "\n"
+	}
+	id := func(c string) string { return strings.Repeat(c, 32) }
+	part := map[string]any{"targets": []any{}, "context": map[string]any{"action": "deliver", "stage": "raw_tool_output", "artifact_id": id("a"),
+		"snapshot_id": id("b"), "policy_state": "not_applicable", "freshness": "current", "result": "delivered", "bytes": 9000, "omitted": 2,
+		"tokens": map[string]any{"value": 2250, "estimator": "bytes-div-4", "estimator_version": "1", "label": "estimate"}}}
+	t0 := time.Now().UnixMilli()
+	stream := ev("tool.execute.before", "call_HINTCANARY_c1", t0, map[string]any{"args": map[string]any{}}) +
+		ev("tool.execute.after", "call_HINTCANARY_c1", t0+20, map[string]any{"metadata": map[string]any{}, "status": "completed", "output": "[redacted:len=4100]", "context": part}) +
+		ev("tool.execute.before", "call_HINTCANARY_c2", t0+30, map[string]any{"args": map[string]any{}}) +
+		ev("tool.execute.after", "call_HINTCANARY_c2", t0+40, map[string]any{"metadata": map[string]any{}, "status": "completed", "output": "[redacted:len=10]", "context_invalid": true})
+	must(t, run(t, shop, stream, "adapter", "opencode", "--project", shop))
+	out := t.TempDir()
+	must(t, run(t, shop, "", "export", "--out", out))
+	files, _ := filepath.Glob(filepath.Join(out, "*.hint.json"))
+	var stages []string
+	missing := 0
+	for _, f := range files {
+		var doc map[string]any
+		b, _ := os.ReadFile(f)
+		_ = json.Unmarshal(b, &doc)
+		if doc["hint_version"] != "0.2.0" {
+			t.Fatalf("%s: version %v", filepath.Base(f), doc["hint_version"])
+		}
+		if doc["document_type"] != "activity_stream" {
+			continue
+		}
+		calls := map[any]bool{}
+		for _, o := range doc["payload"].(map[string]any)["observations"].([]any) {
+			m := o.(map[string]any)
+			if c, ok := m["context"].(map[string]any); ok {
+				stages = append(stages, c["stage"].(string))
+				calls[m["correlation"].(map[string]any)["tool_call_id"]] = true
+				if c["stage"] == "delivered_context" && c["bytes"].(float64) != 4100 {
+					t.Errorf("delivered bytes: %v", c)
+				}
+			}
+			for _, x := range m["missing"].([]any) {
+				if x == "context" {
+					missing++
+				}
+			}
+		}
+		if len(calls) != 1 {
+			t.Errorf("two stages must share one call: %v", calls)
+		}
+	}
+	sort.Strings(stages)
+	if strings.Join(stages, ",") != "delivered_context,raw_tool_output" || missing != 1 {
+		t.Fatalf("stages %v, missing context %d", stages, missing)
+	}
+	noCanary(t, "export", readAll(t, out), shop, `"ses_`, `"call_`)
 }

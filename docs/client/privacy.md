@@ -9,7 +9,7 @@ This document states what the client keeps on the machine, what can leave it, ho
 | Project key (32 random bytes) | user configuration directory or `HINT_KEY_DIR`, mode 0600; never in the work tree, never exported |
 | Names: paths, symbol names, repository names | `.hint/state/snapshots/` (local index) and `project.json` |
 | Source code, file content, comments | never stored; only content hashes for change detection, in the local index |
-| Agent tool output, edit text, search patterns, prompts | never leave the OpenCode process; the plugin keeps an allowlist and replaces output by its length |
+| Agent tool output, edit text, search patterns, prompts | never leave the OpenCode process; the plugin keeps an allowlist and replaces output by its length. For `hint_context` it also passes the validated metadata line of the answer (enumerations, numbers, opaque IDs), never its source or names |
 | Shell command strings | reach the local child process through a pipe; stored only as a command class and file IDs |
 | Commit hashes, branch names, remotes, author names | never exported; a commit is an opaque ID |
 

@@ -35,6 +35,7 @@ These notes describe changes that are not released yet. They name no version, an
 
 - New read-only MCP tool `hint_context`: a small context around one declaration, file or package from the local index (definition with source, file declarations, imports, importers, tests), with refs to expand one detail.
 - Hard limits on depth, items, bytes and time. An old ref reads its own snapshot or is refused as stale. Nothing is stored; source is read only when the file is unchanged since the snapshot.
+- The OpenCode adapter records each `hint_context` call with its context measurement (metadata only). A local context policy (`git hint init --context-limits`) sets the default limits, with every version kept for restore.
 
 ## HINT data standard v0.2
 
