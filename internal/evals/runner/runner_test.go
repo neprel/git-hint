@@ -83,8 +83,12 @@ func TestReadJob(t *testing.T) {
 	write("t2/result.json", `{"trial_name":"t2","verifier_result":null,"exception_info":{"exception_type":"AgentTimeoutError"}}`)
 	write("t3/result.json", `{"trial_name":"t3","verifier_result":{"rewards":{"reward":0.0}}}`)
 	write("t3/verifier/test-stdout.txt", "CHECK C1 FAIL\nCHECK C2 PASS\nCHECK C1 PASS\n")
+	write("t4/result.json", `{"trial_name":"t4","verifier_result":{"rewards":{"reward":1.0}}}`)
+	write("t4/verifier/test-stdout.txt", "TEST C1 a_test.go::TestA PASS\nTEST C1 a_test.go::TestB FAIL\nCHECK C1 PASS\nCHECK C2 PASS\n")
+	write("t5/result.json", `{"trial_name":"t5","verifier_result":{"rewards":{"reward":1.0}}}`)
+	write("t5/verifier/test-stdout.txt", "TEST C1 a_test.go::TestA PASS\nTEST C1 a_test.go::TestA PASS\nCHECK C1 PASS\nCHECK C2 PASS\n")
 	ts, err := ReadJob(job)
-	if err != nil || len(ts) != 3 {
+	if err != nil || len(ts) != 5 {
 		t.Fatalf("%v %d", err, len(ts))
 	}
 	if ts[0].Outcome() != "passed" || ts[0].Checks["C1"] != "pass" || *ts[0].WallSeconds != 90 || *ts[0].InputTokens != 10 || ts[0].CacheTokens != nil {
@@ -92,6 +96,14 @@ func TestReadJob(t *testing.T) {
 	}
 	if ts[1].Outcome() != "timeout" || ts[2].Outcome() != "verifier_error" || !ts[2].Tampered {
 		t.Fatalf("t2 %s t3 %s %v", ts[1].Outcome(), ts[2].Outcome(), ts[2].Checks)
+	}
+	// G10-2: per-test results are read; a passing check with a failed test, or a repeated
+	// test line, is not a pass
+	if ts[3].Tests["C1 a_test.go::TestB"] != "fail" || ts[3].Outcome() != "verifier_error" {
+		t.Fatalf("t4 %s %v", ts[3].Outcome(), ts[3].Tests)
+	}
+	if !ts[4].Tampered || ts[4].Outcome() != "verifier_error" {
+		t.Fatalf("t5 %s", ts[4].Outcome())
 	}
 }
 

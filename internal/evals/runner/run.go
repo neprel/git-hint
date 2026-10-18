@@ -61,6 +61,7 @@ type Trial struct {
 	Exception    string            `json:"exception,omitempty"` // exception type only
 	Tampered     bool              `json:"tampered,omitempty"`  // a check line appeared more than once
 	Checks       map[string]string `json:"checks"`
+	Tests        map[string]string `json:"tests,omitempty"` // "C1 file::Name" -> pass or fail
 	InputTokens  *int64            `json:"input_tokens"`
 	OutputTokens *int64            `json:"output_tokens"`
 	CacheTokens  *int64            `json:"cache_tokens"`
@@ -90,6 +91,11 @@ func (t Trial) Outcome() string {
 		for _, st := range t.Checks {
 			if st != "pass" {
 				return "verifier_error"
+			}
+		}
+		for k, st := range t.Tests {
+			if st != "pass" && t.Checks[strings.Fields(k)[0]] == "pass" {
+				return "verifier_error" // a passing check with a failed required test
 			}
 		}
 		return "passed"
@@ -167,6 +173,8 @@ func baseEnv() []string {
 
 var checkLine = regexp.MustCompile(`^CHECK (C[1-9][0-9]{0,2}) (PASS|FAIL)$`)
 
+var testLine = regexp.MustCompile(`^TEST (C[1-9][0-9]{0,2}) ([A-Za-z0-9._/+-]+::[A-Za-z_][A-Za-z0-9_]*) (PASS|FAIL)$`)
+
 // ReadJob reads every trial of a job directory.
 func ReadJob(jobDir string) ([]Trial, error) {
 	ms, err := filepath.Glob(filepath.Join(jobDir, "*", "result.json"))
@@ -206,7 +214,7 @@ func ReadJob(jobDir string) ([]Trial, error) {
 		if err := json.Unmarshal(b, &r); err != nil {
 			return nil, fmt.Errorf("unreadable trial result")
 		}
-		t := Trial{Name: r.TrialName, Checks: map[string]string{}}
+		t := Trial{Name: r.TrialName, Checks: map[string]string{}, Tests: map[string]string{}}
 		if r.VerifierResult != nil {
 			if v, ok := r.VerifierResult.Rewards["reward"]; ok {
 				t.Reward = &v
@@ -233,6 +241,13 @@ func ReadJob(jobDir string) ([]Trial, error) {
 						t.Tampered = true // the generated verifier prints each check once
 					}
 					t.Checks[c[1]] = strings.ToLower(c[2])
+				}
+				if c := testLine.FindStringSubmatch(strings.TrimSpace(sc.Text())); c != nil {
+					k := c[1] + " " + c[2]
+					if _, dup := t.Tests[k]; dup {
+						t.Tampered = true // the generated verifier prints each test once
+					}
+					t.Tests[k] = strings.ToLower(c[3])
 				}
 			}
 			f.Close()

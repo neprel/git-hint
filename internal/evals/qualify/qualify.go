@@ -12,8 +12,9 @@
 //     solutions are not independent); not required for promotion;
 //   - leak_probe: the agent build context holds no hidden test, no reference-only line
 //     and no Git metadata;
-//   - forgery_probe and isolation: a solution that tries the network and writes reward
-//     files must get reward 0 and must see no network.
+//   - forgery_probe and isolation: a solution that tries the network, writes reward
+//     files (also from code under test) and adds test harness code that exits early
+//     with success (TestMain, conftest.py) must get reward 0 and must see no network.
 //
 // State: validated when every required check passes; reproducible when base and
 // reference checks pass but other evidence is missing; needs_review or quarantined with

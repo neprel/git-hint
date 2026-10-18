@@ -227,6 +227,20 @@ GO
 exit 0
 `
 	}
+	// test harness code that ends the test run early with success (a TestMain or a
+	// conftest.py that exits 0) must not count as executed tests
+	script = strings.TrimSuffix(script, "exit 0\n") + `if [ -f /app/go.mod ]; then
+	find /app -name '*.go' ! -name '*_test.go' ! -path '*/.git/*' ! -path '*/testdata/*' ! -path '*/vendor/*' | while IFS= read -r f; do
+		d=$(dirname "$f")
+		[ -f "$d/zz_hint_probe_test.go" ] && continue
+		p=$(sed -n 's/^package \([A-Za-z_][A-Za-z0-9_]*\).*/\1/p' "$f" | head -1)
+		[ -n "$p" ] && printf 'package %s\n\nimport (\n\t"os"\n\t"testing"\n)\n\nfunc TestMain(m *testing.M) { os.Exit(0) }\n' "$p" > "$d/zz_hint_probe_test.go"
+	done
+else
+	printf 'import os\nos._exit(0)\n' > /app/conftest.py
+fi
+exit 0
+`
 	if err := os.WriteFile(filepath.Join(sol, "solve.sh"), []byte(script), 0o755); err != nil {
 		return "", err
 	}

@@ -261,30 +261,68 @@ func Build(l *library.Library, in Input) (*Built, error) {
 	for _, p := range hidden {
 		vfiles = append(vfiles, resFiles[p])
 	}
-	var names []string
-	if apiDirs == nil {
-		if names, err = testNames(l, lang, vfiles); err != nil {
-			return nil, err
-		}
-	}
 	// evaluator-owned copies of the existing tests that the episode did not change
 	var preserve []trees.File
 	for _, f := range base.Files {
-		if isTest.MatchString(f.Path) && !contains(hidden, f.Path) {
+		if (isTest.MatchString(f.Path) || lang == "python" && path.Base(f.Path) == "pytest.ini") && !contains(hidden, f.Path) {
 			preserve = append(preserve, f)
 		}
 	}
+	plan := verifierPlan{Lang: lang, Hidden: hidden, APIDirs: apiDirs}
+	var keep func(trees.File, []byte) bool
+	if lang == "go" {
+		if plan.Module = goModulePath(l, base); plan.Module == "" {
+			return nil, &Refusal{[]string{"verifier_missing"}}
+		}
+		nested := map[string]bool{}
+		for _, f := range base.Files {
+			if path.Base(f.Path) == "go.mod" && f.Path != "go.mod" {
+				nested[path.Dir(f.Path)] = true
+			}
+		}
+		keep = func(f trees.File, b []byte) bool { return goRunsByDefault(f.Path, b, nested) }
+	}
+	if apiDirs == nil {
+		for _, h := range hidden {
+			if !testIDSafe.MatchString(h) {
+				return nil, &Refusal{[]string{"verifier_missing"}}
+			}
+		}
+		if plan.C1, err = testRefs(l, lang, vfiles, nil); err != nil {
+			return nil, err
+		}
+		if len(plan.C1) == 0 {
+			return nil, &Refusal{[]string{"verifier_missing"}}
+		}
+		if lang == "go" {
+			for _, t := range plan.C1 {
+				if b, _ := l.GetObject(resFiles[t.File].Digest); !keep(resFiles[t.File], b) {
+					return nil, &Refusal{[]string{"verifier_missing"}} // the hidden test would not run
+				}
+			}
+		}
+	}
+	if plan.C2, err = testRefs(l, lang, preserve, keep); err != nil {
+		return nil, err
+	}
+	allowed := []string{}
+	for _, f := range preserve {
+		allowed = append(allowed, f.Path)
+	}
+	allowed = append(allowed, hidden...)
+	sort.Strings(allowed)
+	allowedTxt := extra{"allowed.txt", []byte(strings.Join(allowed, "\n") + "\n"), 0o644}
 	pArchive, err := tarTree(l, preserve, "preserve/")
 	if err != nil {
 		return nil, err
 	}
 	var vArchive []byte
 	if apiDirs != nil {
-		vArchive, err = tarTree(l, nil, "", extra{"test.sh", []byte(refactorScript(apiDirs)), 0o755},
-			extra{"checks.json", checksJSON(lang, nil), 0o644}, extra{"apicheck/main.go", []byte(apicheckMain()), 0o644},
-			extra{"api.expected", []byte(strings.Join(apiAfter, "\n") + "\n"), 0o644})
+		vArchive, err = tarTree(l, nil, "", extra{"test.sh", []byte(plan.script()), 0o755},
+			extra{"checks.json", checksJSON(lang, nil, plan), 0o644}, extra{"apicheck/main.go", []byte(apicheckMain()), 0o644},
+			extra{"api.expected", []byte(strings.Join(apiAfter, "\n") + "\n"), 0o644}, allowedTxt)
 	} else {
-		vArchive, err = tarTree(l, vfiles, "hidden/", extra{"test.sh", []byte(checkScript(lang, hidden, names)), 0o755}, extra{"checks.json", checksJSON(lang, hidden), 0o644})
+		vArchive, err = tarTree(l, vfiles, "hidden/", extra{"test.sh", []byte(plan.script()), 0o755}, extra{"checks.json", checksJSON(lang, hidden, plan), 0o644}, allowedTxt)
 	}
 	if err != nil {
 		return nil, err
@@ -391,91 +429,6 @@ func instruction(in Input, lang string) string {
 
 var goTestFunc = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(t \*testing\.T\)`)
 
-// testNames returns the Go test functions of the hidden files (nil for other languages).
-func testNames(l *library.Library, lang string, hidden []trees.File) ([]string, error) {
-	if lang != "go" {
-		return nil, nil
-	}
-	var names []string
-	for _, f := range hidden {
-		b, err := l.GetObject(f.Digest)
-		if err != nil {
-			return nil, err
-		}
-		for _, m := range goTestFunc.FindAllSubmatch(b, -1) {
-			names = append(names, string(m[1]))
-		}
-	}
-	if len(names) == 0 {
-		return nil, &Refusal{[]string{"verifier_missing"}}
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
-// checkScript runs the fixed checks in the separate verifier container (no network):
-//   - restore evaluator-owned copies of the existing tests and remove the files that the
-//     hidden set replaces, so the agent cannot weaken the checks;
-//   - C2: the existing suite;
-//   - copy the hidden tests in; C1: the hidden tests only.
-//
-// It prints one line per check and writes the reward.
-func checkScript(lang string, hidden, names []string) string {
-	var c1, c2 string
-	switch lang {
-	case "go":
-		pk := map[string]bool{}
-		for _, p := range hidden {
-			pk["./"+path.Dir(p)] = true
-		}
-		c1 = "go test -count=1 -run '^(" + strings.Join(names, "|") + ")$' " + strings.Join(keys(pk), " ")
-		c2 = "go test -count=1 ./..."
-	case "python":
-		c1 = "python -m pytest -q -p no:cacheprovider " + strings.Join(quoteAll(hidden), " ")
-		c2 = "python -m pytest -q -p no:cacheprovider"
-	}
-	var rm strings.Builder
-	for _, p := range quoteAll(hidden) {
-		rm.WriteString("rm -f " + p + "\n")
-	}
-	return `#!/bin/sh
-# Generated verifier: fixed checks, no session command. Writes /logs/verifier/reward.txt.
-set -u
-mkdir -p /logs/verifier
-reward=0
-# code under test runs with the same rights: at the end stop every other process and write
-# both reward files (Harbor reads reward.json before reward.txt)
-# kill every process of the check user (kernel-enforced, also where the mounted log
-# directory does not enforce file permissions); repeat until none is left
-killnobody() {
-	for i in 1 2 3 4 5; do
-		found=0
-		for d in /proc/[0-9]*; do
-			u=$(awk '/^Uid:/{print $2; exit}' "$d/status" 2>/dev/null)
-			if [ "$u" = 65534 ]; then kill -9 "${d#/proc/}" 2>/dev/null; found=1; fi
-		done
-		[ "$found" = 0 ] && return 0
-		sleep 0.2
-	done
-}
-finish() { killnobody; echo "$reward" > /logs/verifier/reward.txt; echo "{\"reward\": $reward}" > /logs/verifier/reward.json; }
-trap finish EXIT
-# the checks run as the unprivileged user nobody; this script (root) writes the results
-run_as() { setpriv --reuid=65534 --regid=65534 --clear-groups env HOME=/tmp/hint-home GOCACHE=/tmp/hint-gocache GOFLAGS=-mod=mod PYTHONDONTWRITEBYTECODE=1 sh -c "$1"; }
-mkdir -p /tmp/hint-home /tmp/hint-gocache && chown -R 65534:65534 /tmp/hint-home /tmp/hint-gocache
-cd ` + Workdir + ` || exit 0
-[ -d /tests/preserve ] && cp -R /tests/preserve/. ` + Workdir + `/
-` + rm.String() + `chown -R 65534:65534 ` + Workdir + `
-ok=1
-if run_as "` + c2 + `" >/logs/verifier/c2.txt 2>&1; then r=PASS; else r=FAIL; ok=0; fi; killnobody; echo "CHECK C2 $r"
-cp -R /tests/hidden/. ` + Workdir + `/ || exit 0
-chown -R 65534:65534 ` + Workdir + `
-if run_as "` + c1 + `" >/logs/verifier/c1.txt 2>&1; then r=PASS; else r=FAIL; ok=0; fi; killnobody; echo "CHECK C1 $r"
-[ "$ok" = 1 ] && reward=1
-exit 0
-`
-}
-
 // joinTar concatenates the entries of two HINT tar archives.
 func joinTar(a, b []byte) ([]byte, error) {
 	var buf bytes.Buffer
@@ -501,8 +454,8 @@ func joinTar(a, b []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func checksJSON(lang string, hidden []string) []byte {
-	b, _ := json.Marshal(map[string]any{"language": lang, "checks": []string{"C1", "C2"}, "hidden": hidden})
+func checksJSON(lang string, hidden []string, v verifierPlan) []byte {
+	b, _ := json.Marshal(map[string]any{"language": lang, "checks": []string{"C1", "C2"}, "hidden": hidden, "tests": map[string]any{"C1": v.C1, "C2": v.C2}})
 	return b
 }
 
