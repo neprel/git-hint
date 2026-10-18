@@ -113,6 +113,10 @@ class OpenCodeV2(OpenCode):
         env["OPENCODE_FAKE_VCS"] = "git"
         env["XDG_DATA_HOME"] = "/logs/agent/opencode/xdg-data"
         env["XDG_STATE_HOME"] = "/logs/agent/opencode/xdg-state"
+        # no model-list download (models.dev) and no self-update: the live smoke of
+        # 2026-10-18 showed a blocked attempt to fetch https://models.opencode.ai/api.json
+        env["OPENCODE_DISABLE_MODELS_FETCH"] = "true"
+        env["OPENCODE_DISABLE_AUTOUPDATE"] = "true"
         skills = self._build_register_skills_command()
         if skills:
             await self.exec_as_agent(environment, command=skills, env=env)
