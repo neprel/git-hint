@@ -285,3 +285,32 @@ func TestOpenCode2022ToolNames(t *testing.T) {
 		t.Fatalf("write %+v", edit)
 	}
 }
+
+// OpenCode 2.0.22 marks a failing command "completed" and puts the exit code (3 here) into
+// the metadata (recorded offline). A non-zero exit is a failed command, never a passing
+// check.
+func TestOpenCode2022FailedCommand(t *testing.T) {
+	r, err := ParseOpenCode(fixture(t, "opencode-2.0.22-failed-command.json"), OpenCodeOptions{Version: "2.0.22"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, it := range r.Session.Items {
+		if it.Kind == KindTool && it.ToolName == "shell" {
+			found = true
+			if it.Status != "error" {
+				t.Fatalf("a command with exit 3 has status %q", it.Status)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no shell item")
+	}
+	// the passing recorded command (exit 0) stays completed
+	ok, _ := ParseOpenCode(fixture(t, "opencode-2.0.22-tools.json"), OpenCodeOptions{Version: "2.0.22"})
+	for _, it := range ok.Session.Items {
+		if it.ToolName == "shell" && it.Status != "completed" {
+			t.Fatalf("exit 0: %q", it.Status)
+		}
+	}
+}

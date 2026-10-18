@@ -148,6 +148,11 @@ func openCodeTool(b *builder, c map[string]any, fallbackID string) (Item, error)
 	}
 	if md, ok := st["metadata"].(map[string]any); ok {
 		it.Child = str(md["sessionId"])
+		// OpenCode 2 marks a finished command "completed" whatever its exit code and puts
+		// the code into the metadata: a non-zero exit is a failed command
+		if e := i64(md["exit"]); e != nil && *e != 0 && it.Status == "completed" {
+			it.Status = "error"
+		}
 	}
 	return it, nil
 }
