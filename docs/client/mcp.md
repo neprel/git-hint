@@ -33,10 +33,19 @@ Every tool description starts with its side effect. Every result carries `side_e
 | `hint_find_definition` | `name` (for example `Rate`, `tax.Rate`, `Cart.Total`), optional `repository` | file, line, kind and qualified name of each matching declaration | none |
 | `hint_importers` | `package` (directory relative to the repository root), optional `repository` | files that import the package | none |
 | `hint_file_outline` | `path`, optional `repository` | declarations of the file with kinds and lines | none |
+| `hint_context` | `seed` (a declaration name, file path or package directory) or `ref` (from an earlier answer); optional `repository`, `depth` (1–2), `max_entities` (1–100), `max_bytes` (1024–65536), `max_ms` (100–5000) | a bounded context: the definition with its source, the other declarations of its file, imports, importers and tests, each with a `ref`; snapshot ID and digest, freshness, limits, what the limits left out, and an artifact ID | none |
 
-The three navigation tools answer from the local index of the last collected snapshot. They read no file content and write nothing. Declarations exist for Go only; other languages are at file level. Lines can be out of date after edits; `hint_collect` refreshes the index.
+The three navigation tools answer from the local index of the last collected snapshot. They read no file content and write nothing.
 
-`git hint mcp --tools <names>` serves only the listed tools (comma-separated), for example a read-only navigation set: `--tools hint_find_definition,hint_importers,hint_file_outline`.
+`hint_context` uses the same index and stores nothing. It returns source only for the start declaration and the tests that name it, and only when the file still has the content hash of the snapshot. Call it again with the `ref` of one item to expand that detail. Rules:
+
+- A `ref` names one snapshot and one entity. It reads that snapshot. When the file changed after the snapshot, the answer is `refused_stale` with no items; it never returns other source.
+- A seed that matches several entities gives `ambiguous` with candidate refs and no source.
+- Items, bytes (UTF-8 of the returned items), depth and time are hard limits; `omitted` counts what they left out.
+- The answer carries `measurement`, the HINT v0.2 context measurement of the call (opaque IDs only; tokens are an estimate), for an adapter that records the call.
+- There is no call graph: links are file declarations, imports of repository packages and test files (Go at syntax level; other languages at file level). Declarations exist for Go only; other languages are at file level. Lines can be out of date after edits; `hint_collect` refreshes the index.
+
+`git hint mcp --tools <names>` serves only the listed tools (comma-separated), for example a read-only navigation set: `--tools hint_find_definition,hint_importers,hint_file_outline,hint_context`.
 
 No tool runs a shell command, changes source files, or executes a plan step. A successful tool call is not an accepted change: review the plan and run the checks before any code change.
 

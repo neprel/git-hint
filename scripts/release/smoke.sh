@@ -71,7 +71,7 @@ out=$(cd "$p" && { printf '%s\n%s\n%s\n' \
 	'{"jsonrpc":"2.0","method":"notifications/initialized"}' \
 	'{"jsonrpc":"2.0","id":2,"method":"tools/list"}'; sleep 3; } | run git hint mcp 2>/dev/null) || fail "mcp"
 for t in hint_status hint_collect hint_export_preview hint_recommend hint_plan hint_import_recommendation \
-	hint_changes hint_evidence hint_compare hint_find_definition hint_importers hint_file_outline; do
+	hint_changes hint_evidence hint_compare hint_find_definition hint_importers hint_file_outline hint_context; do
 	echo "$out" | grep "\"name\":\"$t\"" >/dev/null || fail "MCP tool $t not listed"
 done
 echo "$out" | grep '"protocolVersion":"2025-11-25"' >/dev/null || fail "protocol version"

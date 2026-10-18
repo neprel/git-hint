@@ -31,6 +31,11 @@ These notes describe changes that are not released yet. They name no version, an
 - **Library.** Immutable versions, retention with pins (`git hint eval pin`), `forget`, and private bundles for your other machines (`eval pack`, `eval unpack`).
 - **Reports.** `git hint eval report [--send]` writes a minimized result report (evalreport v0.2): outcomes, checks, counters, the context policy state and project-scoped references only, no task text, code, paths or commands. Sending needs the policy and your approval.
 
+## Bounded context for agents (MCP)
+
+- New read-only MCP tool `hint_context`: a small context around one declaration, file or package from the local index (definition with source, file declarations, imports, importers, tests), with refs to expand one detail.
+- Hard limits on depth, items, bytes and time. An old ref reads its own snapshot or is refused as stale. Nothing is stored; source is read only when the file is unchanged since the snapshot.
+
 ## HINT data standard v0.2
 
 - The client reads v0.1 and v0.2 and still writes v0.1.

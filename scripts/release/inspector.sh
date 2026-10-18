@@ -22,7 +22,7 @@ JSON
 list=$($inspector --cli --config "$tmp/servers.json" --server hint --method tools/list) || fail "tools/list"
 n=0
 for t in hint_status hint_collect hint_export_preview hint_recommend hint_plan hint_import_recommendation \
-	hint_changes hint_evidence hint_compare hint_find_definition hint_importers hint_file_outline; do
+	hint_changes hint_evidence hint_compare hint_find_definition hint_importers hint_file_outline hint_context; do
 	echo "$list" | grep "\"name\": *\"$t\"" >/dev/null || fail "tool $t not listed"
 	n=$((n + 1))
 done

@@ -103,7 +103,7 @@ func New(o Options) *mcp.Server {
 // ToolNames lists every tool of the server.
 var ToolNames = []string{"hint_status", "hint_collect", "hint_export_preview", "hint_recommend", "hint_plan",
 	"hint_import_recommendation", "hint_changes", "hint_evidence", "hint_compare",
-	"hint_find_definition", "hint_importers", "hint_file_outline", "hint_evals", "hint_eval_run"}
+	"hint_find_definition", "hint_importers", "hint_file_outline", "hint_context", "hint_evals", "hint_eval_run"}
 
 // Run serves MCP on the given streams until the client disconnects or ctx ends.
 func Run(ctx context.Context, o Options, in io.ReadCloser, out io.WriteCloser) error {
