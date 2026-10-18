@@ -519,6 +519,13 @@ func evalRun(e *Env, args []string) int {
 	if fs.Parse(args) != nil {
 		return 2
 	}
+	// binding flags are checked before any policy, runner or model step (C7BE-9)
+	if *planID != "" || *workUnit != "" {
+		if *planID == "" || *workUnit == "" || *arm != "refactor" || len(with) != 1 {
+			fmt.Fprintln(e.Stderr, "git hint eval run: --plan and --work-unit go together, with --arm refactor and one --with work tree")
+			return 2
+		}
+	}
 	if *ctxPolicy != "" {
 		// a policy that is only written into the trial would be a label-only arm; the eval
 		// container cannot run hint_context yet, so the treatment cannot be applied
@@ -535,10 +542,6 @@ func evalRun(e *Env, args []string) int {
 	ctx := context.Background()
 	evalsToRun := fs.Args()
 	if len(with) > 0 {
-		if (*planID == "") != (*workUnit == "") || (*planID != "" && *arm != "refactor") {
-			fmt.Fprintln(e.Stderr, "git hint eval run: --plan and --work-unit go together, with --arm refactor")
-			return 2
-		}
 		refs, ready, err := prepareVariants(e, s, *arm, fs.Args(), with, *planID, *workUnit)
 		if err != nil {
 			return fail(e, err)

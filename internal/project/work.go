@@ -363,7 +363,7 @@ func (u *WorkUnit) ClosedAttempt() (int, WorkAttempt, bool) {
 		return 0, WorkAttempt{}, false
 	}
 	a := u.Attempts[len(u.Attempts)-1]
-	if a.Outcome != "completed" || a.Closure != "validated" {
+	if a.Outcome != "completed" || a.Closure != "validated" || len(a.Late) > 0 { // late activity: the closure no longer holds
 		return 0, WorkAttempt{}, false
 	}
 	for i, r := range u.Revisions { // the revision that closed it

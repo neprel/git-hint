@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/trees"
@@ -23,7 +24,7 @@ func closedUnit(t *testing.T) (string, string) {
 	must(t, run(t, shop, "", "recommend", "--yes", "--server", srv.URL))
 	planID := firstPlan(t, shop)
 	must(t, run(t, shop, "", "eval", "work", "start", "split", "--plan", planID, "--family", "billing"))
-	must(t, member(t, shop, "split", "t1", true, 0))
+	must(t, member(t, shop, "split", "t1", true, -time.Minute)) // its events lie before the close
 	change(t, shop, "func Captured() int { return 1 }\n")
 	must(t, run(t, shop, "", "eval", "work", "close", "split", "--outcome", "completed"))
 	return shop, planID
@@ -159,5 +160,39 @@ func TestOneWorkAttemptHasOneDeclaredAfterState(t *testing.T) {
 	}
 	if d := declaration(t, shop); d.AfterTree == "" {
 		t.Fatal("the first declaration was changed")
+	}
+}
+
+// C7BE-9: binding flags are checked before any policy, runner or model step.
+func TestEvalRunRefusesIncompleteBindingFlagsFirst(t *testing.T) {
+	shop, _ := setup(t)
+	for _, args := range [][]string{
+		{"--agent", "nop", "--plan", strings.Repeat("a", 32), "--work-unit", "u"},                                      // no --with
+		{"--agent", "nop", "--arm", "refactor", "--plan", strings.Repeat("a", 32), "--with", shop},                     // no --work-unit
+		{"--agent", "nop", "--arm", "refactor", "--work-unit", "u", "--with", shop},                                    // no --plan
+		{"--agent", "nop", "--arm", "baseline", "--plan", strings.Repeat("a", 32), "--work-unit", "u", "--with", shop}, // wrong arm
+		{"--agent", "nop", "--arm", "refactor", "--plan", strings.Repeat("a", 32), "--work-unit", "u", "--from", "x.json", "--with", shop},
+	} {
+		r := run(t, shop, "", append([]string{"eval", "run"}, args...)...)
+		if r.code != 2 || strings.Contains(strings.ToLower(r.stderr), "harbor") {
+			t.Fatalf("%v: %+v", args, r)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(shop, ".hint", "state", "evals", "work")); err == nil {
+		t.Fatal("a refused run wrote a run journal")
+	}
+}
+
+// C7BE-8 (client): late activity after the closure makes a new plan binding unavailable.
+func TestVariantPlanRefusesAStaleUnit(t *testing.T) {
+	shop, planID := closedUnit(t)
+	must(t, run(t, shop, "", "changes", "--declare-plan", planID, "--work-unit", "split", "--after", "latest"))
+	must(t, member(t, shop, "split", "late-task", false, 60*time.Second)) // activity after the closure
+	s, _ := store.Open(shop)
+	if _, _, err := project.VariantPlan(s, "split", planID); err == nil || !strings.Contains(err.Error(), "later activity") {
+		t.Fatalf("a stale unit gave a binding: %v", err)
+	}
+	if d := declaration(t, shop); d.AfterTree == "" {
+		t.Fatal("the historical declaration was changed")
 	}
 }

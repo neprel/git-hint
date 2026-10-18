@@ -291,9 +291,12 @@ func VariantPlan(s *store.Store, label, planID string) (map[string]any, string, 
 	if err != nil {
 		return nil, "", err
 	}
+	if err := u.Revise(s, time.Now()); err != nil { // record late activity first (C7BE-8)
+		return nil, "", err
+	}
 	rev, attempt, ok := u.ClosedAttempt()
 	if !ok {
-		return nil, "", errors.New("the work unit has no closed successful attempt")
+		return nil, "", errors.New("the work unit has no closed successful attempt without later activity: a plan binding is unavailable")
 	}
 	ds, err := Declarations(s, u.PlanRepo)
 	if err != nil {
