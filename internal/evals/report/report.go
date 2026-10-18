@@ -376,7 +376,11 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 
 // environmentIdentity is the canonical environment identity of an eval version: image,
 // setup and the dependency locks it names (the immutable eval record is the source).
-func environmentIdentity(ev map[string]any) []string {
+func environmentIdentity(ev map[string]any) []string { return EnvironmentIdentity(ev) }
+
+// EnvironmentIdentity is the canonical environment identity of an eval version (exported for
+// the controlled work unit journal; the same parts give the same environment reference).
+func EnvironmentIdentity(ev map[string]any) []string {
 	env, _ := ev["environment"].(map[string]any)
 	parts := []string{str(env["image"]), str(env["setup"])}
 	deps, _ := ev["dependencies"].([]any)

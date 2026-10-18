@@ -133,7 +133,8 @@ func WorkStart(s *store.Store, label string, setRaw []byte, planID, family strin
 	b, _ := json.Marshal(cfg)
 	_ = json.Unmarshal(b, &c)
 	u.Scope = map[string]any{"declared_at": now.UTC().Truncate(time.Hour).Format(time.RFC3339), "plan": plan, "objective_ref": nil,
-		"base_snapshots": bases, "family_ref": activity.FamilyRef(s.Key(), family), "configuration": c}
+		"base_snapshots": bases, "family_ref": activity.FamilyRef(s.Key(), family), "configuration": c,
+		"environment_ref": nil, "run_ref": nil, "eval_ref": nil, "baseline_ref": nil, "arm": nil, "planned_attempts": nil}
 	if err := u.revise(s, now); err != nil {
 		return nil, err
 	}
@@ -328,12 +329,18 @@ func (u *WorkUnit) reportAttempts(s *store.Store) ([]any, error) {
 	res := []any{}
 	for _, a := range u.Attempts {
 		closure := map[string]any{"state": a.Closure}
-		if a.Validation != "" {
-			closure["validation_task_id"] = a.Validation
+		switch {
+		case a.Validation != "":
+			closure["validation_task_id"], closure["reason"] = a.Validation, "validation_task_passed"
+		case a.Closure == "not_validated":
+			closure["reason"] = "not_validated"
+		default:
+			closure["reason"] = "no_validation"
 		}
 		ra := map[string]any{"attempt_ref": a.Ref, "task_ids": a.Tasks, "outcome": a.Outcome, "closure": closure,
 			"application_change_set": nil,
 			"usage":                  map[string]any{"requests": nil, "input_tokens": nil, "output_tokens": nil, "cache_tokens": nil},
+			"usage_provenance":       "unknown",
 			"coverage":               map[string]any{"tasks": len(a.Tasks), "tasks_with_complete_usage": 0}}
 		if len(a.Late) > 0 {
 			ra["late_tasks"] = a.Late

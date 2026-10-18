@@ -1,0 +1,333 @@
+// Package workunits journals controlled work units of eval runs (eval report v0.2 work_units,
+// origin controlled): the run manifest is written before the first attempt, every planned
+// eligible objective gets an open unit at once (also one that is never reached), and every
+// terminal trial record appends one immutable revision. Reports serialize the journal; they
+// never regenerate it. Only live agents with a refactor-family eval form cost units; nop and
+// oracle runs are controls.
+package workunits
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"path/filepath"
+	"slices"
+	"sort"
+	"time"
+
+	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/report"
+	"github.com/neprel/git-hint/internal/hint"
+	"github.com/neprel/git-hint/internal/store"
+)
+
+// Member is one frozen suite member of a run.
+type Member struct {
+	Eval       string `json:"eval"`
+	Baseline   string `json:"baseline"`
+	Objective  string `json:"objective"`
+	TaskFamily string `json:"task_family"`
+	Eligible   bool   `json:"eligible"` // a refactor-family eval run by a live agent
+}
+
+// Manifest is the immutable plan of one run, written before the first attempt.
+type Manifest struct {
+	RunID         string   `json:"run_id"`
+	Suite         string   `json:"suite"`
+	Agent         string   `json:"agent"`
+	AgentVersion  string   `json:"agent_version"`
+	Arm           string   `json:"arm"`
+	Attempts      int      `json:"attempts"`
+	RunnerVersion string   `json:"runner_version"`
+	ModelLabel    string   `json:"model_label"`
+	LaunchDigest  string   `json:"launch_digest"`
+	MaxRequests   int      `json:"max_requests"`
+	MaxSeconds    int      `json:"max_seconds"`
+	Members       []Member `json:"members"`
+	CreatedAt     string   `json:"created_at"`
+}
+
+// Unit is the journal of one controlled unit.
+type Unit struct {
+	Eval      string           `json:"eval"`
+	UnitRef   string           `json:"unit_ref"`
+	Scope     map[string]any   `json:"scope"`
+	State     string           `json:"state"`
+	Attempts  []map[string]any `json:"attempts"`
+	Trials    []string         `json:"trials"` // recorded trial names (deduplication)
+	Revisions []map[string]any `json:"revisions"`
+	Reported  []string         `json:"reported,omitempty"`
+}
+
+// Run is the stored manifest with its units.
+type Run struct {
+	Manifest Manifest `json:"manifest"`
+	Units    []*Unit  `json:"units"`
+}
+
+var ErrRunExists = errors.New("the run manifest exists already")
+
+func runFile(id string) string { return id + ".json" }
+
+// Start stores the manifest and opens a unit for every eligible member (revision 1, no
+// attempt). A manifest is written once.
+func Start(s *store.Store, l *library.Library, m Manifest, now time.Time) error {
+	var old Run
+	if err := s.ReadJSON(&old, "state", "evals", "work", runFile(m.RunID)); err == nil {
+		return ErrRunExists
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	r := &Run{Manifest: m}
+	for _, mb := range m.Members {
+		if !mb.Eligible {
+			continue
+		}
+		var ev map[string]any
+		if err := l.Manifest("eval", mb.Eval, &ev); err != nil {
+			return err
+		}
+		ref := func(kind string, parts ...string) string { return hint.EvalRef(s.Key(), kind, parts...) }
+		cfg := map[string]any{
+			"agent":          map[string]any{"name": m.Agent, "version": version(m.AgentVersion)},
+			"model":          map[string]any{"state": "known", "ref": ref("model", m.ModelLabel), "provenance": "launch_intent"},
+			"harness":        map[string]any{"kind": "harbor", "version": version(m.RunnerVersion)},
+			"context_policy": map[string]any{"state": "disabled"}, // HINT delivers no managed context in eval trials yet
+			"config_refs":    map[string]any{"state": "known", "refs": []any{ref("observed-config", "setting_override", m.LaunchDigest)}},
+			"budget":         map[string]any{"max_requests": limit(m.MaxRequests), "max_seconds": limit(m.MaxSeconds)},
+		}
+		scope := map[string]any{"declared_at": now.UTC().Truncate(time.Hour).Format(time.RFC3339), "plan": nil,
+			"objective_ref": ref("objective", mb.Objective), "base_snapshots": []any{}, "family_ref": ref("family", mb.TaskFamily),
+			"configuration": cfg, "environment_ref": ref("environment", report.EnvironmentIdentity(ev)...), "run_ref": ref("run", m.RunID),
+			"eval_ref": ref("eval", mb.Eval), "baseline_ref": ref("eval", mb.Baseline), "arm": m.Arm, "planned_attempts": m.Attempts}
+		u := &Unit{Eval: mb.Eval, UnitRef: ref("work-unit", "controlled", m.RunID, mb.Eval), Scope: plain(scope).(map[string]any), State: "open",
+			Attempts: []map[string]any{}, Trials: []string{}}
+		if err := u.revise(); err != nil {
+			return err
+		}
+		r.Units = append(r.Units, u)
+	}
+	return s.WriteJSON(r, "state", "evals", "work", runFile(m.RunID))
+}
+
+// Record appends the terminal trial record `name` of member `eval` as an attempt (once).
+func Record(s *store.Store, l *library.Library, runID, eval, name string) error {
+	var r Run
+	if err := s.ReadJSON(&r, "state", "evals", "work", runFile(runID)); err != nil {
+		return err
+	}
+	var u *Unit
+	for _, x := range r.Units {
+		if x.Eval == eval {
+			u = x
+		}
+	}
+	if u == nil {
+		return nil // not an eligible member: no cost unit
+	}
+	if slices.Contains(u.Trials, name) {
+		return nil // the same trial record again
+	}
+	var t, ev map[string]any
+	if err := l.Manifest("trial", name, &t); err != nil {
+		return err
+	}
+	if err := l.Manifest("eval", eval, &ev); err != nil {
+		return err
+	}
+	if len(u.Attempts) >= r.Manifest.Attempts {
+		return fmt.Errorf("more trial records than planned attempts for %s", eval)
+	}
+	u.Attempts = append(u.Attempts, attempt(s, r.Manifest.RunID, eval, name, t, ev))
+	u.Trials = append(u.Trials, name)
+	if len(u.Attempts) == r.Manifest.Attempts {
+		u.State = "closed" // every planned attempt has a terminal record
+	}
+	if err := u.revise(); err != nil {
+		return err
+	}
+	return s.WriteJSON(r, "state", "evals", "work", runFile(runID))
+}
+
+// attempt is the report form of one terminal trial (CU3/CU4).
+func attempt(s *store.Store, run, eval, name string, t, ev map[string]any) map[string]any {
+	ref := func(kind string, parts ...string) string { return hint.EvalRef(s.Key(), kind, parts...) }
+	outcome, _ := t["outcome"].(string)
+	var mandatory []string
+	if v, _ := ev["verifier"].(map[string]any); v != nil {
+		for _, c := range list(v["checks"]) {
+			if m, _ := c.(map[string]any); m != nil {
+				mandatory = append(mandatory, str(m["check_id"]))
+			}
+		}
+	}
+	status := map[string]string{}
+	for _, c := range list(t["checks"]) {
+		if m, _ := c.(map[string]any); m != nil {
+			status[str(m["check_id"])] = str(m["status"])
+		}
+	}
+	present, passed := 0, 0
+	for _, c := range mandatory {
+		if st, ok := status[c]; ok {
+			present++
+			if st == "pass" {
+				passed++
+			}
+		}
+	}
+	qual := str(ev["state"])
+	tr := ref("trial", name)
+	closure := map[string]any{"state": "not_validated", "reason": "trial_failed"}
+	out := "failed"
+	switch {
+	case outcome == "passed" && len(mandatory) > 0 && present == len(mandatory) && passed == len(mandatory) && qual == "validated":
+		out, closure = "completed", map[string]any{"state": "validated", "validation_ref": tr, "reason": "checks_passed"}
+	case outcome == "passed" && qual != "validated":
+		closure["reason"] = "not_qualified"
+	case outcome == "passed":
+		closure["reason"] = "incomplete_checks"
+	case outcome == "infrastructure_error" || outcome == "verifier_error" || outcome == "cancelled":
+		closure = map[string]any{"state": "unknown", "reason": "trial_error"} // kept; coverage incomplete
+	}
+	c, _ := t["counters"].(map[string]any)
+	_, okIn := c["input_tokens"].(float64)
+	_, okOut := c["output_tokens"].(float64)
+	prov, complete := "unknown", 0
+	if okIn && okOut { // the Harbor trial result's agent token counts; null stays null
+		prov, complete = "harness_reported", 1
+	}
+	check := "not_observed"
+	if ag, _ := t["agent"].(map[string]any); ag != nil && str(ag["model_check"]) != "" {
+		check = str(ag["model_check"])
+	}
+	n := fmt.Sprint(t["attempt"])
+	return plain(map[string]any{"attempt_ref": ref("attempt", "controlled", run, eval, n), "task_ids": []any{}, "outcome": out, "closure": closure,
+		"application_change_set": nil, "usage": map[string]any{"requests": c["requests"], "input_tokens": c["input_tokens"], "output_tokens": c["output_tokens"],
+			"cache_tokens": c["cache_tokens"]}, "usage_provenance": prov, "coverage": map[string]any{"tasks": 1, "tasks_with_complete_usage": complete},
+		"trial_ref": tr, "trial_outcome": outcome, "model_check": check,
+		"checks": map[string]any{"mandatory": len(mandatory), "present": present, "passed": passed}, "qualification": nullable(qual)}).(map[string]any)
+}
+
+// revise appends a revision when the reported form changed (state or attempts).
+func (u *Unit) revise() error {
+	scopeDigest, err := hint.Digest(plain(u.Scope))
+	if err != nil {
+		return err
+	}
+	var prev any
+	if n := len(u.Revisions); n > 0 {
+		last := u.Revisions[n-1]
+		b1, _ := json.Marshal(last["attempts"])
+		b2, _ := json.Marshal(plain(u.Attempts))
+		if last["state"] == u.State && string(b1) == string(b2) {
+			return nil
+		}
+		prev = last["revision_digest"]
+	}
+	r := map[string]any{"unit_ref": u.UnitRef, "origin": "controlled", "scope": u.Scope, "scope_digest": scopeDigest, "revision": len(u.Revisions) + 1,
+		"predecessor": prev, "state": u.State, "attempts": u.Attempts, "declared_by": "user"}
+	d, err := hint.Digest(plain(r))
+	if err != nil {
+		return err
+	}
+	r["revision_digest"] = d
+	u.Revisions = append(u.Revisions, plain(r).(map[string]any))
+	return nil
+}
+
+// Unreported returns the journaled revisions not yet sent, in run and unit order.
+func Unreported(s *store.Store) ([]any, error) {
+	runs, err := runs(s)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	for _, r := range runs {
+		for _, u := range r.Units {
+			for _, rv := range u.Revisions {
+				if d, _ := rv["revision_digest"].(string); !slices.Contains(u.Reported, d) {
+					out = append(out, rv)
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
+// MarkReported records sent revisions.
+func MarkReported(s *store.Store, revisions []any) error {
+	runs, err := runs(s)
+	if err != nil {
+		return err
+	}
+	for _, r := range runs {
+		changed := false
+		for _, u := range r.Units {
+			for _, x := range revisions {
+				m, _ := x.(map[string]any)
+				d, _ := m["revision_digest"].(string)
+				if m["unit_ref"] == u.UnitRef && !slices.Contains(u.Reported, d) {
+					u.Reported = append(u.Reported, d)
+					changed = true
+				}
+			}
+		}
+		if changed {
+			if err := s.WriteJSON(r, "state", "evals", "work", runFile(r.Manifest.RunID)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func runs(s *store.Store) ([]*Run, error) {
+	files, err := filepath.Glob(filepath.Join(s.Path("state", "evals", "work"), "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	var out []*Run
+	for _, f := range files {
+		var r Run
+		if err := s.ReadJSON(&r, "state", "evals", "work", filepath.Base(f)); err != nil {
+			return nil, err
+		}
+		out = append(out, &r)
+	}
+	return out, nil
+}
+
+func version(v string) map[string]any {
+	if v == "" {
+		return map[string]any{"state": "unknown"}
+	}
+	return map[string]any{"state": "known", "value": v}
+}
+
+func limit(v int) map[string]any {
+	if v < 1 {
+		return map[string]any{"state": "unknown"}
+	}
+	return map[string]any{"state": "known", "value": v}
+}
+
+func nullable(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+func plain(v any) any {
+	b, _ := json.Marshal(v)
+	var out any
+	_ = json.Unmarshal(b, &out)
+	return out
+}
+
+func list(v any) []any { l, _ := v.([]any); return l }
+
+func str(v any) string { s, _ := v.(string); return s }

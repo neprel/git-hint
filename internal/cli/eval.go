@@ -21,6 +21,7 @@ import (
 	"github.com/neprel/git-hint/internal/evals/report"
 	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/evals/trees"
+	"github.com/neprel/git-hint/internal/evals/workunits"
 	"github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/store"
 )
@@ -724,6 +725,11 @@ func evalReport(e *Env, args []string) int {
 			}
 		}
 	}
+	controlled, err := workunits.Unreported(s) // controlled units journaled by eval run
+	if err != nil {
+		return fail(e, err)
+	}
+	work = append(work, controlled...)
 	if len(names) == 0 && len(work) == 0 {
 		fmt.Fprintln(e.Stdout, "No new trial results or work unit revisions to report.")
 		return 0
@@ -784,6 +790,9 @@ func evalReport(e *Env, args []string) int {
 		return fail(e, err)
 	}
 	if err := project.MarkWorkReported(s, work); err != nil {
+		return fail(e, err)
+	}
+	if err := workunits.MarkReported(s, work); err != nil {
 		return fail(e, err)
 	}
 	fmt.Fprintf(e.Stdout, "Sent: the server answered %s.\n", rc.Status)

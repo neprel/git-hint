@@ -1068,7 +1068,7 @@
       ]
     },
     "ModelState": {
-      "description": "The effective model of the run: known with its provenance (launch_parameter: the selection that constructed and enforced the launch; agent_reported: reported by the agent) or unknown. A user's declaration alone is never effective (see declared).",
+      "description": "The model of the run: known with its provenance (launch_intent: the constructed selection before any check — never the effective model by itself; launch_parameter: the selection that constructed the launch, enforced and checked; agent_reported: reported by the agent) or unknown. A user's declaration alone is never effective (see declared).",
       "oneOf": [
         {
           "type": "object",
@@ -1083,6 +1083,7 @@
             "provenance": {
               "type": "string",
               "enum": [
+                "launch_intent",
                 "launch_parameter",
                 "agent_reported"
               ]

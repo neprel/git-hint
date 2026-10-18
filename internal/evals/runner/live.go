@@ -195,7 +195,6 @@ func (lv *Live) Model() string { return "openai/" + lv.model }
 // ErrNoLive is returned when a live trial is requested without a proxy.
 var ErrNoLive = errors.New("live trials need the model proxy")
 
-
 // LaunchDigest is the digest of the effective launch configuration of a live trial: the agent
 // arguments, the model selection and the names of the environment variables (values such as
 // the per-trial proxy URL and the dummy key are not configuration and never enter it).
@@ -210,7 +209,6 @@ func LaunchDigest(ro RunOptions) string {
 	h := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(h[:])
 }
-
 
 // maxCheckedBody bounds the request body that the model check reads (larger bodies are
 // forwarded unread and count as unverified).

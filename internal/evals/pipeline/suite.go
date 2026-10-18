@@ -15,6 +15,7 @@ import (
 	"github.com/neprel/git-hint/internal/evals/qualify"
 	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/evals/suites"
+	"github.com/neprel/git-hint/internal/evals/workunits"
 	"github.com/neprel/git-hint/internal/store"
 )
 
@@ -116,6 +117,27 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 		return rep, err
 	}
 	defer l.EndJob(job, "done")
+	// controlled work units (C7B-E CU5): the run manifest and an open unit for every planned
+	// eligible objective are written before the first attempt
+	if o.Agent == "opencode" && o.Live != nil {
+		m := workunits.Manifest{RunID: job, Suite: suite, Agent: o.Agent, AgentVersion: o.Live.AgentVersion, Arm: o.Arm, Attempts: o.Attempts,
+			RunnerVersion: runnerVersion, ModelLabel: o.Live.ModelLabel, MaxRequests: lim.TrialRequests, MaxSeconds: lim.TrialSeconds,
+			LaunchDigest: runner.LaunchDigest(runner.RunOptions{Agent: o.Agent, AgentArgs: o.Live.AgentArgs(nil), Env: o.Live.AgentEnv(&runner.Counter{}), Model: o.Live.Model()}),
+			CreatedAt:    now.UTC().Format(time.RFC3339)}
+		for _, mm := range sr["members"].([]any) {
+			ref := mm.(map[string]any)["eval"].(string)
+			var rec map[string]any
+			if l.Manifest("eval", ref, &rec) != nil {
+				continue
+			}
+			b := bind[ref]
+			m.Members = append(m.Members, workunits.Member{Eval: ref, Baseline: b.Baseline, Objective: b.Objective,
+				TaskFamily: str(mm.(map[string]any)["task_family"]), Eligible: str(rec["family"]) == "refactor"})
+		}
+		if err := workunits.Start(s, l, m, now); err != nil {
+			return rep, err
+		}
+	}
 	settings := runner.DefaultSettings
 	settings.AgentSeconds, settings.VerifierSeconds = lim.TrialSeconds, lim.TrialSeconds
 	var total int64
@@ -189,8 +211,14 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				in.Artifacts = []string{archived}
 			}
 			_ = l.Consume(job, int(reqs), int(retries), 1, time.Since(started).Seconds())
-			if _, err := suites.RecordTrial(l, in, trials[0]); err != nil {
+			name, err := suites.RecordTrial(l, in, trials[0])
+			if err != nil {
 				return rep, err // the work directory stays
+			}
+			if o.Agent == "opencode" && o.Live != nil {
+				if err := workunits.Record(s, l, job, ref, name); err != nil {
+					return rep, err
+				}
 			}
 			rep.Trials++
 			rep.Outcomes[trials[0].Outcome()]++

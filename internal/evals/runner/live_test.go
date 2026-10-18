@@ -130,7 +130,6 @@ func TestLaunchDigestIgnoresPerTrialValues(t *testing.T) {
 	}
 }
 
-
 func TestProxyRefusesAmbiguousModelFields(t *testing.T) {
 	var bodies []string
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -168,9 +167,9 @@ func TestProxyRefusesAmbiguousModelFields(t *testing.T) {
 		{[]string{ok, `{"model":null}`}, "unverified"}, // verified + null: never verified, no mismatch
 		{[]string{ok, `{"model":null}`, `{"model":"other"}`}, "mismatch"},
 		{[]string{`[{"model":"expected"}]`}, "unverified"},
-		{[]string{`{"model":"expected"} {"model":"other"}`}, "unverified"}, // trailing data
+		{[]string{`{"model":"expected"} {"model":"other"}`}, "unverified"},            // trailing data
 		{[]string{`{"messages":[{"model":"other"}],"model":"expected"}`}, "verified"}, // nested keys are not the selection
-		{[]string{ok, `{"model":"other","Model":"expected"}`, ok}, "unverified"}, // mixed: never verified
+		{[]string{ok, `{"model":"other","Model":"expected"}`, ok}, "unverified"},      // mixed: never verified
 		{[]string{ok, `{"model":"other"}`, `{"Model":"expected"}`}, "mismatch"},
 	} {
 		c := lv.NewTrial(20)

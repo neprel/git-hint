@@ -199,7 +199,9 @@ func v02Invalid() []invalidCase {
 	}
 	ctx := func(d M, i int) M { return obj(d, "payload", "observations", first(d)+i, "context") }
 	o0 := func(d M) M { return obj(d, "payload", "observations", first(d)) }
-	cfg := func(d M) map[string]any { return d["sources"].([]any)[0].(map[string]any)["configuration"].(map[string]any) }
+	cfg := func(d M) map[string]any {
+		return d["sources"].([]any)[0].(map[string]any)["configuration"].(map[string]any)
+	}
 	return []invalidCase{
 		{"context-on-edit-op", "activity-context.json", "schema", "observation", func(d M) {
 			o0(d)["op"] = "EDIT_INTENT"

@@ -760,6 +760,22 @@
             },
             "validation_task_id": {
               "$ref": "#/$defs/Ref"
+            },
+            "validation_ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "checks_passed",
+                "validation_task_passed",
+                "not_validated",
+                "trial_failed",
+                "trial_error",
+                "incomplete_checks",
+                "not_qualified",
+                "no_validation"
+              ]
             }
           },
           "required": [
@@ -775,8 +791,17 @@
                 }
               },
               "then": {
-                "required": [
-                  "validation_task_id"
+                "anyOf": [
+                  {
+                    "required": [
+                      "validation_task_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "validation_ref"
+                    ]
+                  }
                 ]
               }
             }
@@ -843,6 +868,109 @@
           "uniqueItems": true,
           "maxItems": 1000,
           "description": "Member tasks with activity after closure (the unit is stale for cost)."
+        },
+        "trial_ref": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Controlled attempts: the trial (also the validation reference)."
+        },
+        "trial_outcome": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed",
+                "verifier_error",
+                "infrastructure_error",
+                "timeout",
+                "cancelled",
+                "budget_exhausted"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model_check": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "verified",
+                "mismatch",
+                "unverified",
+                "not_observed"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage_provenance": {
+          "type": "string",
+          "enum": [
+            "harness_reported",
+            "activity_usage",
+            "unknown"
+          ],
+          "description": "Where the attempt's token counts come from; null counts stay null."
+        },
+        "checks": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mandatory": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "present": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "passed": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "mandatory",
+                "present",
+                "passed"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "qualification": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "validated",
+                "reproducible",
+                "packaged",
+                "needs_review",
+                "unsupported",
+                "quarantined"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -852,7 +980,8 @@
         "closure",
         "application_change_set",
         "usage",
-        "coverage"
+        "coverage",
+        "usage_provenance"
       ],
       "allOf": [
         {
@@ -940,7 +1069,6 @@
                 "$ref": "#/$defs/Ref"
               },
               "uniqueItems": true,
-              "minItems": 1,
               "maxItems": 100
             },
             "family_ref": {
@@ -948,6 +1076,77 @@
             },
             "configuration": {
               "$ref": "#/$defs/Configuration"
+            },
+            "environment_ref": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Controlled units: the eval environment (image, setup, dependency locks) of the frozen version."
+            },
+            "run_ref": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Controlled units: the immutable run manifest, persisted before the first attempt."
+            },
+            "eval_ref": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "baseline_ref": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Ref"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "arm": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "baseline",
+                    "configuration",
+                    "no_change",
+                    "context_only",
+                    "refactor"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "planned_attempts": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -1012,6 +1211,103 @@
         "attempts",
         "declared_by",
         "revision_digest"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "project"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "scope": {
+                "properties": {
+                  "base_snapshots": {
+                    "minItems": 1
+                  },
+                  "environment_ref": {
+                    "type": "null"
+                  },
+                  "run_ref": {
+                    "type": "null"
+                  },
+                  "eval_ref": {
+                    "type": "null"
+                  },
+                  "baseline_ref": {
+                    "type": "null"
+                  },
+                  "arm": {
+                    "type": "null"
+                  },
+                  "planned_attempts": {
+                    "type": "null"
+                  }
+                },
+                "required": [
+                  "environment_ref",
+                  "run_ref",
+                  "eval_ref",
+                  "baseline_ref",
+                  "arm",
+                  "planned_attempts"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "controlled"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "scope": {
+                "properties": {
+                  "plan": {
+                    "type": "null"
+                  },
+                  "objective_ref": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "environment_ref": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "run_ref": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "eval_ref": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "baseline_ref": {
+                    "$ref": "#/$defs/Ref"
+                  },
+                  "arm": {
+                    "type": "string"
+                  },
+                  "planned_attempts": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "environment_ref",
+                  "run_ref",
+                  "eval_ref",
+                  "baseline_ref",
+                  "arm",
+                  "planned_attempts"
+                ]
+              }
+            }
+          }
+        }
       ]
     },
     "Limit": {
@@ -1052,7 +1348,7 @@
       ]
     },
     "ModelState": {
-      "description": "The effective model of the run: known with its provenance (launch_parameter: the selection that constructed and enforced the launch; agent_reported: reported by the agent) or unknown. A user's declaration alone is never effective (see declared).",
+      "description": "The model of the run: known with its provenance (launch_intent: the constructed selection before any check — never the effective model by itself; launch_parameter: the selection that constructed the launch, enforced and checked; agent_reported: reported by the agent) or unknown. A user's declaration alone is never effective (see declared).",
       "oneOf": [
         {
           "type": "object",
@@ -1067,6 +1363,7 @@
             "provenance": {
               "type": "string",
               "enum": [
+                "launch_intent",
                 "launch_parameter",
                 "agent_reported"
               ]
