@@ -55,6 +55,7 @@ type failGate struct {
 	refused  atomic.Int64
 	mu       sync.Mutex
 	paths    []string
+	statuses []int // status of every forwarded model answer
 }
 
 func (g *failGate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -144,6 +145,19 @@ func TestLiveContextChannel(t *testing.T) {
 	}
 	wantPolicy := store.ContextPolicyRef(s.Key(), store.ContextLimits{Depth: 1, MaxEntities: 10, MaxBytes: store.ContextRanges["max_bytes"][0], MaxMillis: store.ContextRanges["max_ms"][0]})
 
+	// the model endpoint must accept a TCP connection before the session starts (no model
+	// request); an unreachable endpoint ends the check without using the session attempt
+	mu, err := url.Parse(os.Getenv("HINT_LIVE_MODEL_URL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := net.DialTimeout("tcp", mu.Host, 5*time.Second); err != nil {
+		summary["result"] = "not started: the model endpoint is not reachable"
+		t.Fatalf("the model endpoint is not reachable: %T", err)
+	} else {
+		c.Close()
+	}
+
 	// the counting proxy, the failure gate and the host log
 	lv, err := runner.StartLive(runner.LiveConfig{BaseURL: os.Getenv("HINT_LIVE_MODEL_URL"), Model: os.Getenv("HINT_LIVE_MODEL"), KeyEnv: "HINT_LOCAL_MODEL_KEY", AgentVersion: "2.0.26"})
 	if err != nil {
@@ -158,6 +172,9 @@ func TestLiveContextChannel(t *testing.T) {
 		r.SetURL(up)
 		r.Out.URL.Path, r.Out.URL.RawPath = up.Path+strings.TrimPrefix(r.In.URL.Path, "/gate"), ""
 	}, ModifyResponse: func(resp *http.Response) error {
+		gate.mu.Lock()
+		gate.statuses = append(gate.statuses, resp.StatusCode)
+		gate.mu.Unlock()
 		if resp.StatusCode/100 != 2 {
 			gate.failures.Add(1)
 		}
@@ -223,10 +240,11 @@ func TestLiveContextChannel(t *testing.T) {
 	logger.mu.Unlock()
 	gate.mu.Lock()
 	paths := append([]string{}, gate.paths...)
+	statuses := append([]int{}, gate.statuses...)
 	gate.mu.Unlock()
 	summary["session"] = map[string]any{"exit_error": fmt.Sprint(runErr), "wall_seconds": wall.Round(time.Second).Seconds(), "timed_out": ctx.Err() != nil,
 		"model_requests": counter.Requests(), "requests_refused_by_limit": counter.Retries(), "limit_hit": counter.LimitHit(),
-		"failed_model_answers": gate.failures.Load(), "requests_refused_after_failures": gate.refused.Load()}
+		"failed_model_answers": gate.failures.Load(), "requests_refused_after_failures": gate.refused.Load(), "model_answer_statuses": statuses}
 	summary["endpoints"] = map[string]any{"model_gate_requests (method, last path segment)": paths, "proxied_host_attempts": hosts,
 		"note": "the egress rule allows loopback only; traffic that bypasses both the proxy and the gate is not observed"}
 	summary["tokens"] = tokensOf(events)
