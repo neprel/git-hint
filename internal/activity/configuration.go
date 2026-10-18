@@ -33,6 +33,18 @@ type ConfigRefs struct {
 	Refs  []string `json:"refs,omitempty"`
 }
 
+// MarshalJSON keeps a known empty list (a known empty set) and omits the list when unknown.
+func (c ConfigRefs) MarshalJSON() ([]byte, error) {
+	if c.State != "known" {
+		return json.Marshal(map[string]any{"state": c.State})
+	}
+	refs := c.Refs
+	if refs == nil {
+		refs = []string{}
+	}
+	return json.Marshal(map[string]any{"state": c.State, "refs": refs})
+}
+
 // Declared holds the user's explicit settings (provenance only; never the effective value).
 type Declared struct {
 	Model *RefState `json:"model,omitempty"`

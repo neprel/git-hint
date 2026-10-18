@@ -105,3 +105,18 @@ func TestLegacySourceIdentityIsUnchangedWithoutDeclarations(t *testing.T) {
 		t.Fatal("a changed effective configuration kept the identity")
 	}
 }
+
+func TestKnownEmptyConfigRefsStayKnown(t *testing.T) {
+	b, _ := json.Marshal(activity.ConfigRefs{State: "known"})
+	u, _ := json.Marshal(activity.ConfigRefs{State: "unknown"})
+	if string(b) != `{"refs":[],"state":"known"}` || string(u) != `{"state":"unknown"}` {
+		t.Fatalf("known empty: %s, unknown: %s", b, u)
+	}
+	shop, _ := setup(t)
+	t.Setenv("HINT_TASK_ID", "t1")
+	t.Setenv("HINT_CONFIG_REFS", "none")
+	must(t, run(t, shop, openCodeEvents(shop), "adapter", "opencode", "--project", shop))
+	must(t, run(t, shop, "", "export", "--out", t.TempDir())) // the v0.2 package validates
+	must(t, run(t, shop, "", "eval", "work", "start", "u", "--family", "f"))
+	must(t, run(t, shop, "", "eval", "report", "-o", filepath.Join(t.TempDir(), "r.json"))) // the report validates
+}
