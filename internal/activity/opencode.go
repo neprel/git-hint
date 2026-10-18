@@ -28,19 +28,32 @@ type Normalizer struct {
 	Resolve      Resolver
 	Now          func() time.Time
 	AgentVersion string
+	// TaskID is the opaque ID of the task that the orchestrator declared for this agent run
+	// (DeriveID(key, "task", raw), as hint_collect derives it); empty: undeclared.
+	TaskID string
 	// OnStats receives the counter lines of the plugin (hook "hint.stats"), if set.
 	OnStats func(line []byte)
 }
 
-// OpenCodeSource returns the source entry of the OpenCode plugin adapter.
-func OpenCodeSource(key []byte, agentVersion string) Source {
+// OpenCodeSource returns the source entry of the OpenCode plugin adapter. taskDeclared: the
+// orchestrator declared the task of this agent run (HINT_TASK_ID), so every record of the run
+// carries it; it is another source (another identity and capability list), never a model fact.
+func OpenCodeSource(key []byte, agentVersion string, taskDeclared bool) Source {
 	// the adapter version is part of the identity: another version can have other capabilities
-	s := Source{SourceID: hint.DeriveID(key, "source", "opencode-plugin", agentVersion, Version), Agent: "opencode",
+	mode := "task-undeclared"
+	if taskDeclared {
+		mode = "task-declared"
+	}
+	s := Source{SourceID: hint.DeriveID(key, "source", "opencode-plugin", agentVersion, Version, mode), Agent: "opencode",
 		Adapter: Adapter{Name: "opencode-plugin", Version: Version},
 		Capabilities: []string{"time.start", "time.end", "correlation.session_id", "correlation.tool_call_id",
 			"targets", "outcome.status", "outcome.exit_code", "size", "command_class", "content_delivery", "context"},
 		Unavailable: []string{"correlation.task_id", "correlation.turn_id", "correlation.trace_id",
 			"correlation.span_id", "usage", "coordination"}}
+	if taskDeclared {
+		s.Capabilities = append(s.Capabilities, "correlation.task_id")
+		s.Unavailable = s.Unavailable[1:]
+	}
 	if agentVersion != "" {
 		s.AgentVersion = &agentVersion
 	} else {
@@ -288,6 +301,10 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 			if e.Input.SessionID == "" {
 				delete(o.Correlation, "session_id")
 				o.Missing = append(o.Missing, "correlation.session_id")
+			}
+			if n.TaskID != "" { // declared for the whole run by the orchestrator
+				o.Correlation["task_id"] = n.TaskID
+				o.Missing = slices.DeleteFunc(o.Missing, func(s string) bool { return s == "correlation.task_id" })
 			}
 			if ef.op == "READ" {
 				// the plugin sees the returned text; delivery to the model is not proven

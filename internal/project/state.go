@@ -174,3 +174,39 @@ func (st *exportState) record(s *store.Store, obs []string, digests map[string]s
 	}
 	return s.WriteJSON(st, "state", "exports", "state.json")
 }
+
+// SessionTasks returns the declared-task evidence of the OpenCode adapter's agent sessions:
+// session pseudonym -> task ID -> observations ("" counts observations without a task), and
+// the adapter's source IDs. Only records of the OpenCode adapter count.
+func SessionTasks(s *store.Store) (map[string]map[string]int, []string, error) {
+	srcs, err := Sources(s)
+	if err != nil {
+		return nil, nil, err
+	}
+	var ids []string
+	for id, src := range srcs {
+		if src.Adapter.Name == "opencode-plugin" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	obs, _, err := ReadSpool(s)
+	if err != nil {
+		return nil, nil, err
+	}
+	out := map[string]map[string]int{}
+	for _, o := range obs {
+		if src, ok := srcs[o.SourceID]; !ok || src.Adapter.Name != "opencode-plugin" {
+			continue
+		}
+		sess := o.Correlation["session_id"]
+		if sess == "" {
+			continue
+		}
+		if out[sess] == nil {
+			out[sess] = map[string]int{}
+		}
+		out[sess][o.Correlation["task_id"]]++
+	}
+	return out, ids, nil
+}

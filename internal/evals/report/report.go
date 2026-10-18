@@ -148,6 +148,64 @@ func joinPath(p []string) string {
 type Builder struct {
 	Key       []byte
 	Namespace string
+	// Sessions is the declared-task evidence of agent sessions from the activity spool:
+	// session pseudonym -> task ID -> observations ("" counts observations without a task).
+	// AgentSources are the OpenCode adapter source IDs that derive the session pseudonyms.
+	// Without them no trial gets a source task.
+	Sessions     map[string]map[string]int
+	AgentSources []string
+}
+
+// sourceTask is the declared task of an eval, or "" when it is not unambiguous (G11 binding
+// rule): the eval's episode names exactly one source session; that session has exactly one
+// episode; every adapter observation of the session carries the same declared task. Mixed,
+// missing, conflicting or absent evidence gives "". Never by time, first or last event.
+func (b Builder) sourceTask(l *library.Library, evalRef string, episodes []map[string]any) (string, string) {
+	var ev map[string]any
+	if l.Manifest("eval", evalRef, &ev) != nil {
+		return "", ""
+	}
+	epID := str(ev["episode_id"])
+	var ep map[string]any
+	if epID == "" || l.Manifest("episode", epID, &ep) != nil {
+		return "", epID
+	}
+	srcs, _ := ep["sources"].([]any)
+	if len(srcs) != 1 {
+		return "", epID
+	}
+	src, _ := srcs[0].(map[string]any)
+	session := str(src["session"])
+	if session == "" || src["agent"] != "opencode" {
+		return "", epID
+	}
+	n := 0
+	for _, other := range episodes {
+		for _, x := range other["sources"].([]any) {
+			if m, _ := x.(map[string]any); str(m["session"]) == session && m["agent"] == "opencode" {
+				n++
+			}
+		}
+	}
+	if n != 1 {
+		return "", epID
+	}
+	tasks := map[string]int{}
+	for _, sid := range b.AgentSources {
+		for t, c := range b.Sessions[hint.DeriveID(b.Key, "session", sid, session)] {
+			tasks[t] += c
+		}
+	}
+	if len(tasks) != 1 {
+		return "", epID
+	}
+	for t := range tasks {
+		if !hexRef.MatchString(t) {
+			return "", epID
+		}
+		return t, epID
+	}
+	return "", epID
 }
 
 func (b Builder) ref(kind string, parts ...string) string {
@@ -163,6 +221,16 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 		return nil, nil, errors.New("report builder without a project key")
 	}
 	sort.Strings(trialNames)
+	var episodes []map[string]any
+	if len(b.AgentSources) > 0 {
+		names, _ := l.Manifests("episode")
+		for _, n := range names {
+			var ep map[string]any
+			if l.Manifest("episode", n, &ep) == nil {
+				episodes = append(episodes, ep)
+			}
+		}
+	}
 	suitesSeen := map[string]map[string]any{}
 	var trials []any
 	var used []string
@@ -230,6 +298,22 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 			tr["objective_ref"] = b.ref("objective", obj)
 			tr["baseline_ref"] = b.ref("eval", str(bind["baseline"]))
 			tr["environment_ref"] = b.ref("environment", environmentIdentity(ev)...)
+		}
+		// the declared task of the eval (G11): through the exact baseline version for a
+		// variant, which must keep the baseline's episode; the same opaque ID as the activity
+		// correlation.task_id
+		if len(b.AgentSources) > 0 {
+			source := evalRef
+			if bind, _ := t["binding"].(map[string]any); str(t["objective"]) != "" {
+				source = str(bind["baseline"])
+			}
+			task, ep := b.sourceTask(l, source, episodes)
+			if source != evalRef && str(ev["episode_id"]) != ep {
+				task = "" // a variant with another episode than its baseline: conflict
+			}
+			if task != "" {
+				tr["source_task_id"] = task
+			}
 		}
 		// the context policy: the full identity becomes one project reference; the other
 		// states stay distinct (a trial recorded before the field is unknown)

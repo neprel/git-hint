@@ -412,6 +412,10 @@
           "items": {
             "$ref": "#/$defs/Ref"
           }
+        },
+        "source_task_id": {
+          "$ref": "#/$defs/Ref",
+          "description": "The task that the orchestrator declared for the agent run the eval came from: the same opaque ID as the activity correlation.task_id. Present only when the binding is unambiguous."
         }
       },
       "required": [

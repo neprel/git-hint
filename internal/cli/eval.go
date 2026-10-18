@@ -20,6 +20,7 @@ import (
 	"github.com/neprel/git-hint/internal/evals/report"
 	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/evals/trees"
+	"github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/store"
 )
 
@@ -704,7 +705,11 @@ func evalReport(e *Env, args []string) int {
 		fmt.Fprintln(e.Stdout, "No new trial results to report.")
 		return 0
 	}
-	data, used, err := report.Builder{Key: s.Key(), Namespace: s.Cfg.ProjectNamespace}.Build(l, names, e.Now())
+	sessions, agents, err := project.SessionTasks(s)
+	if err != nil {
+		return fail(e, err)
+	}
+	data, used, err := report.Builder{Key: s.Key(), Namespace: s.Cfg.ProjectNamespace, Sessions: sessions, AgentSources: agents}.Build(l, names, e.Now())
 	if err != nil {
 		return fail(e, err)
 	}

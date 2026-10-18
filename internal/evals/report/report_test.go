@@ -262,3 +262,84 @@ func TestContextPolicyReference(t *testing.T) {
 		t.Fatal("the policy id or digest left the machine")
 	}
 }
+
+// G11 binding: a trial gets source_task_id only from complete, unambiguous evidence: the
+// eval's episode has one OpenCode session, the session has one episode, and every adapter
+// observation of the session carries the same declared task.
+func TestSourceTaskBinding(t *testing.T) {
+	l, names := seeded(t)
+	src := library.Digest([]byte("s"))
+	putEpisode := func(id, session string) {
+		t.Helper()
+		ep := map[string]any{"record": "episode", "manifest_version": 1, "episode_id": id, "created_at": "2026-10-17T00:00:00Z", "rules_version": "0.1.0",
+			"sources":      []any{map[string]any{"agent": "opencode", "parser_version": "0.1.0", "source": src, "session": session, "role": "primary"}},
+			"boundary":     map[string]any{"basis": "inferred", "start": map[string]any{"source": src, "record": "u"}, "rule": "r", "support": "high"},
+			"requests":     []any{map[string]any{"at": map[string]any{"source": src, "record": "u"}}},
+			"repositories": []any{map[string]any{"repo": "shop", "base_evidence": "unavailable"}}, "links": []any{}, "attribution": "exclusive", "reasons": []any{}}
+		if _, err := l.PutManifest("episode", ep); err != nil {
+			t.Fatal(err)
+		}
+	}
+	putEpisode("ep-00000000000000e1", "ses_raw_1")
+	agent := "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	sess := hint.DeriveID(fixedKey, "session", agent, "ses_raw_1")
+	task, other := strings.Repeat("7", 32), strings.Repeat("8", 32)
+	sourceTasks := func(ev map[string]map[string]int) []any {
+		t.Helper()
+		b, _, err := Builder{Key: fixedKey, Namespace: fixedNS, Sessions: ev, AgentSources: []string{agent}}.Build(l, names, time.Date(2026, 10, 18, 9, 41, 7, 0, time.UTC))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		json.Unmarshal(b, &m)
+		var out []any
+		for _, x := range m["trials"].([]any) {
+			out = append(out, x.(map[string]any)["source_task_id"])
+		}
+		return out
+	}
+	all := func(v any, got []any) bool {
+		for _, g := range got {
+			if g != v {
+				return false
+			}
+		}
+		return len(got) == 3
+	}
+	if got := sourceTasks(map[string]map[string]int{sess: {task: 12}}); !all(task, got) {
+		t.Fatalf("complete evidence: %v", got)
+	}
+	for name, ev := range map[string]map[string]map[string]int{
+		"mixed tagged and untagged": {sess: {task: 12, "": 1}},
+		"two declared tasks":        {sess: {task: 6, other: 6}},
+		"no evidence":               {},
+		"another session":           {hint.DeriveID(fixedKey, "session", agent, "ses_raw_2"): {task: 3}},
+	} {
+		if got := sourceTasks(ev); !all(nil, got) {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+	// no adapter sources given: no binding at all
+	b, _, _ := Builder{Key: fixedKey, Namespace: fixedNS, Sessions: map[string]map[string]int{sess: {task: 1}}}.Build(l, names, time.Date(2026, 10, 18, 9, 41, 7, 0, time.UTC))
+	if strings.Contains(string(b), "source_task_id") {
+		t.Fatal("binding without adapter sources")
+	}
+	// a second episode of the same session: ambiguous
+	putEpisode("ep-00000000000000e2", "ses_raw_1")
+	if got := sourceTasks(map[string]map[string]int{sess: {task: 12}}); !all(nil, got) {
+		t.Fatalf("two episodes: %v", got)
+	}
+}
+
+// G11: source_task_id is an opaque ID; any other value is refused by the schema.
+func TestSourceTaskIDIsOpaque(t *testing.T) {
+	_, m := build(t)
+	m["trials"].([]any)[0].(map[string]any)["source_task_id"] = strings.Repeat("7", 32)
+	if err := Check(reseal(m)); err != nil {
+		t.Fatalf("opaque task ID refused: %v", err)
+	}
+	m["trials"].([]any)[0].(map[string]any)["source_task_id"] = "chain-task-01"
+	if err := Check(reseal(m)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a raw task ID passed: %v", err)
+	}
+}

@@ -3,6 +3,8 @@ package project
 import (
 	"context"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/neprel/git-hint/internal/hint"
 
@@ -132,7 +134,7 @@ func recordMutations(s *store.Store, prev, cur *snapshot.Local, at time.Time, ra
 	}
 	obs := activity.Mutations(s.Key(), prev.Record.SnapshotID, cur.Record.SnapshotID, files, since, at, recent)
 	if rawTask != "" {
-		task := hint.DeriveID(s.Key(), "task", rawTask)
+		task := TaskID(s.Key(), rawTask)
 		for i := range obs {
 			if obs[i].Correlation == nil {
 				obs[i].Correlation = map[string]string{}
@@ -157,4 +159,22 @@ func withoutField(l []string, f string) []string {
 		}
 	}
 	return out
+}
+
+// TaskID is the opaque ID of a task that the agent or orchestrator supplied (hint_collect
+// task_id, HINT_TASK_ID of an agent run). The raw value never leaves the machine.
+func TaskID(key []byte, raw string) string { return hint.DeriveID(key, "task", raw) }
+
+// ValidTaskID reports whether a supplied task ID can be used: 1 to 200 bytes of printable
+// UTF-8 without control characters.
+func ValidTaskID(raw string) bool {
+	if raw == "" || len(raw) > 200 || !utf8.ValidString(raw) {
+		return false
+	}
+	for _, r := range raw {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }

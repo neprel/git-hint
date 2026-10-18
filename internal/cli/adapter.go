@@ -99,7 +99,14 @@ func adapterOpenCode(e *Env, args []string) int {
 	if err := s.CheckExcluded(); err != nil {
 		return fail(e, err)
 	}
-	src := activity.OpenCodeSource(s.Key(), *agentVersion)
+	// HINT_TASK_ID: the orchestrator declares the one task of this agent run; checked before
+	// any write; the raw value is never written or logged
+	rawTask, declared := os.LookupEnv("HINT_TASK_ID")
+	declared = declared && rawTask != ""
+	if declared && !project.ValidTaskID(rawTask) {
+		return fail(e, errors.New("HINT_TASK_ID is not a usable task ID (1-200 bytes of printable text); nothing was written"))
+	}
+	src := activity.OpenCodeSource(s.Key(), *agentVersion, declared)
 	if err := project.RegisterSource(s, src); err != nil {
 		return fail(e, err)
 	}
@@ -122,6 +129,9 @@ func adapterOpenCode(e *Env, args []string) int {
 		}
 	}
 	n := &activity.Normalizer{Key: s.Key(), SourceID: src.SourceID, Cwd: cleanAbs(*dir), Resolve: resolver(s), Now: e.Now}
+	if declared {
+		n.TaskID = project.TaskID(s.Key(), rawTask)
+	}
 	n.OnStats = func(line []byte) {
 		statsLines++
 		if stopped != nil {

@@ -37,6 +37,10 @@ These notes describe changes that are not released yet. They name no version, an
 - Hard limits on depth, items, bytes and time. An old ref reads its own snapshot or is refused as stale. Nothing is stored; source is read only when the file is unchanged since the snapshot.
 - The OpenCode adapter records each `hint_context` call with its context measurement (metadata only). A local context policy (`git hint init --context-limits`) sets the default limits, with every version kept for restore.
 
+## Declared tasks
+
+- `HINT_TASK_ID` in an agent run's environment declares the task of that run for the OpenCode adapter (same opaque ID as `hint_collect` `task_id`). Eval reports carry the declared task of an eval when the binding is unambiguous, so comparisons can bind to the findings of the same tasks.
+
 ## HINT data standard v0.2
 
 - The client reads v0.1 and v0.2 and still writes v0.1.

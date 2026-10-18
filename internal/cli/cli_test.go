@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1106,4 +1107,47 @@ func TestReportFromFileEqualsAPI(t *testing.T) {
 			t.Errorf("internal name %q in the user report", internal)
 		}
 	}
+}
+
+// G11: HINT_TASK_ID declares the one task of an agent run: every record of the run carries the
+// same opaque task ID as hint_collect derives for the raw value; the source says so; an empty
+// value is undeclared; an invalid value fails before any write; the raw value never leaves.
+func TestAdapterDeclaredTask(t *testing.T) {
+	shop, _ := setup(t)
+	s, _ := store.Open(shop)
+	raw := "HINTCANARY_TASK_42"
+	t.Setenv("HINT_TASK_ID", raw)
+	must(t, run(t, shop, openCodeEvents(shop), "adapter", "opencode", "--project", shop))
+	obs, _, _ := project.ReadSpool(s)
+	want := project.TaskID(s.Key(), raw)
+	srcs, _ := project.Sources(s)
+	for _, o := range obs {
+		if o.Correlation["task_id"] != want || slices.Contains(o.Missing, "correlation.task_id") {
+			t.Fatalf("record without the declared task: %+v", o)
+		}
+		if !slices.Contains(srcs[o.SourceID].Capabilities, "correlation.task_id") {
+			t.Fatalf("source does not declare the task capability: %+v", srcs[o.SourceID])
+		}
+	}
+	n := len(obs)
+	// empty: undeclared (another source, no task)
+	t.Setenv("HINT_TASK_ID", "")
+	must(t, run(t, shop, openCodeEvents(shop), "adapter", "opencode", "--project", shop))
+	obs, _, _ = project.ReadSpool(s)
+	if obs[n].SourceID == obs[0].SourceID || obs[n].Correlation["task_id"] != "" {
+		t.Fatalf("undeclared run shares the declared source or carries a task: %+v", obs[n])
+	}
+	m := len(obs)
+	// invalid: refused, nothing written
+	t.Setenv("HINT_TASK_ID", "bad\x01task")
+	if r := run(t, shop, openCodeEvents(shop), "adapter", "opencode", "--project", shop); r.code == 0 || !strings.Contains(r.stderr, "HINT_TASK_ID is not a usable task ID") || strings.Contains(r.stderr, "bad") {
+		t.Fatalf("invalid task ID: %+v", r)
+	}
+	if obs, _, _ = project.ReadSpool(s); len(obs) != m {
+		t.Fatal("an invalid declaration wrote records")
+	}
+	t.Setenv("HINT_TASK_ID", "")
+	out := t.TempDir()
+	must(t, run(t, shop, "", "export", "--out", out))
+	noCanary(t, "export", readAll(t, out), shop, raw)
 }

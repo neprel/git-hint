@@ -200,7 +200,7 @@ type CollectOut struct {
 }
 
 func (h *handlers) collect(ctx context.Context, _ *mcp.CallToolRequest, in CollectIn) (*mcp.CallToolResult, CollectOut, error) {
-	if len(in.TaskID) > 200 {
+	if in.TaskID != "" && !project.ValidTaskID(in.TaskID) {
 		return nil, CollectOut{}, h.fail("hint_collect", toolErr("invalid_argument"))
 	}
 	s, err := h.open()
