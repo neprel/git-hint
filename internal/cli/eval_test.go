@@ -273,3 +273,44 @@ func TestPinKeepsAnEvalThroughRetention(t *testing.T) {
 		t.Fatalf("an unpinned old eval survived retention: %v", names)
 	}
 }
+
+// Q-10-2: git hint eval map prints the mapping file; --apply stores a new packaged
+// version and starts the qualification worker only when runs are allowed.
+func TestEvalMapPrintAndApply(t *testing.T) {
+	shop, _ := setup(t)
+	var spawned []string
+	must(t, runEval(t, shop, &spawned, "eval", "on"))
+	s, _ := store.Open(shop)
+	l := library.Open(s, 0)
+	name, err := l.PutManifest("eval", evaltest.GoBugFix(t, l))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _, _ := strings.Cut(name, "@")
+	out := must(t, runEval(t, shop, &spawned, "eval", "map", id)).stdout
+	var f pipeline.MapFile
+	if err := json.Unmarshal([]byte(out), &f); err != nil || f.Eval != name {
+		t.Fatalf("map: %v %s", err, out)
+	}
+	f.Requirements[0].Quote, f.Requirements[0].Tests = "Fix Total so it subtracts the discount from the price", []string{evaltest.GoBugFixTest}
+	f.Context = []string{"Total ignores the discount."}
+	file := filepath.Join(t.TempDir(), "map.json")
+	b, _ := json.Marshal(f)
+	os.WriteFile(file, b, 0o600)
+	r := must(t, runEval(t, shop, &spawned, "eval", "map", id, "--apply", file))
+	if !strings.Contains(r.stdout, id+"@2 (packaged)") || !strings.Contains(r.stdout, "Container runs are off") || len(spawned) != 0 {
+		t.Fatalf("apply: %s %v", r.stdout, spawned)
+	}
+	if r := runEval(t, shop, &spawned, "eval", "map", id, "--apply", file); r.code == 0 || !strings.Contains(r.stderr, "latest") {
+		t.Fatalf("a stale file was applied: %+v", r)
+	}
+	must(t, runEval(t, shop, &spawned, "eval", "on", "--run", "docker"))
+	out = must(t, runEval(t, shop, &spawned, "eval", "map", id)).stdout
+	json.Unmarshal([]byte(out), &f)
+	b, _ = json.Marshal(f)
+	os.WriteFile(file, b, 0o600)
+	r = must(t, runEval(t, shop, &spawned, "eval", "map", id, "--apply", file))
+	if len(spawned) != 1 || spawned[0] != "eval __qualify" || !strings.Contains(r.stdout, "runs in the background") {
+		t.Fatalf("runs on: %s %v", r.stdout, spawned)
+	}
+}

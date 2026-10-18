@@ -8,8 +8,11 @@
 //   - near_miss_fails: partial references (one changed file or one change hunk left out)
 //     all fail; when the reference is a single hunk, the only partial reference is the
 //     empty change, which is the base trial: the check takes the base result;
-//   - alternative_passes: missing unless an independent solution exists (generated
-//     solutions are not independent); not required for promotion;
+//   - alternative_passes: every existing alternative solution (Options.Alternatives)
+//     passes C1 and C2; missing when there is none (no model is started for one); a
+//     claimed alternative that fails gives needs_review (the claim or the verifier is
+//     wrong; the result does not say which); independent only when someone claims it,
+//     never because the files differ; not required for promotion;
 //   - leak_probe: the agent build context holds no hidden test, no reference-only line
 //     and no Git metadata;
 //   - requirement_coverage: every requirement is linked to tests (a request or correction
@@ -55,10 +58,20 @@ type Runner interface {
 
 // Check is one qualification result.
 type Check struct {
-	Name        string `json:"name"`
-	Status      string `json:"status"` // pass, fail, missing, not_applicable
-	Runs        int    `json:"runs"`
-	Independent *bool  `json:"independent,omitempty"`
+	Name        string   `json:"name"`
+	Status      string   `json:"status"` // pass, fail, missing, not_applicable
+	Runs        int      `json:"runs"`
+	Independent *bool    `json:"independent,omitempty"`
+	ClaimedBy   string   `json:"claimed_by,omitempty"` // who claims the independence
+	Evidence    []string `json:"evidence,omitempty"`   // the alternative trees that ran
+}
+
+// Alternative is an existing solution that someone states is correct. It is never
+// generated here.
+type Alternative struct {
+	Tree      string // the full result tree (library digest)
+	Source    string // provenance, for example "user" or "episode:<id>"
+	ClaimedBy string // who claims it is independent of the reference; empty: nobody
 }
 
 // Requirement is the coverage result of one requirement.
@@ -79,8 +92,9 @@ type Result struct {
 
 // Options of one qualification.
 type Options struct {
-	Work     string // directory for task copies and job outputs
-	Settings runner.Settings
+	Work         string // directory for task copies and job outputs
+	Settings     runner.Settings
+	Alternatives []Alternative
 }
 
 // Run qualifies one eval record. It does not store anything; the caller writes the new
@@ -198,9 +212,43 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 			reason("verifier_not_discriminating")
 		}
 	}
-	// independent alternative: none can be constructed without a model
-	no := false
-	add(Check{Name: "alternative_passes", Status: "missing", Runs: 0, Independent: &no})
+	// existing alternative solutions; none is generated
+	alt := Check{Name: "alternative_passes", Status: "missing"}
+	indep := len(o.Alternatives) > 0
+	var claims []string
+	passed, failed, missing := 0, 0, 0
+	for i, a := range o.Alternatives {
+		indep = indep && a.ClaimedBy != ""
+		if a.ClaimedBy != "" {
+			claims = append(claims, a.ClaimedBy)
+		}
+		dir, err := alternativeTask(l, task, a.Tree, i+1)
+		if err != nil {
+			return res, err
+		}
+		alt.Evidence = append(alt.Evidence, a.Tree)
+		ts, err := run(fmt.Sprintf("alternative-%d", i+1), "oracle", dir, 1)
+		switch {
+		case err != nil || len(ts) != 1 || infra(ts[0]):
+			missing++
+		case ts[0].Outcome() == "passed" && ts[0].Checks["C1"] == "pass" && ts[0].Checks["C2"] == "pass":
+			passed++
+		default:
+			failed++
+		}
+	}
+	alt.Runs = passed + failed
+	switch {
+	case failed > 0:
+		alt.Status = "fail"
+		reason("alternative_fails")
+	case missing > 0:
+		// not required for promotion: the check shows missing, no reason is added
+	case passed > 0:
+		alt.Status = "pass"
+	}
+	alt.Independent, alt.ClaimedBy = &indep, strings.Join(uniq(claims), ",")
+	add(alt)
 	// forgery and isolation probe
 	probe, err := probeTask(task)
 	if err != nil {
@@ -261,7 +309,7 @@ func decide(r Result) string {
 	if st["reference_passes"] == "fail" {
 		return "quarantined"
 	}
-	if st["base_fails"] == "fail" || st["repeatable"] == "fail" || st["near_miss_fails"] == "fail" {
+	if st["base_fails"] == "fail" || st["repeatable"] == "fail" || st["near_miss_fails"] == "fail" || st["alternative_passes"] == "fail" {
 		return "needs_review"
 	}
 	if st["requirement_coverage"] == "fail" || st["requirement_coverage"] == "missing" && st["reference_passes"] == "pass" {

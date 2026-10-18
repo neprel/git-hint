@@ -177,6 +177,40 @@ func TestSessionWithoutMappingNeedsReview(t *testing.T) {
 	}
 }
 
+// Q-10-2, offline mapping path: without a model the user maps the request with
+// git hint eval map; the new packaged version goes through the existing qualification
+// and becomes validated there, not at apply.
+func TestUserMappingFileToValidated(t *testing.T) {
+	s, env := e2eProject(t)
+	p := evals.Enabled([]string{"opencode"})
+	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	s.Cfg.Evals = &p
+	Run(context.Background(), s, env)
+	l := library.Open(s, 0)
+	names, _ := l.Manifests("eval")
+	f, err := MapDraft(l, names[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Requirements = []build.Link{{Source: "R1", Quote: "Fix Total so it subtracts the discount from the price", Tests: []string{"discount_test.go::TestDiscount"}}}
+	f.Context = []string{"Total ignores the discount."}
+	b, _ := json.Marshal(f)
+	next, unmapped, err := ApplyMapFile(context.Background(), l, b, "", env.Now())
+	if err != nil || len(unmapped) != 0 {
+		t.Fatalf("apply %v %v", err, unmapped)
+	}
+	q := Qualify(context.Background(), s, &e2eRunner{}, env.Now())
+	if q.Qualified != 1 || q.States["validated"] != 1 {
+		t.Fatalf("qualify %+v", q)
+	}
+	names, _ = l.Manifests("eval")
+	var v map[string]any
+	l.Manifest("eval", names[len(names)-1], &v)
+	if v["previous"] != next || v["state"] != "validated" {
+		t.Fatalf("%v %v", v["previous"], v["state"])
+	}
+}
+
 // A mapping that leaves out a requested behavior is refused; the request stays unmapped.
 func TestIncompleteMappingIsRefused(t *testing.T) {
 	s, env := e2eProject(t)

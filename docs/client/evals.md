@@ -73,6 +73,21 @@ requirement that no test checks stays without a check and is shown as missing ev
 `model`; it is not independent evidence. `git hint eval show <id>` lists each requirement,
 its link and its coverage.
 
+**Your own mapping.** `git hint eval map ID` prints the mapping file of the latest
+version: your original texts, the test IDs, and the current links (a model's links are
+marked as an estimate). Edit the links, move background sentences to `context`, and run
+`git hint eval map ID --apply FILE`. HINT checks that the file belongs to that exact
+version (its digest), that every quote is your text and every test exists. It stores a
+new `packaged` version and never sets `validated` itself. Qualification then runs as
+after `collect`, when the eval policy allows container runs.
+
+**Alternative solutions.** If you already have another solution of the same task in a
+Git work tree, name it in the file under `alternatives` (`"worktree": "../other"`). Add
+`"claimed_by": "user"` only when it was made independently of the reference; HINT
+records the claim and does not check it. Qualification runs each alternative; one that
+fails sends the eval to `needs_review`. Without alternatives the check stays `missing`;
+HINT never generates one.
+
 Qualification needs Docker and Harbor 0.23 (`uv tool install harbor==0.23.0`); HINT
 turns Harbor's telemetry off for its runs. Without them, evals stay `packaged`.
 

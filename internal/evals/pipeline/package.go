@@ -265,16 +265,17 @@ func Qualify(ctx context.Context, s *store.Store, r qualify.Runner, now time.Tim
 	}
 	for _, name := range Pending(l) {
 		st, _ := l.Job(job)
-		if ok, why := st.Remaining(); !ok || st.Trials+qualifyTrials > lim.Trials {
+		var rec map[string]any
+		if l.Manifest("eval", name, &rec) != nil {
+			continue
+		}
+		alts := Alternatives(rec)
+		if ok, why := st.Remaining(); !ok || st.Trials+qualifyTrials+len(alts) > lim.Trials {
 			if why == "" {
 				why = "trial_limit"
 			}
 			rep.Stopped = why
 			break
-		}
-		var rec map[string]any
-		if l.Manifest("eval", name, &rec) != nil {
-			continue
 		}
 		work := s.Path("cache", "evals", "work", strings.ReplaceAll(name, "@", "-")+"-"+job)
 		_ = os.RemoveAll(work)
@@ -283,7 +284,7 @@ func Qualify(ctx context.Context, s *store.Store, r qualify.Runner, now time.Tim
 		}
 		_ = l.RecordExternal(library.External{Kind: "job_dir", Name: work})
 		t0 := time.Now()
-		res, err := qualify.Run(ctx, l, r, rec, qualify.Options{Work: work, Settings: settings})
+		res, err := qualify.Run(ctx, l, r, rec, qualify.Options{Work: work, Settings: settings, Alternatives: alts})
 		_ = l.Consume(job, 0, 0, res.Trials, time.Since(t0).Seconds())
 		rep.Trials += res.Trials
 		if err != nil {
@@ -308,7 +309,25 @@ func Qualify(ctx context.Context, s *store.Store, r qualify.Runner, now time.Tim
 	return rep
 }
 
-// qualifyTrials is the number of trials one qualification needs at most.
+// Alternatives returns the existing alternative solutions stored with an eval version,
+// with their provenance and the independence claim as recorded.
+func Alternatives(rec map[string]any) []qualify.Alternative {
+	var out []qualify.Alternative
+	as, _ := rec["alternatives"].([]any)
+	for _, a := range as {
+		m, _ := a.(map[string]any)
+		tree, _ := m["tree"].(string)
+		src, _ := m["source"].(string)
+		by, _ := m["claimed_by"].(string)
+		if tree != "" {
+			out = append(out, qualify.Alternative{Tree: tree, Source: src, ClaimedBy: by})
+		}
+	}
+	return out
+}
+
+// qualifyTrials is the number of trials one qualification needs at most (plus one per
+// alternative).
 const qualifyTrials = 1 + qualify.ReferenceRuns + qualify.MaxNearMisses + 1
 
 func nextVersion(rec map[string]any, res qualify.Result, evidence string, now time.Time) map[string]any {
@@ -335,8 +354,18 @@ func nextVersion(rec map[string]any, res qualify.Result, evidence string, now ti
 		if c.Independent != nil {
 			m["independent"] = *c.Independent
 		}
+		if c.ClaimedBy != "" {
+			m["claimed_by"] = c.ClaimedBy
+		}
+		var ev []any
+		for _, d := range c.Evidence {
+			ev = append(ev, d)
+		}
 		if evidence != "" {
-			m["evidence"] = []any{evidence}
+			ev = append(ev, evidence)
+		}
+		if len(ev) > 0 {
+			m["evidence"] = ev
 		}
 		checks = append(checks, m)
 	}

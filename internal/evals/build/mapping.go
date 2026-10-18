@@ -240,3 +240,44 @@ func ApplyMapping(l *library.Library, rec map[string]any, m Mapping) ([]any, err
 	}
 	return out, nil
 }
+
+// Originals returns a copy of rec whose request and correction requirements are the
+// original texts again, unmapped, in the order of first appearance and before the other
+// requirements. The atomic requirements that a mapping made from one original (same
+// source) collapse into it. A new mapping always starts from these originals.
+func Originals(rec map[string]any) map[string]any {
+	var sources, others []any
+	seen := map[string]bool{}
+	for _, r := range rec["requirements"].([]any) {
+		m := r.(map[string]any)
+		origin := m["origin"]
+		if origin != "request" && origin != "correction" {
+			others = append(others, m)
+			continue
+		}
+		text, _ := m["source"].(string)
+		if text == "" {
+			text, _ = m["text"].(string) // never mapped: the requirement is the original
+		}
+		if seen[text] {
+			continue
+		}
+		seen[text] = true
+		sources = append(sources, map[string]any{"kind": "behavior", "origin": origin, "text": text, "evidence": m["evidence"], "checks": []any{}, "mapping": "none"})
+	}
+	out := map[string]any{}
+	for k, v := range rec {
+		out[k] = v
+	}
+	reqs := append(sources, others...)
+	for i, r := range reqs {
+		c := map[string]any{}
+		for k, v := range r.(map[string]any) {
+			c[k] = v
+		}
+		c["req_id"] = fmt.Sprintf("R%d", i+1)
+		reqs[i] = c
+	}
+	out["requirements"] = reqs
+	return out
+}

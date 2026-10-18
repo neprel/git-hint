@@ -7,6 +7,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/trees"
 )
 
 // copyTask copies a task directory (regular files and links) to a new directory.
@@ -285,4 +288,85 @@ func rootPackage(repo string) string {
 		}
 	}
 	return ""
+}
+
+// alternativeTask is a copy of the task whose solution is an existing alternative result
+// tree: the files that differ from the agent's base repository, and the base files that
+// the alternative removed.
+func alternativeTask(l *library.Library, task, tree string, i int) (string, error) {
+	dir := filepath.Join(filepath.Dir(task), fmt.Sprintf("alternative-%d", i))
+	os.RemoveAll(dir)
+	if err := copyTask(task, dir); err != nil {
+		return "", err
+	}
+	files := filepath.Join(dir, "solution", "files")
+	os.RemoveAll(files)
+	src := dir + "-tree"
+	os.RemoveAll(src)
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(src)
+	if err := trees.Materialize(l, tree, src); err != nil {
+		return "", err
+	}
+	repo := filepath.Join(dir, "environment", "repo")
+	same := func(a, b string) bool {
+		x, err1 := os.Lstat(a)
+		y, err2 := os.Lstat(b)
+		if err1 != nil || err2 != nil || x.Mode() != y.Mode() {
+			return false
+		}
+		if x.Mode()&os.ModeSymlink != 0 {
+			p, _ := os.Readlink(a)
+			q, _ := os.Readlink(b)
+			return p == q
+		}
+		p, _ := os.ReadFile(a)
+		q, _ := os.ReadFile(b)
+		return string(p) == string(q)
+	}
+	if err := os.MkdirAll(files, 0o755); err != nil {
+		return "", err
+	}
+	err := filepath.Walk(src, func(p string, fi os.FileInfo, err error) error {
+		if err != nil || fi.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		if same(p, filepath.Join(repo, rel)) {
+			return nil
+		}
+		t := filepath.Join(files, rel)
+		if err := os.MkdirAll(filepath.Dir(t), 0o755); err != nil {
+			return err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			ln, err := os.Readlink(p)
+			if err != nil {
+				return err
+			}
+			return os.Symlink(ln, t)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(t, b, fi.Mode().Perm())
+	})
+	if err != nil {
+		return "", err
+	}
+	var deleted []string
+	filepath.Walk(repo, func(p string, fi os.FileInfo, err error) error {
+		if err == nil && !fi.IsDir() {
+			rel, _ := filepath.Rel(repo, p)
+			if _, err := os.Lstat(filepath.Join(src, rel)); os.IsNotExist(err) {
+				deleted = append(deleted, filepath.ToSlash(rel))
+			}
+		}
+		return nil
+	})
+	sort.Strings(deleted)
+	return dir, os.WriteFile(filepath.Join(dir, "solution", "deleted.txt"), []byte(strings.Join(deleted, "\n")), 0o644)
 }

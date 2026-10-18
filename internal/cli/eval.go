@@ -38,6 +38,9 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
   git hint eval show ID [--text]     one eval: state, checks, reasons (--text: local texts)
   git hint eval forget ID...|--all   delete evals (pinned ones stay) and list leftovers
   git hint eval pin ID [--off]       keep an eval version beyond the retention period
+  git hint eval map ID [--apply FILE]
+                                     print the requirement mapping file of an eval; --apply
+                                     checks your edited file and stores a new version
   git hint eval run [ID...] [--agent opencode|oracle|nop] [--attempts N] [--arm ARM]
                                      freeze a suite of validated evals and run bounded trials
   git hint eval compare [SUITE]      raw results per arm and agent (every attempt counts)
@@ -64,6 +67,8 @@ func cmdEval(e *Env, args []string) int {
 		return evalForget(e, args[1:])
 	case "pin":
 		return evalPin(e, args[1:])
+	case "map":
+		return evalMap(e, args[1:])
 	case "run":
 		return evalRun(e, args[1:])
 	case "compare":
@@ -271,7 +276,7 @@ func state(p *evals.Policy) string {
 }
 
 // valueFlags take a separate value token (`-o FILE`).
-var valueFlags = map[string]bool{"-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true}
+var valueFlags = map[string]bool{"-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
 
 // flagsFirst moves flag tokens (with their values) before positional ones, so
 // `eval show ID --text` and `eval pack ID -o FILE` work.
@@ -357,11 +362,27 @@ func evalShow(e *Env, args []string) int {
 		}
 		fmt.Fprintln(w, line)
 	}
+	if cs, _ := rec["context"].([]any); len(cs) > 0 {
+		fmt.Fprintf(w, "Context confirmed by the user: %d part(s)\n", len(cs))
+	}
+	if as, _ := rec["alternatives"].([]any); len(as) > 0 {
+		claimed := 0
+		for _, a := range as {
+			if a.(map[string]any)["claimed_by"] != nil {
+				claimed++
+			}
+		}
+		fmt.Fprintf(w, "Alternative solutions: %d (%d claimed independent by the user; a claim, not checked)\n", len(as), claimed)
+	}
 	if q, ok := rec["qualification"].(map[string]any); ok {
 		fmt.Fprintf(w, "Qualification (policy %v):\n", q["policy"])
 		for _, c := range q["checks"].([]any) {
 			m := c.(map[string]any)
-			fmt.Fprintf(w, "  %-20s %-14s runs %v\n", m["name"], m["status"], m["runs"])
+			line := fmt.Sprintf("  %-20s %-14s runs %v", m["name"], m["status"], m["runs"])
+			if by, ok := m["claimed_by"]; ok {
+				line += fmt.Sprintf(" (independence claimed by %v)", by)
+			}
+			fmt.Fprintln(w, line)
 		}
 	}
 	if *withText {
@@ -744,6 +765,70 @@ func evalPin(e *Env, args []string) int {
 		fmt.Fprintf(e.Stdout, "%s is no longer pinned; retention applies again.\n", ref)
 	} else {
 		fmt.Fprintf(e.Stdout, "%s is pinned: retention and forget keep it.\n", ref)
+	}
+	return 0
+}
+
+// evalMap prints the requirement mapping file of an eval version, or applies the user's
+// edited file: links of requests and corrections to tests, confirmed context and existing
+// alternative solutions. Apply stores a new packaged version; qualification then runs as
+// after collect, within the policy.
+func evalMap(e *Env, args []string) int {
+	args = flagsFirst(args)
+	fs := flags(e, "eval map", "writes local state only; runs code in containers only when the eval policy allows it; sends nothing")
+	apply := fs.String("apply", "", "the edited mapping file to check and store")
+	if fs.Parse(args) != nil || fs.NArg() != 1 {
+		return 2
+	}
+	s, err := open(e)
+	if err != nil {
+		return fail(e, err)
+	}
+	l := library.Open(s, 0)
+	ref := fs.Arg(0)
+	if !strings.Contains(ref, "@") {
+		for _, r := range latestEvals(l) {
+			if strings.HasPrefix(r.Ref, ref+"@") {
+				ref = r.Ref
+			}
+		}
+	}
+	if *apply == "" {
+		f, err := pipeline.MapDraft(l, ref)
+		if err != nil {
+			return fail(e, fmt.Errorf("no eval %s", fs.Arg(0)))
+		}
+		return writeJSON(e, f)
+	}
+	data, err := os.ReadFile(*apply)
+	if err != nil {
+		return fail(e, err)
+	}
+	lock, err := s.LockState(true)
+	if err != nil {
+		return fail(e, err)
+	}
+	name, unmapped, err := pipeline.ApplyMapFile(context.Background(), l, data, filepath.Dir(*apply), e.Now())
+	lock.Unlock()
+	if err != nil {
+		return fail(e, err)
+	}
+	fmt.Fprintf(e.Stdout, "Stored %s (packaged).", name)
+	if len(unmapped) > 0 {
+		fmt.Fprintf(e.Stdout, " Requirements without a test: %s; qualification will end in needs_review.", strings.Join(unmapped, ", "))
+	}
+	fmt.Fprintln(e.Stdout)
+	spawn := func() error { return pipeline.SpawnWorker(s) }
+	if e.Spawn != nil {
+		spawn = func() error { return e.Spawn("eval", "__qualify") }
+	}
+	switch {
+	case s.Cfg.Evals.Check(evals.OpExecute, "") != nil:
+		fmt.Fprintln(e.Stdout, "Container runs are off: qualification waits (git hint eval on --run docker).")
+	case spawn() != nil:
+		fmt.Fprintln(e.Stdout, "Qualification could not start; the next collect starts it again.")
+	default:
+		fmt.Fprintln(e.Stdout, "Qualification runs in the background (git hint eval show shows the result).")
 	}
 	return 0
 }

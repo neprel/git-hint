@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/neprel/git-hint/internal/evals/evaltest"
+	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/runner"
 )
 
@@ -110,12 +111,22 @@ func mapValues(m map[string]string) []string {
 
 func qualify(t *testing.T, f *fakeRunner) Result {
 	t.Helper()
+	return qualifyWith(t, f, nil)
+}
+
+// qualifyWith also passes the existing alternatives that alts stores in the library.
+func qualifyWith(t *testing.T, f *fakeRunner, alts func(l *library.Library) []Alternative) Result {
+	t.Helper()
 	l := evaltest.Library(t)
 	rec := evaltest.GoBugFix(t, l)
 	if !f.unmapped {
 		rec = evaltest.MapGoBugFix(t, l, rec)
 	}
-	res, err := Run(context.Background(), l, f, rec, Options{Work: t.TempDir()})
+	o := Options{Work: t.TempDir()}
+	if alts != nil {
+		o.Alternatives = alts(l)
+	}
+	res, err := Run(context.Background(), l, f, rec, o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,5 +298,77 @@ func TestUncheckedRequirementBlocksValidation(t *testing.T) {
 	}
 	if len(missing) != 1 || missing[0] != "R2" {
 		t.Fatalf("requirements %+v", r.Requirements)
+	}
+}
+
+// An existing alternative solution runs like the reference. Its independence is what
+// someone claims, never what the different files suggest; a claimed correct alternative
+// that fails sends the eval to review.
+func TestExistingAlternatives(t *testing.T) {
+	altFix := "package shop\n\n// Total returns the price after the discount.\nfunc Total(price, discount int) int {\n\tout := price - discount\n\treturn out\n}\n"
+	tree := func(cart string) func(l *library.Library) string {
+		return func(l *library.Library) string {
+			return evaltest.Tree(t, l, map[string]string{"go.mod": evaltest.GoMod, "cart.go": cart, "cart_test.go": evaltest.GoOld})
+		}
+	}
+	cases := []struct {
+		name      string
+		cart      string
+		claimedBy string
+		infra     bool
+		status    string
+		indep     bool
+		state     string
+	}{
+		{"claimed-pass", altFix, "user", false, "pass", true, "validated"},
+		{"unclaimed-pass", altFix, "", false, "pass", false, "validated"},
+		{"claimed-fail", evaltest.GoBug, "user", false, "fail", true, "needs_review"},
+		{"runner-missing", altFix, "user", true, "missing", true, "validated"},
+	}
+	for _, c := range cases {
+		f := &fakeRunner{fixed: "price - discount", infraFails: map[string]bool{"alternative-1": c.infra}}
+		var digest string
+		r := qualifyWith(t, f, func(l *library.Library) []Alternative {
+			digest = tree(c.cart)(l)
+			return []Alternative{{Tree: digest, Source: "user", ClaimedBy: c.claimedBy}}
+		})
+		a := check(r, "alternative_passes")
+		if a.Status != c.status || a.Independent == nil || *a.Independent != c.indep || a.ClaimedBy != c.claimedBy || len(a.Evidence) != 1 || a.Evidence[0] != digest {
+			t.Fatalf("%s: %+v", c.name, a)
+		}
+		if r.State != c.state || (c.status == "fail") != has(r.Reasons, "alternative_fails") {
+			t.Fatalf("%s: state %s reasons %v", c.name, r.State, r.Reasons)
+		}
+		if !c.infra && a.Runs != 1 {
+			t.Fatalf("%s: runs %d", c.name, a.Runs)
+		}
+	}
+}
+
+// The alternative task holds only the files that differ from the base, and the removed
+// base files.
+func TestAlternativeTask(t *testing.T) {
+	l := evaltest.Library(t)
+	rec := evaltest.GoBugFix(t, l)
+	task := filepath.Join(t.TempDir(), "task")
+	if _, err := runner.Export(l, rec, task, runner.Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	alt := evaltest.Tree(t, l, map[string]string{"go.mod": evaltest.GoMod, "cart.go": evaltest.GoFix, "extra.go": "package shop\n"})
+	dir, err := alternativeTask(l, task, alt, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	filepath.Walk(filepath.Join(dir, "solution", "files"), func(p string, fi os.FileInfo, err error) error {
+		if err == nil && !fi.IsDir() {
+			rel, _ := filepath.Rel(filepath.Join(dir, "solution", "files"), p)
+			files = append(files, rel)
+		}
+		return nil
+	})
+	del, _ := os.ReadFile(filepath.Join(dir, "solution", "deleted.txt"))
+	if strings.Join(files, ",") != "cart.go,extra.go" || string(del) != "cart_test.go" {
+		t.Fatalf("files %v deleted %q", files, del)
 	}
 }

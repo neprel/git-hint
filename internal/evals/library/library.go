@@ -272,6 +272,19 @@ func (l *Library) PutManifest(kind string, record any) (string, error) {
 	return strings.TrimSuffix(name, ".json"), nil
 }
 
+// ManifestDigest returns the digest of a stored record's bytes. Records are immutable, so
+// the digest binds a reference to one exact version.
+func (l *Library) ManifestDigest(kind, name string) (string, error) {
+	if strings.ContainsAny(name, `/\`) || name == "" || strings.HasPrefix(name, ".") {
+		return "", fmt.Errorf("invalid record name %q", name)
+	}
+	b, err := os.ReadFile(l.path("manifests", kind, name+".json"))
+	if err != nil {
+		return "", err
+	}
+	return Digest(b), nil
+}
+
 // Manifest reads one record by kind and name (as returned by PutManifest).
 func (l *Library) Manifest(kind, name string, v any) error {
 	if strings.ContainsAny(name, `/\`) || name == "" || strings.HasPrefix(name, ".") {

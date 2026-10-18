@@ -98,6 +98,38 @@
     "dependencies": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalRef"}, "uniqueItems": true, "x-hint-class": "local"},
     "state": {"$ref": "urn:hint:local:evals:v1:common#/$defs/State", "x-hint-class": "reportable"},
     "reasons": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Reason"}, "uniqueItems": true, "x-hint-class": "local"},
+    "context": {
+      "type": "array",
+      "maxItems": 200,
+      "x-hint-class": "sensitive",
+      "description": "Parts of the request or corrections that the user confirmed as context (no requirement). Only a user can confirm context.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
+          "source": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "description": "The original request or correction."},
+          "by": {"const": "user"}
+        },
+        "required": ["text", "source", "by"]
+      }
+    },
+    "alternatives": {
+      "type": "array",
+      "maxItems": 8,
+      "x-hint-class": "local",
+      "description": "Existing alternative solutions that someone states are correct. Qualification runs each one; none is generated.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tree": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
+          "source": {"type": "string", "pattern": "^(user|episode:ep-[0-9a-f]{16})$", "description": "Where the solution came from."},
+          "claimed_by": {"type": "string", "enum": ["user"], "description": "Who claims that it is independent of the reference; absent: nobody."}
+        },
+        "required": ["tree", "source"]
+      }
+    },
     "qualification": {
       "type": "object", "additionalProperties": false, "x-hint-class": "reportable",
       "properties": {
@@ -111,6 +143,7 @@
               "status": {"type": "string", "enum": ["pass", "fail", "missing", "not_applicable"]},
               "runs": {"type": "integer", "minimum": 0},
               "independent": {"type": "boolean"},
+              "claimed_by": {"type": "string", "pattern": "^[a-z_]+(,[a-z_]+)*$", "description": "Who claims that the alternatives are independent of the reference (a claim, not an observation)."},
               "evidence": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}}
             },
             "required": ["name", "status", "runs"]
