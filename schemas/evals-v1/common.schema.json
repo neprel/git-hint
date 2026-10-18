@@ -20,7 +20,7 @@
         "baseline_missing", "baseline_ambiguous", "result_state_missing", "attribution_ambiguous", "unrelated_edits",
         "prerequisite_missing", "submodule_unsupported", "lfs_unsupported", "external_service", "binary_too_large",
         "no_checkable_outcome", "requirements_contradictory", "requirements_missing", "verifier_missing",
-        "base_passes", "reference_fails", "not_repeatable", "verifier_not_discriminating", "near_miss_missing", "alternative_missing", "alternative_fails", "reference_missing",
+        "base_passes", "reference_fails", "not_repeatable", "verifier_not_discriminating", "near_miss_missing", "alternative_missing", "alternative_fails", "reference_missing", "model_segmented",
         "requirement_coverage_missing", "requirement_not_discriminating", "requirement_mapping_incomplete",
         "solution_leak", "future_history_leak", "isolation_failed", "verifier_forgeable", "secret_found",
         "quota_exceeded", "budget_exhausted", "runner_unavailable", "model_disabled", "execution_disabled",

@@ -20,6 +20,14 @@
 //   - Links: depends_on (same session) and continues (other session) are inferred only
 //     when the later episode starts from the earlier result state and edits a common file.
 //   - Family: keyword rules on the first request; no match leaves it empty.
+//   - Optional local model (Segmenter, policy model): only for a closed rule episode with
+//     several requests, or without a family. It labels each request with a task. The
+//     episode is split only at request boundaries; every request stays exactly once; each
+//     part takes its own snapshots and its own last check (the session's last passing
+//     check does not make every part complete). Tasks that interleave stay one episode,
+//     attribution ambiguous. A model family fills only an empty rule family. Every such
+//     episode has the reason model_segmented, boundary support low, and the model's
+//     generator record; a proposal never becomes an observation.
 package episodes
 
 import (
@@ -100,9 +108,19 @@ type Snapshots func(project, id string) string
 // the directory is outside the project; such sessions give no episode).
 type Repos func(dir string) string
 
-// Discover builds proposals for every imported session. now decides which episodes are
-// closed. texts reads stored text objects.
+// Segmenter is the optional local model: it labels each request of one session with a
+// task and may name a family per task. ok is false when there is no usable answer (no
+// model, budget used, refused answer); the rule episode then stays as it is.
+type Segmenter func(session string, requests []string) (tasks []string, families map[string]string, generator map[string]any, ok bool)
+
+// Discover builds proposals for every imported session with the rules only.
 func Discover(l *library.Library, now time.Time, snaps Snapshots, repos Repos) ([]*Proposal, error) {
+	return DiscoverWith(l, now, snaps, repos, nil)
+}
+
+// DiscoverWith builds proposals for every imported session. now decides which episodes
+// are closed. seg (optional) is the local model segmentation.
+func DiscoverWith(l *library.Library, now time.Time, snaps Snapshots, repos Repos, seg Segmenter) ([]*Proposal, error) {
 	all := map[string]sessions.Session{}
 	var order []string
 	for _, agent := range []string{"opencode", "claude-code", "codex"} {
@@ -132,7 +150,7 @@ func Discover(l *library.Library, now time.Time, snaps Snapshots, repos Repos) (
 		if s.Parent != "" || repo == "" {
 			continue
 		}
-		for _, p := range fromSession(l, s, all, now, snaps) {
+		for _, p := range fromSession(l, s, all, now, snaps, seg) {
 			p.Record["repositories"].([]any)[0].(map[string]any)["repo"] = repo
 			props = append(props, p)
 		}
@@ -160,7 +178,7 @@ func rel(dir, p string) string {
 	return p
 }
 
-func fromSession(l *library.Library, s sessions.Session, all map[string]sessions.Session, now time.Time, snaps Snapshots) []*Proposal {
+func fromSession(l *library.Library, s sessions.Session, all map[string]sessions.Session, now time.Time, snaps Snapshots, seg Segmenter) []*Proposal {
 	// split into turns at user requests
 	var turns []*turn
 	for _, it := range s.Items {
@@ -219,9 +237,81 @@ func fromSession(l *library.Library, s sessions.Session, all map[string]sessions
 		if !p.Closed {
 			continue
 		}
-		if s.Truncated && gi == len(groups)-1 && p.Outcome != "test_passed" {
-			addReason(p, "source_truncated")
+		parts := []*Proposal{p}
+		if seg != nil && (len(g.turns) > 1 || p.Record["family"] == nil) {
+			parts = segment(l, s, all, g.turns, snaps, seg, p)
 		}
+		for _, p := range parts {
+			if s.Truncated && gi == len(groups)-1 && p.Outcome != "test_passed" {
+				addReason(p, "source_truncated")
+			}
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// segment applies the local model's task labels to a closed rule episode (see the
+// package rules). It returns the rule episode unchanged when the model gives no usable
+// answer or the same split.
+func segment(l *library.Library, s sessions.Session, all map[string]sessions.Session, ts []*turn, snaps Snapshots, seg Segmenter, rule *Proposal) []*Proposal {
+	texts := make([]string, len(ts))
+	for i, t := range ts {
+		texts[i] = text(l, t.request.Text)
+	}
+	tasks, fams, gen, ok := seg(s.Session, texts)
+	if !ok || len(tasks) != len(ts) {
+		return []*Proposal{rule}
+	}
+	// runs of equal labels; a label in two runs means interleaved tasks
+	var runs [][]*turn
+	var labels []string
+	seen := map[string]bool{}
+	interleaved := false
+	for i, t := range ts {
+		if i == 0 || tasks[i] != tasks[i-1] {
+			if seen[tasks[i]] {
+				interleaved = true
+			}
+			seen[tasks[i]] = true
+			runs = append(runs, nil)
+			labels = append(labels, tasks[i])
+		}
+		runs[len(runs)-1] = append(runs[len(runs)-1], t)
+	}
+	mark := func(p *Proposal, label string) {
+		addReason(p, "model_segmented")
+		p.Record["generator"] = gen
+		b := p.Record["boundary"].(map[string]any)
+		b["rule"], b["support"] = "model-split", "low"
+		if p.Record["family"] == nil {
+			if f := fams[label]; f != "" {
+				p.Record["family"] = f
+			}
+		}
+	}
+	switch {
+	case interleaved:
+		rule.Record["attribution"] = "ambiguous"
+		addReason(rule, "attribution_ambiguous")
+		mark(rule, tasks[0])
+		return []*Proposal{rule}
+	case len(runs) == 1:
+		if rule.Record["family"] == nil && fams[tasks[0]] != "" {
+			mark(rule, tasks[0])
+		}
+		return []*Proposal{rule}
+	}
+	var out []*Proposal
+	for i, r := range runs {
+		p := build(l, s, all, r, snaps)
+		if p == nil {
+			// a part without an edit would drop its requests: every request stays exactly
+			// once, so the rule episode stays
+			return []*Proposal{rule}
+		}
+		p.Closed = true
+		mark(p, labels[i])
 		out = append(out, p)
 	}
 	return out
@@ -469,7 +559,7 @@ func attribute(ps []*Proposal) {
 	for _, p := range ps {
 		sup := "medium"
 		switch {
-		case p.Record["attribution"] == "ambiguous":
+		case p.Record["attribution"] == "ambiguous" || hasReason(p, "model_segmented"):
 			sup = "low"
 		case p.Outcome == "test_passed":
 			sup = "high"
@@ -545,4 +635,13 @@ func same(a, b map[string]any) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)
 	return string(x) == string(y)
+}
+
+func hasReason(p *Proposal, r string) bool {
+	for _, x := range p.Record["reasons"].([]string) {
+		if x == r {
+			return true
+		}
+	}
+	return false
 }

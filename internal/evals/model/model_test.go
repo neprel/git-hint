@@ -93,3 +93,20 @@ func TestDraftFromFencedAnswer(t *testing.T) {
 		t.Fatalf("%v %q", err, got)
 	}
 }
+
+func TestCheckSegments(t *testing.T) {
+	ok := SegmentAnswer{Tasks: []string{"A", "B"}, Families: map[string]string{"A": "bug_fix"}}
+	if err := CheckSegments(ok, 2); err != nil {
+		t.Fatal(err)
+	}
+	for name, a := range map[string]SegmentAnswer{
+		"size":           {Tasks: []string{"A"}},
+		"empty label":    {Tasks: []string{"A", " "}},
+		"unknown family": {Tasks: []string{"A", "B"}, Families: map[string]string{"A": "chore"}},
+		"unknown task":   {Tasks: []string{"A", "B"}, Families: map[string]string{"C": "feature"}},
+	} {
+		if CheckSegments(a, 2) == nil {
+			t.Fatalf("%s: accepted", name)
+		}
+	}
+}

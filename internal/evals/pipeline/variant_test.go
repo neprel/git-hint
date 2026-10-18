@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -15,7 +16,10 @@ import (
 	"github.com/neprel/git-hint/internal/evals/build"
 	"github.com/neprel/git-hint/internal/evals/evaltest"
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/evals/trees"
+	"github.com/neprel/git-hint/internal/store"
+	"github.com/neprel/git-hint/internal/testkit"
 )
 
 var variantNow = time.Date(2026, 10, 18, 13, 0, 0, 0, time.UTC)
@@ -274,4 +278,81 @@ func untarAll(t *testing.T, b []byte) map[string][]byte {
 		out[h.Name] = data
 	}
 	return out
+}
+
+// TestHarborRefactorComparison is the E14 check through the real Harbor CLI with no
+// model: the synthetic bug fix is qualified, a refactor variant with a ported reference
+// is qualified, nop and oracle run on both arms, and the comparison pairs them by
+// objective; a refactor whose change does not port ends needs_review. Set HINT_HARBOR.
+func TestHarborRefactorComparison(t *testing.T) {
+	if os.Getenv("HINT_HARBOR") == "" {
+		t.Skip("set HINT_HARBOR to the harbor executable")
+	}
+	ctx := context.Background()
+	h, err := runner.FindHarbor(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HINT_KEY_DIR", t.TempDir())
+	dir := t.TempDir()
+	testkit.Git(t, dir, "init", "-q")
+	s, _, err := store.Init(dir, store.InitOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := evals.Enabled(nil)
+	p.Run = &evals.Run{Use: "docker", Runner: "harbor", MaxTrialsPerRun: 40}
+	s.Cfg.Evals = &p
+	l := library.Open(s, 0)
+	rec := evaltest.GoBugFix(t, l)
+	l.PutManifest("eval", rec)
+	v2 := evaltest.MapGoBugFix(t, l, rec)
+	v2["version"], v2["previous"] = 2, fmt.Sprintf("%s@1", rec["eval_id"])
+	if _, err := l.PutManifest("eval", v2); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if q := Qualify(ctx, s, h, time.Now()); q.States["validated"] != 1 {
+		t.Fatalf("baseline %+v", q)
+	}
+	base := fmt.Sprintf("%s@3", rec["eval_id"])
+	ok, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: evaltest.Tree(t, l, refactoredShop("// Package shop sells things.\n"+evaltest.GoBug))}, time.Now())
+	if err != nil || ok.Reference != "reconstructed_patch" {
+		t.Fatalf("%+v %v", ok, err)
+	}
+	bad, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: evaltest.Tree(t, l, refactoredShop("package shop\n\n// Total returns the price after the discount.\nfunc Total(p, d int) int { return p }\n"))}, time.Now())
+	if err != nil || bad.Reference != "missing" {
+		t.Fatalf("%+v %v", bad, err)
+	}
+	q := Qualify(ctx, s, h, time.Now())
+	t.Logf("variants: %+v", q)
+	if q.States["validated"] != 1 || q.States["needs_review"] != 1 {
+		t.Fatalf("variants %+v", q)
+	}
+	variant := strings.Split(ok.Ref, "@")[0] + "@2"
+	var vr map[string]any
+	l.Manifest("eval", variant, &vr)
+	for _, c := range vr["qualification"].(map[string]any)["checks"].([]any) {
+		t.Logf("  refactor %-20v %v", c.(map[string]any)["name"], c.(map[string]any)["status"])
+	}
+	for _, run := range []struct{ arm, ref, agent string }{{"baseline", base, "nop"}, {"baseline", base, "oracle"}, {"refactor", variant, "nop"}, {"refactor", variant, "oracle"}} {
+		rep, err := RunSuite(ctx, s, h, h.Version, SuiteOptions{Agent: run.agent, Arm: run.arm, Evals: []string{run.ref}}, time.Now())
+		if err != nil || rep.Trials != 1 {
+			t.Fatalf("%v: %+v %v", run, rep, err)
+		}
+	}
+	if _, err := RunSuite(ctx, s, h, h.Version, SuiteOptions{Agent: "oracle", Arm: "refactor", Evals: []string{bad.Ref}}, time.Now()); err == nil {
+		t.Fatal("a variant without a reference ran")
+	}
+	rows, _ := Compare(l, "")
+	for _, r := range rows {
+		t.Logf("compare objective %s arm %-9s agent %-6s trials %d passed %d failed %d", r.Objective, r.Arm, r.Agent, r.Trials, r.Passed, r.Failed)
+		if (r.Agent == "oracle") != (r.Passed == 1) {
+			t.Fatalf("row %+v", r)
+		}
+	}
+	if len(rows) != 4 {
+		t.Fatalf("rows %d", len(rows))
+	}
+	t.Logf("harbor %s: %s", h.Version, time.Since(start).Round(time.Second))
 }

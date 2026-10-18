@@ -259,6 +259,46 @@
           "$ref": "urn:hint:local:evals:v1:common#/$defs/Count"
         }
       }
+    },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-hint-class": "local",
+      "description": "Provenance of a local model segmentation (reason model_segmented): a proposal, never an observation.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"
+          }
+        },
+        "output": {
+          "$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"
+        },
+        "requests": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "inputs",
+        "output",
+        "requests"
+      ]
     }
   },
   "required": [

@@ -200,7 +200,7 @@ func discover(l *library.Library, s *store.Store, now time.Time) EpisodeReport {
 		}
 		return ""
 	}
-	props, err := episodes.Discover(l, now, snaps, repos)
+	props, err := episodes.DiscoverWith(l, now, snaps, repos, modelSegmenter(context.Background(), l, s.Cfg.Evals))
 	if err != nil {
 		rep.Error = "discovery_failed"
 		return rep
