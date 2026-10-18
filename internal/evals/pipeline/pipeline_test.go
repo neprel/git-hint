@@ -22,6 +22,13 @@ import (
 type fakeOC struct{ root, exportID, export string }
 
 func (f fakeOC) Output(_ context.Context, dir, name string, args ...string) ([]byte, error) {
+	if len(args) >= 2 && args[0] == "session" {
+		// the 2.x CLI needs --standalone without a running OpenCode app
+		if len(args) < 3 || args[2] != "--standalone" {
+			return nil, errors.New("timed out waiting for the background service")
+		}
+		args = append(args[:2:2], args[3:]...)
+	}
 	switch {
 	case name == "opencode" && len(args) == 1 && args[0] == "--version":
 		return []byte("2.0.26\n"), nil

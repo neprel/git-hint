@@ -49,6 +49,24 @@ func (f *fakeOpenCode) Output(_ context.Context, dir, name string, args ...strin
 	if name != "opencode" {
 		return nil, errors.New("unexpected program")
 	}
+	// like the real 2.x CLI without a running OpenCode app: session commands need
+	// --standalone ("Timed out waiting for the background service to start" otherwise)
+	if len(args) >= 2 && args[0] == "session" {
+		std := false
+		for _, a := range args {
+			std = std || a == "--standalone"
+		}
+		if !std {
+			return nil, errors.New("timed out waiting for the background service")
+		}
+		var rest []string
+		for _, a := range args {
+			if a != "--standalone" {
+				rest = append(rest, a)
+			}
+		}
+		args = rest
+	}
 	switch {
 	case len(args) == 1 && args[0] == "--version":
 		return []byte("2.0.26\n"), nil

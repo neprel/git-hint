@@ -146,11 +146,17 @@ func openCode(ctx context.Context, l *library.Library, opt Options) Report {
 	}
 	version := strings.TrimPrefix(strings.TrimSpace(string(vout)), "opencode ")
 	version = strings.TrimPrefix(version, "v")
+	// OpenCode 2 talks to a background service by default; --standalone runs a private
+	// server, so import works also when no OpenCode app runs (found in the live check)
+	var standalone []string
+	if strings.HasPrefix(version, "2.") {
+		standalone = []string{"--standalone"}
+	}
 	type ref struct{ id, parent string }
 	var queue []ref
 	seen := map[string]bool{}
 	for _, root := range opt.Roots {
-		out, err := opt.Cmd.Output(ctx, root, "opencode", "session", "list", "--format", "json", "-n", fmt.Sprint(opt.MaxSessions))
+		out, err := opt.Cmd.Output(ctx, root, "opencode", append([]string{"session", "list"}, append(standalone, "--format", "json", "-n", fmt.Sprint(opt.MaxSessions))...)...)
 		if err != nil {
 			r.fail("session_list_failed")
 			continue
@@ -175,7 +181,7 @@ func openCode(ctx context.Context, l *library.Library, opt Options) Report {
 		cur := queue[0]
 		queue = queue[1:]
 		r.Found++
-		src, err := opt.Cmd.Output(ctx, "", "opencode", "session", "export", cur.id)
+		src, err := opt.Cmd.Output(ctx, "", "opencode", append(append([]string{"session", "export"}, standalone...), cur.id)...)
 		if err != nil {
 			r.fail("session_export_failed")
 			continue
