@@ -188,6 +188,9 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			delete(props, "abstentions")
 			delete(props, "context_feedback")
 			delete(props, "project_comparisons")
+		case "repository.schema.json":
+			defs := v2["$defs"].(map[string]any)
+			delete(defs["ChangeSetPayload"].(map[string]any)["properties"].(map[string]any), "plan_application")
 		case "policy.schema.json":
 			var strip func(v any)
 			strip = func(v any) {

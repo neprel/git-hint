@@ -533,7 +533,7 @@ func main() {
 	for n, d := range docs {
 		write(ex(n), d)
 	}
-	docs["activity-context.json"], docs["recommendation-findings.json"] = writeV02(*root, act, pol, rec)
+	docs["activity-context.json"], docs["recommendation-findings.json"], docs["change-set-declared.json"] = writeV02(*root, act, pol, rec, changes)
 	writeValidExtras(conf, act)
 	writeInvalid(conf, docs)
 	writeResolve(conf, rec, single)

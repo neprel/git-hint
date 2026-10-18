@@ -141,14 +141,31 @@ func findingsDoc(rec, act, ctx M) M {
 	return reseal(d)
 }
 
-func writeV02(root string, act, pol, rec M) (ctx, findings M) {
+func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M) {
 	ex := func(n string) string { return filepath.Join(root, "examples", "v0.2", n) }
 	ctx = contextDoc(act)
 	findings = findingsDoc(rec, act, ctx)
+	declared = declaredChangeSet(changes, findings)
 	write(ex("activity-context.json"), ctx)
 	write(ex("export-policy.json"), contextPolicy(pol))
 	write(ex("recommendation-findings.json"), findings)
-	return ctx, findings
+	write(ex("change-set-declared.json"), declared)
+	return ctx, findings, declared
+}
+
+// declaredChangeSet is the change set of the split, declared by the client as the application
+// of the first plan of the findings set (an association only, not a confirmed realization).
+// It is a new document: the plain change set keeps its own ID and digest.
+func declaredChangeSet(changes, findings M) M {
+	d := clone(changes)
+	d["hint_version"] = "0.2.0"
+	d["document_id"] = id("document", "change-set", "declared")
+	obj(d, "payload")["plan_application"] = M{
+		"recommendation_set": M{"document_id": findings["document_id"], "content_digest": findings["content_digest"]},
+		"plan_id":            obj(findings, "payload", "plans", 0)["plan_id"],
+		"declaration":        "client_declared_association",
+	}
+	return reseal(d)
 }
 
 // v02Invalid are the negative cases of the context measurement and of the findings.
@@ -281,6 +298,24 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"forecast-recommend-l2", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
 			obj(d, "payload", "plans", 0, "simulation")["level"] = "L2"
+		}, nil},
+		{"plan-application-in-v01-document", "change-set-declared.json", "schema", "version", func(d M) {
+			d["hint_version"] = "0.1.0"
+		}, nil},
+		{"plan-application-confirmed-claim", "change-set-declared.json", "schema", "change", func(d M) {
+			obj(d, "payload", "plan_application")["declaration"] = "confirmed_realization"
+		}, nil},
+		{"plan-application-free-text", "change-set-declared.json", "schema", "content", func(d M) {
+			obj(d, "payload", "plan_application")["note"] = forbidden["prompt"]
+		}, nil},
+		{"plan-application-without-digest", "change-set-declared.json", "schema", "change", func(d M) {
+			delete(obj(d, "payload", "plan_application", "recommendation_set"), "content_digest")
+		}, nil},
+		{"plan-application-group-of-one", "change-set-declared.json", "schema", "change", func(d M) {
+			obj(d, "payload", "plan_application")["group"] = M{"group_id": id("group", "g1"), "repo_ids": A{obj(d, "payload")["repo_id"]}}
+		}, nil},
+		{"plan-application-group-without-repo", "change-set-declared.json", "semantic", "plan_application_inconsistent", func(d M) {
+			obj(d, "payload", "plan_application")["group"] = M{"group_id": id("group", "g1"), "repo_ids": A{id("repo", "x"), id("repo", "y")}}
 		}, nil},
 		// a second measurement of the same call, stage and action (two stages are fine)
 		{"context-duplicate-stage", "activity-context.json", "semantic", "duplicate_measurement", func(d M) {

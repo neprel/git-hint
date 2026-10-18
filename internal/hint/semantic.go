@@ -38,6 +38,7 @@ const (
 	CodeForecast             = "forecast_inconsistent"
 	CodeCoverage             = "coverage_inconsistent"
 	CodeSnapshotSet          = "plan_snapshot_set"
+	CodePlanApplication      = "plan_application_inconsistent"
 )
 
 // Canary values of the conformance suite; also used by the negative tests.
@@ -104,6 +105,14 @@ func (c *checker) run(policy map[string]any) {
 		c.uniq(payload, "changes", "change_id")
 		if !repos[str(payload["repo_id"])] {
 			c.add(CodeRepoUndeclared, "payload.repo_id")
+		}
+		// a declared cross-repository group names the declaring repository among its members
+		if pa, ok := payload["plan_application"].(map[string]any); ok {
+			if g, ok := pa["group"].(map[string]any); ok {
+				if r, _ := g["repo_ids"].([]any); !set(r)[str(payload["repo_id"])] {
+					c.add(CodePlanApplication, "payload.plan_application.group.repo_ids")
+				}
+			}
 		}
 	case "activity_stream":
 		c.activity(payload)

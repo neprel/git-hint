@@ -6,6 +6,7 @@
 - Optional `RecommendationPayload.findings` and `abstentions`: typed effort findings (problem, evidence state, observed quantities with coverage, scope, references, cause hypotheses, candidate interventions, next step, heuristic priority). See [hint-data v0.2](hint-data-v0.2.md).
 - Optional `Plan.forecast_basis` (objective, horizon, model-conditional probability and net interval, threshold provenance, cost basis, evidence, conditions) and the semantic rule `forecast_inconsistent`.
 - Semantic rule `duplicate_measurement`.
+- Optional `ChangeSetPayload.plan_application`: a client-declared association of a change set with one plan of a stored recommendation set (set ID and digest, plan ID, optional cross-repository group). An association only, never a confirmed realization or effect. Semantic rule `plan_application_inconsistent`.
 - The export policy lists `context` as an observation field.
 - Everything else is unchanged; v0.1 documents stay valid v0.1 documents.
 - Conformance: the "unsupported minor version" fixture now uses `0.3.0`, because `0.2` is supported.

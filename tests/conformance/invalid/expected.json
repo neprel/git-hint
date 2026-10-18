@@ -399,6 +399,36 @@
     "code": "coverage_inconsistent",
     "level": "semantic"
   },
+  "plan-application-confirmed-claim.json": {
+    "base": "change-set-declared.json",
+    "code": "change",
+    "level": "schema"
+  },
+  "plan-application-free-text.json": {
+    "base": "change-set-declared.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "plan-application-group-of-one.json": {
+    "base": "change-set-declared.json",
+    "code": "change",
+    "level": "schema"
+  },
+  "plan-application-group-without-repo.json": {
+    "base": "change-set-declared.json",
+    "code": "plan_application_inconsistent",
+    "level": "semantic"
+  },
+  "plan-application-in-v01-document.json": {
+    "base": "change-set-declared.json",
+    "code": "version",
+    "level": "schema"
+  },
+  "plan-application-without-digest.json": {
+    "base": "change-set-declared.json",
+    "code": "change",
+    "level": "schema"
+  },
   "plan-namespace-mismatch.json": {
     "base": "recommendation.json",
     "code": "namespace_mismatch",

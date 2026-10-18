@@ -865,6 +865,62 @@
           "items": {
             "$ref": "#/$defs/Change"
           }
+        },
+        "plan_application": {
+          "description": "A client-declared association of this change set with one plan of a stored recommendation set. It declares an association only: it does not confirm that the plan was realized correctly or had any effect.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "recommendation_set": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "content_digest": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+                }
+              },
+              "required": [
+                "document_id",
+                "content_digest"
+              ]
+            },
+            "plan_id": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "declaration": {
+              "const": "client_declared_association"
+            },
+            "group": {
+              "description": "Only for a plan over several repositories: every member change set carries the same group_id and the complete repo_ids of the plan.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "group_id": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "repo_ids": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                  },
+                  "minItems": 2,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "group_id",
+                "repo_ids"
+              ]
+            }
+          },
+          "required": [
+            "recommendation_set",
+            "plan_id",
+            "declaration"
+          ]
         }
       },
       "required": [

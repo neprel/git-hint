@@ -73,6 +73,17 @@ Optional. It tells how to read a plan's forecast; a forecast is never a measurem
 
 **Semantic rule `forecast_inconsistent`:** the plan has `simulation`; a per-task prediction exists for the objective metric and unit, and the one-time cost uses the same unit; a probability, net interval or break-even needs a known one-time cost (`cost_basis` and `refactoring_cost_estimate`); `heuristic_default` means the default threshold; a scenario cost or synthetic evidence never gives `recommend`; an unseen transformation, configuration or task mix, an extrapolation or unmodeled coordination needs `out_of_distribution: true` and no `recommend`; an L2 or L3 forecast states `behavior_transport`. The interval rule (`interval_order`) also applies to `net_gain_interval`. The break-even keeps its `unbounded` flag; no infinite number is sent.
 
+## Declared plan application (`ChangeSetPayload.plan_application`)
+
+A change set can declare that the client applied one plan of a stored recommendation set. The declaration names the set (`recommendation_set.document_id` and `content_digest`) and the `plan_id`; `declaration` is always `client_declared_association`. Example: [`change-set-declared.json`](../../examples/v0.2/change-set-declared.json).
+
+- **Meaning.** The client declares an association only. The declaration does not confirm that the plan was realized correctly, that it changed behavior or that it had an effect. A receiver checks the association against the stored set, the plan's snapshot and the change mappings. It keeps the declaration, the structural consistency, the validation outcome and any measured effect as separate states. A measured effect is an `Effect` in an `effect_report`, never a declaration.
+- **Snapshots and identity.** The change set's existing `before_snapshot`, `after_snapshot` and `changes` carry the evidence. File IDs depend on the path, so a moved file gets a new ID; the `Change` records map the old IDs to the new ones.
+- **Several repositories.** A plan over several repositories needs one declared change set per repository, each with the same `group` (`group_id` and the complete `repo_ids` of the plan). A missing member leaves the application partial; a receiver never groups change sets by time.
+- **One association per change set.** A later declaration is a new change-set document with its own ID; it never replaces an earlier document.
+
+**Semantic rule `plan_application_inconsistent`:** a declared group names the declaring repository (`repo_id`) among its `repo_ids`.
+
 ## Versions
 
 - The CLI and the server accept `0.1` and `0.2`. A v0.1 document cannot carry a context measurement or findings.
