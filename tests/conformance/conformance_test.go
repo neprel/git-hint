@@ -63,6 +63,11 @@ func policy(t *testing.T) map[string]any {
 
 func validFiles(t *testing.T) []string {
 	a, _ := filepath.Glob(filepath.Join(root, "examples", "v0.1", "*.json"))
+	v2, _ := filepath.Glob(filepath.Join(root, "examples", "v0.2", "*.json"))
+	if len(v2) < 2 {
+		t.Fatalf("missing v0.2 examples: %d", len(v2))
+	}
+	a = append(a, v2...)
 	b, _ := filepath.Glob(filepath.Join("valid", "*.json"))
 	if len(a) < 9 || len(b) < 4 {
 		t.Fatalf("missing fixtures: %d examples, %d valid", len(a), len(b))
@@ -75,7 +80,7 @@ func validFiles(t *testing.T) []string {
 // TestNoFreeFormStringSlot walks every schema: each string slot must be closed by an
 // enum, a const or a pattern, and each object definition must forbid other fields.
 func TestNoFreeFormStringSlot(t *testing.T) {
-	files, _ := filepath.Glob(filepath.Join(root, "schemas", "v0.1", "*.schema.json"))
+	files, _ := filepath.Glob(filepath.Join(root, "schemas", "v0.*", "*.schema.json"))
 	for _, f := range files {
 		var s any
 		readJSON(t, f, &s)
@@ -113,6 +118,8 @@ func TestNoFreeFormStringSlot(t *testing.T) {
 
 func TestValidDocuments(t *testing.T) {
 	pol := policy(t)
+	_, p2 := load(t, filepath.Join(root, "examples", "v0.2", "export-policy.json"))
+	pol2 := p2["payload"].(map[string]any)
 	for _, f := range validFiles(t) {
 		dec, doc := load(t, f)
 		if err := schemas.Validate(dec); err != nil {
@@ -122,6 +129,9 @@ func TestValidDocuments(t *testing.T) {
 		var p map[string]any
 		if red, _ := doc["redaction"].(map[string]any); red["profile"] == "detailed" {
 			p = pol // the default policy covers the detailed examples
+			if strings.HasPrefix(fmt.Sprint(doc["hint_version"]), "0.2.") {
+				p = pol2 // the v0.2 policy also lists the context measurement
+			}
 		}
 		if fs := hintconf.Check(doc, p); len(fs) > 0 {
 			t.Errorf("%s: semantic: %v", f, fs)
@@ -417,6 +427,7 @@ func TestGeneratedFilesAreCurrent(t *testing.T) {
 		}
 	}
 	cmp(filepath.Join(tmp, "examples", "v0.1"), filepath.Join(root, "examples", "v0.1"))
+	cmp(filepath.Join(tmp, "examples", "v0.2"), filepath.Join(root, "examples", "v0.2"))
 	for _, d := range []string{"valid", "invalid", "resolve", "resolve/cases", "vectors"} {
 		cmp(filepath.Join(tmp, "tests", "conformance", d), d)
 	}

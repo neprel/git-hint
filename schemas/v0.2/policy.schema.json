@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:schema:v0.2:policy",
+  "title": "HINT v0.2 export policy",
+  "$defs": {
+    "PolicyPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "policy_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "detailed",
+            "coarse",
+            "aggregate"
+          ]
+        },
+        "record_types": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/RecordType"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "Snapshot": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "captured_at",
+                  "commit_ref",
+                  "digest",
+                  "languages",
+                  "parent_snapshot_ids",
+                  "repo_id",
+                  "scanner",
+                  "snapshot_id",
+                  "worktree_state"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "Entity": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "entity_id",
+                  "features",
+                  "flags",
+                  "id_stability",
+                  "kind",
+                  "language",
+                  "parent_id",
+                  "repo_id",
+                  "resolution",
+                  "snapshot_id"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "Relation": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "confidence",
+                  "contract_evidence",
+                  "evidence",
+                  "kind",
+                  "relation_id",
+                  "resolution",
+                  "snapshot_id",
+                  "source",
+                  "target"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "PolicyConstraint": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "blocks_destructive",
+                  "check",
+                  "confidence",
+                  "constraint_id",
+                  "kind",
+                  "scope",
+                  "snapshot_id"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "Change": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "after",
+                  "before",
+                  "candidates",
+                  "change_id",
+                  "deltas",
+                  "level",
+                  "magnitude",
+                  "match_confidence",
+                  "match_method",
+                  "operation",
+                  "provenance",
+                  "structural_similarity"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "Observation": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "class",
+                  "command_class",
+                  "content_delivery",
+                  "context",
+                  "coordination",
+                  "correlation",
+                  "missing",
+                  "mutation_attribution",
+                  "observation_id",
+                  "op",
+                  "ops_secondary",
+                  "outcome",
+                  "precision",
+                  "provenance",
+                  "size",
+                  "source",
+                  "source_id",
+                  "targets",
+                  "time",
+                  "usage"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "Metric": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "class",
+                  "definition_version",
+                  "inputs",
+                  "metric",
+                  "metric_id",
+                  "scope",
+                  "unit",
+                  "value"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "Plan": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "authorization_basis",
+                  "break_even_horizon",
+                  "created_at",
+                  "decision",
+                  "expires_at",
+                  "intervention_class",
+                  "plan_id",
+                  "plan_schema",
+                  "preconditions",
+                  "predictions",
+                  "project_namespace",
+                  "reasons",
+                  "refactoring_cost_estimate",
+                  "repo_ids",
+                  "required_approvals",
+                  "risk_constraints",
+                  "simulation",
+                  "snapshots",
+                  "steps",
+                  "targets",
+                  "transformation"
+                ]
+              },
+              "uniqueItems": true
+            },
+            "Effect": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "agent_configuration_id",
+                  "class",
+                  "constraints_checked",
+                  "control",
+                  "effect_id",
+                  "estimate",
+                  "evidence_level",
+                  "method",
+                  "metric",
+                  "pairs",
+                  "plan_id",
+                  "treatment",
+                  "unit"
+                ]
+              },
+              "uniqueItems": true
+            }
+          },
+          "description": "Top-level field names of each record type that the export may contain."
+        },
+        "time_resolution_seconds": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            60,
+            3600,
+            86400
+          ]
+        }
+      },
+      "required": [
+        "policy_id",
+        "profile",
+        "record_types",
+        "fields",
+        "time_resolution_seconds"
+      ]
+    }
+  }
+}

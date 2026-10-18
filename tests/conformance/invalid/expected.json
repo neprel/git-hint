@@ -109,6 +109,61 @@
     "code": "content",
     "level": "schema"
   },
+  "context-delivered-without-artifact.json": {
+    "base": "activity-context.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "context-disabled-with-policy-ref.json": {
+    "base": "activity-context.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "context-duplicate-stage.json": {
+    "base": "activity-context.json",
+    "code": "duplicate_measurement",
+    "level": "semantic"
+  },
+  "context-enabled-without-policy-ref.json": {
+    "base": "activity-context.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "context-in-v01-document.json": {
+    "base": "activity-context.json",
+    "code": "version",
+    "level": "schema"
+  },
+  "context-on-edit-op.json": {
+    "base": "activity-context.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "context-raw-text-field.json": {
+    "base": "activity-context.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "context-stale-refusal-marked-current.json": {
+    "base": "activity-context.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "context-tokens-observed-label.json": {
+    "base": "activity-context.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "context-tokens-without-estimator.json": {
+    "base": "activity-context.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "context-without-tool-call.json": {
+    "base": "activity-context.json",
+    "code": "observation",
+    "level": "schema"
+  },
   "contract-by-name-match.json": {
     "base": "multi-repo.json",
     "code": "evidence",

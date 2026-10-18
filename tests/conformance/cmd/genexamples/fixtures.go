@@ -341,7 +341,7 @@ func writeInvalid(conf func(string) string, docs map[string]M) {
 			delete(obj(d, "payload", "changes", 0), "match_confidence")
 		}, nil},
 		// --- envelope and formats ---
-		{"unsupported-minor-version", "single-repo.json", "schema", "version", func(d M) { d["hint_version"] = "0.2.0" }, nil},
+		{"unsupported-minor-version", "single-repo.json", "schema", "version", func(d M) { d["hint_version"] = "0.3.0" }, nil},
 		{"unknown-document-type", "single-repo.json", "schema", "envelope", func(d M) { d["document_type"] = "repository_dump" }, nil},
 		{"free-text-allowed-claim", "single-repo.json", "schema", "envelope", func(d M) { obj(d, "redaction")["free_text"] = "allowed" }, nil},
 		{"zero-trace-id", "activity-trace.json", "schema", "format", func(d M) {
@@ -413,6 +413,7 @@ func writeInvalid(conf func(string) string, docs map[string]M) {
 		{"plan-snapshot-extra", "recommendation.json", "semantic", hintconf.CodeSnapshotSet, planSnapshotExtra, nil},
 	}
 	expected := M{}
+	cases = append(cases, v02Invalid()...)
 	for _, c := range cases {
 		d := clone(docs[c.base])
 		c.mutate(d)

@@ -28,12 +28,15 @@ const (
 	CodeTimeOrder      = "time_order"
 	CodeUnsorted       = "unsorted"
 	CodeDuplicate      = "duplicate_id"
-	CodeDangling       = "dangling_reference"
-	CodeNamespace      = "namespace_mismatch"
-	CodeStepGraph      = "step_graph"
-	CodeInterval       = "interval_order"
-	CodeCoverage       = "coverage_inconsistent"
-	CodeSnapshotSet    = "plan_snapshot_set"
+	// CodeDuplicateMeasurement: two context measurements of one tool call at the same stage,
+	// action and reference (v0.2); raw output and delivered context are two stages of one call
+	CodeDuplicateMeasurement = "duplicate_measurement"
+	CodeDangling             = "dangling_reference"
+	CodeNamespace            = "namespace_mismatch"
+	CodeStepGraph            = "step_graph"
+	CodeInterval             = "interval_order"
+	CodeCoverage             = "coverage_inconsistent"
+	CodeSnapshotSet          = "plan_snapshot_set"
 )
 
 // Canary values of the public research conventions; also used by the negative tests.
@@ -316,6 +319,7 @@ func (c *checker) activity(payload map[string]any) {
 		m, _ := s.(map[string]any)
 		sources[str(m["source_id"])] = true
 	}
+	measured := map[string]bool{}
 	for i, o := range list(payload["observations"]) {
 		m, _ := o.(map[string]any)
 		if !sources[str(m["source_id"])] {
@@ -325,6 +329,14 @@ func (c *checker) activity(payload map[string]any) {
 		s, e := str(t["start"]), str(t["end"])
 		if s != "" && e != "" && before(e, s) {
 			c.add(CodeTimeOrder, "payload.observations[%d].time", i)
+		}
+		if ctx, ok := m["context"].(map[string]any); ok {
+			corr, _ := m["correlation"].(map[string]any)
+			key := str(corr["tool_call_id"]) + "\x00" + str(ctx["stage"]) + "\x00" + str(ctx["action"]) + "\x00" + str(ctx["ref_id"])
+			if measured[key] {
+				c.add(CodeDuplicateMeasurement, "payload.observations[%d].context", i)
+			}
+			measured[key] = true
 		}
 	}
 	for i, x := range list(payload["metrics"]) {

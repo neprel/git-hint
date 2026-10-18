@@ -37,7 +37,7 @@ def load(p):
 
 def registry():
     reg = Registry()
-    for p in glob.glob(os.path.join(ROOT, "schemas", "v0.1", "*.schema.json")):
+    for p in glob.glob(os.path.join(ROOT, "schemas", "v0.*", "*.schema.json")):
         s = load(p)
         reg = reg.with_resource(s["$id"], Resource.from_contents(s))
     return reg
@@ -56,9 +56,25 @@ def snapshot_digest(payload, sid):
 
 def main():
     reg = registry()
-    validator = Draft202012Validator({"$ref": "urn:hint:schema:v0.1:envelope"}, registry=reg)
+    validators = {v: Draft202012Validator({"$ref": f"urn:hint:schema:v{v}:envelope"}, registry=reg) for v in ("0.1", "0.2")}
+
+    class ByVersion:
+        """Validates a document with the schema set of its hint_version (v0.2 = v0.1 + context)."""
+        def pick(self, d):
+            v = ".".join(str(d.get("hint_version", "")).split(".")[:2])
+            return validators.get(v)
+
+        def iter_errors(self, d):
+            val = self.pick(d)
+            return iter([type("E", (), {"message": "unsupported hint_version"})()]) if val is None else val.iter_errors(d)
+
+        def is_valid(self, d):
+            val = self.pick(d)
+            return val is not None and val.is_valid(d)
+    validator = ByVersion()
     errors = []
     valid = sorted(glob.glob(os.path.join(ROOT, "examples", "v0.1", "*.json")) +
+                   glob.glob(os.path.join(ROOT, "examples", "v0.2", "*.json")) +
                    glob.glob(os.path.join(CONF, "valid", "*.json")) +
                    glob.glob(os.path.join(CONF, "resolve", "cases", "*.json")))
     n_valid = 0

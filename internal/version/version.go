@@ -28,7 +28,7 @@ const SpecVersion = "0.1.0"
 var standardVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|dev)(\.(0|[1-9][0-9]*))?)?$`)
 
 // Supported lists the HINT major.minor versions that the client reads.
-var Supported = []string{"0.1"}
+var Supported = []string{"0.1", "0.2"}
 
 // Build describes the running binary.
 type Build struct {

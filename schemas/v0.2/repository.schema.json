@@ -1,0 +1,878 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:schema:v0.2:repository",
+  "title": "HINT v0.2 repository records",
+  "$defs": {
+    "Snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "repo_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "commit_ref": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Opaque reference to the commit; null for an uncommitted tree."
+        },
+        "parent_snapshot_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true
+        },
+        "captured_at": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+        },
+        "worktree_state": {
+          "type": "string",
+          "enum": [
+            "clean",
+            "dirty",
+            "unknown"
+          ]
+        },
+        "scanner": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "hint-scan",
+                "other"
+              ]
+            },
+            "version": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/SemVer"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "go",
+              "python",
+              "typescript",
+              "javascript",
+              "java",
+              "kotlin",
+              "rust",
+              "c",
+              "cpp",
+              "csharp",
+              "ruby",
+              "php",
+              "swift",
+              "scala",
+              "shell",
+              "sql",
+              "html",
+              "css",
+              "scss",
+              "markdown",
+              "yaml",
+              "json",
+              "toml",
+              "xml",
+              "proto",
+              "graphql",
+              "dockerfile",
+              "other"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "digest": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "repo_id",
+        "commit_ref",
+        "captured_at",
+        "worktree_state",
+        "scanner",
+        "digest"
+      ]
+    },
+    "Entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "repository",
+            "artifact",
+            "directory",
+            "file",
+            "module",
+            "package",
+            "class",
+            "interface",
+            "function",
+            "method",
+            "field",
+            "variable",
+            "block",
+            "statement",
+            "document_section",
+            "config_node",
+            "template",
+            "style_node",
+            "contract"
+          ]
+        },
+        "parent_id": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "repo_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "snapshot_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "id_stability": {
+          "type": "string",
+          "enum": [
+            "stable",
+            "snapshot_local"
+          ]
+        },
+        "language": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "go",
+                "python",
+                "typescript",
+                "javascript",
+                "java",
+                "kotlin",
+                "rust",
+                "c",
+                "cpp",
+                "csharp",
+                "ruby",
+                "php",
+                "swift",
+                "scala",
+                "shell",
+                "sql",
+                "html",
+                "css",
+                "scss",
+                "markdown",
+                "yaml",
+                "json",
+                "toml",
+                "xml",
+                "proto",
+                "graphql",
+                "dockerfile",
+                "other"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "generated",
+              "vendored",
+              "test",
+              "config",
+              "entrypoint",
+              "public_api",
+              "deprecated"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "features": {
+          "type": "object",
+          "propertyNames": {
+            "enum": [
+              "size_bytes",
+              "lines",
+              "children",
+              "fan_in",
+              "fan_out",
+              "cyclomatic",
+              "parameters"
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+          }
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "syntax",
+            "scope",
+            "type_checked",
+            "compiler",
+            "declared",
+            "unresolved"
+          ]
+        }
+      },
+      "required": [
+        "entity_id",
+        "kind",
+        "parent_id",
+        "repo_id",
+        "snapshot_id",
+        "id_stability",
+        "resolution"
+      ]
+    },
+    "Relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "relation_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "contains",
+            "imports",
+            "references",
+            "calls",
+            "implements",
+            "inherits",
+            "control_flow",
+            "data_dependency",
+            "contract_ref",
+            "package_ref"
+          ]
+        },
+        "source": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "target": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "resolution": {
+          "type": "string",
+          "enum": [
+            "syntax",
+            "scope",
+            "type_checked",
+            "compiler",
+            "declared",
+            "unresolved"
+          ]
+        },
+        "evidence": {
+          "type": "string",
+          "enum": [
+            "tree_sitter",
+            "scip",
+            "lsp",
+            "compiler",
+            "manifest",
+            "idl",
+            "api_spec",
+            "git"
+          ]
+        },
+        "confidence": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Probability"
+        },
+        "contract_evidence": {
+          "type": "string",
+          "enum": [
+            "package_manifest",
+            "idl_definition",
+            "api_spec",
+            "module_path"
+          ]
+        },
+        "snapshot_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        }
+      },
+      "required": [
+        "relation_id",
+        "kind",
+        "source",
+        "target",
+        "resolution",
+        "evidence",
+        "snapshot_id"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "contract_ref",
+                  "package_ref"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "contract_evidence"
+            ],
+            "properties": {
+              "resolution": {
+                "enum": [
+                  "declared",
+                  "compiler",
+                  "type_checked"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "description": "contract_ref and package_ref need contract evidence; equal names or equal digests alone are not evidence."
+    },
+    "PolicyConstraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "constraint_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "build_compatibility",
+            "api_compatibility",
+            "test_requirement",
+            "style_rule",
+            "custom_rule"
+          ]
+        },
+        "check": {
+          "type": "string",
+          "enum": [
+            "deterministic",
+            "probabilistic"
+          ]
+        },
+        "confidence": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Probability"
+        },
+        "snapshot_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "blocks_destructive": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "constraint_id",
+        "snapshot_id",
+        "kind",
+        "check",
+        "scope",
+        "blocks_destructive"
+      ],
+      "description": "A local rule (its text stays local) and the entities it covers."
+    },
+    "SnapshotPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Snapshot"
+          },
+          "minItems": 1
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Entity"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Relation"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PolicyConstraint"
+          }
+        }
+      },
+      "required": [
+        "snapshots",
+        "entities",
+        "relations"
+      ]
+    },
+    "Change": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "change_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "ADD",
+            "MODIFY",
+            "DELETE",
+            "MOVE",
+            "RENAME",
+            "SPLIT",
+            "MERGE",
+            "AMBIGUOUS"
+          ]
+        },
+        "level": {
+          "type": "string",
+          "enum": [
+            "artifact",
+            "symbol"
+          ]
+        },
+        "before": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "before": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+              },
+              "after": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+              },
+              "score": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/Probability"
+              }
+            },
+            "required": [
+              "before",
+              "after",
+              "score"
+            ]
+          },
+          "minItems": 2
+        },
+        "match_method": {
+          "type": "string",
+          "enum": [
+            "key",
+            "qualname",
+            "hash",
+            "containment",
+            "similarity",
+            "git_rename",
+            "none"
+          ]
+        },
+        "match_confidence": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Probability"
+        },
+        "structural_similarity": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Probability"
+        },
+        "magnitude": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lines_added": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+            },
+            "lines_deleted": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+            },
+            "entities_touched": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+            }
+          }
+        },
+        "deltas": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "signature": {
+              "type": "string",
+              "enum": [
+                "none",
+                "compatible",
+                "incompatible",
+                "unknown"
+              ]
+            },
+            "dependency": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "added": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+                },
+                "removed": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+                }
+              }
+            },
+            "control": {
+              "type": "string",
+              "enum": [
+                "none",
+                "changed",
+                "unknown"
+              ]
+            },
+            "data": {
+              "type": "string",
+              "enum": [
+                "none",
+                "changed",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string",
+              "enum": [
+                "git_diff",
+                "entity_matcher",
+                "scip",
+                "compiler"
+              ]
+            },
+            "tool": {
+              "type": "string",
+              "enum": [
+                "hint-scan",
+                "other"
+              ]
+            },
+            "version": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/SemVer"
+            }
+          },
+          "required": [
+            "source",
+            "tool",
+            "version"
+          ]
+        }
+      },
+      "required": [
+        "change_id",
+        "operation",
+        "level",
+        "before",
+        "after",
+        "match_method",
+        "provenance"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "ADD"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "before": {
+                "maxItems": 0
+              },
+              "after": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "DELETE"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "before": {
+                "minItems": 1,
+                "maxItems": 1
+              },
+              "after": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "MODIFY",
+                  "MOVE",
+                  "RENAME"
+                ]
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "before": {
+                "minItems": 1,
+                "maxItems": 1
+              },
+              "after": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "SPLIT"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "before": {
+                "minItems": 1,
+                "maxItems": 1
+              },
+              "after": {
+                "minItems": 2
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "MERGE"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "before": {
+                "minItems": 2
+              },
+              "after": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "AMBIGUOUS"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "required": [
+              "candidates"
+            ]
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "operation": {
+                  "const": "AMBIGUOUS"
+                }
+              },
+              "required": [
+                "operation"
+              ]
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "candidates"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "match_method": {
+                  "const": "none"
+                }
+              },
+              "required": [
+                "match_method"
+              ]
+            }
+          },
+          "then": {
+            "required": [
+              "match_confidence"
+            ]
+          }
+        }
+      ]
+    },
+    "ChangeSetPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repo_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "before_snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "snapshot_id": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            }
+          },
+          "required": [
+            "snapshot_id",
+            "digest"
+          ]
+        },
+        "after_snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "snapshot_id": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            }
+          },
+          "required": [
+            "snapshot_id",
+            "digest"
+          ]
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Change"
+          }
+        }
+      },
+      "required": [
+        "repo_id",
+        "before_snapshot",
+        "after_snapshot",
+        "changes"
+      ]
+    }
+  }
+}

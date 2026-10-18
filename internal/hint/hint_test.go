@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -142,6 +143,62 @@ func TestIDVectors(t *testing.T) {
 		}
 		if id != x.ID {
 			t.Errorf("%s %v: %s != %s", x.Domain, x.Parts, id, x.ID)
+		}
+	}
+}
+
+// v0.2 is v0.1 plus the context measurement of an observation: with the version strings
+// replaced and the context additions removed, every v0.2 schema equals its v0.1 schema.
+func TestV02IsV01PlusContext(t *testing.T) {
+	files, _ := filepath.Glob(filepath.Join("..", "..", "schemas", "v0.1", "*.schema.json"))
+	if len(files) == 0 {
+		t.Fatal("no v0.1 schemas")
+	}
+	for _, f := range files {
+		a, _ := os.ReadFile(f)
+		b, err := os.ReadFile(filepath.Join("..", "..", "schemas", "v0.2", filepath.Base(f)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v1, v2 map[string]any
+		json.Unmarshal([]byte(strings.NewReplacer("urn:hint:schema:v0.1:", "urn:hint:schema:v0.2:", "HINT v0.1", "HINT v0.2").Replace(string(a))), &v1)
+		json.Unmarshal(b, &v2)
+		switch filepath.Base(f) {
+		case "common.schema.json":
+			v1["$defs"].(map[string]any)["SpecVersion"].(map[string]any)["pattern"] = `^0\.2\.(0|[1-9][0-9]*)$`
+		case "activity.schema.json":
+			o := v2["$defs"].(map[string]any)["Observation"].(map[string]any)
+			delete(o["properties"].(map[string]any), "context")
+			all := o["allOf"].([]any)
+			o["allOf"] = all[:len(all)-1] // the context condition is the last entry
+		case "policy.schema.json":
+			var strip func(v any)
+			strip = func(v any) {
+				switch n := v.(type) {
+				case map[string]any:
+					if obs, ok := n["Observation"].(map[string]any); ok && obs["type"] == "array" {
+						items := obs["items"].(map[string]any)
+						var keep []any
+						for _, x := range items["enum"].([]any) {
+							if x != "context" {
+								keep = append(keep, x)
+							}
+						}
+						items["enum"] = keep
+					}
+					for _, x := range n {
+						strip(x)
+					}
+				case []any:
+					for _, x := range n {
+						strip(x)
+					}
+				}
+			}
+			strip(v2)
+		}
+		if !reflect.DeepEqual(v1, v2) {
+			t.Errorf("%s: v0.2 differs from v0.1 beyond the context measurement", filepath.Base(f))
 		}
 	}
 }

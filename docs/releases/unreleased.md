@@ -31,6 +31,11 @@ These notes describe changes that are not released yet. They name no version, an
 - **Library.** Immutable versions, retention with pins (`git hint eval pin`), `forget`, and private bundles for your other machines (`eval pack`, `eval unpack`).
 - **Reports.** `git hint eval report [--send]` writes a minimized result report: outcomes, checks, counters and project-scoped references only, no task text, code, paths or commands. Sending needs the policy and your approval.
 
+## HINT data standard v0.2
+
+- The client reads v0.1 and v0.2 and still writes v0.1.
+- v0.2 adds one optional field, the context measurement of an observation, for the coming context delivery. See [v0.2 changes](../standard/hint-data-v0.2.md).
+
 ## Known limits
 
 - Linux was checked in containers (Linux engine on a macOS host), not on a physical Linux machine. Windows is deferred.

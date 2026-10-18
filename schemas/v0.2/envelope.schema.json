@@ -1,0 +1,360 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:schema:v0.2:envelope",
+  "title": "HINT v0.2 document envelope",
+  "description": "Every HINT document, in a file or in an API body, is one envelope.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hint_version": {
+      "$ref": "urn:hint:schema:v0.2:common#/$defs/SpecVersion"
+    },
+    "document_type": {
+      "type": "string",
+      "enum": [
+        "repository_snapshot",
+        "change_set",
+        "activity_stream",
+        "recommendation_set",
+        "effect_report",
+        "export_policy",
+        "receipt"
+      ]
+    },
+    "document_id": {
+      "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+    },
+    "project_namespace": {
+      "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+    },
+    "repositories": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+      },
+      "uniqueItems": true
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "type": "string",
+          "enum": [
+            "hint-cli",
+            "hint-server",
+            "other"
+          ]
+        },
+        "version": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/SemVer"
+        }
+      },
+      "required": [
+        "tool",
+        "version"
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source_id": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "agent": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/Agent"
+          },
+          "agent_version": {
+            "oneOf": [
+              {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/SemVer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "adapter": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "enum": [
+                  "opencode-plugin",
+                  "claude-code-hook",
+                  "codex-hook",
+                  "otlp-receiver",
+                  "watcher",
+                  "shell-parser",
+                  "other"
+                ]
+              },
+              "version": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/SemVer"
+              }
+            },
+            "required": [
+              "name",
+              "version"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/FieldName"
+            },
+            "uniqueItems": true
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/FieldName"
+            },
+            "uniqueItems": true
+          },
+          "coverage": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "events_received": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+              },
+              "events_dropped": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+              }
+            }
+          }
+        },
+        "required": [
+          "source_id",
+          "agent",
+          "agent_version",
+          "adapter",
+          "capabilities",
+          "unavailable"
+        ]
+      }
+    },
+    "created_at": {
+      "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "policy_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "detailed",
+            "coarse",
+            "aggregate"
+          ]
+        },
+        "record_types": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/RecordType"
+          },
+          "uniqueItems": true
+        },
+        "free_text": {
+          "const": "denied"
+        },
+        "time_resolution_seconds": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            60,
+            3600,
+            86400
+          ]
+        }
+      },
+      "required": [
+        "policy_id",
+        "profile",
+        "record_types",
+        "free_text",
+        "time_resolution_seconds"
+      ]
+    },
+    "content_digest": {
+      "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "hint_version",
+    "document_type",
+    "document_id",
+    "project_namespace",
+    "repositories",
+    "producer",
+    "created_at",
+    "redaction",
+    "content_digest",
+    "payload"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "document_type": {
+            "const": "repository_snapshot"
+          }
+        },
+        "required": [
+          "document_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "urn:hint:schema:v0.2:repository#/$defs/SnapshotPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "document_type": {
+            "const": "change_set"
+          }
+        },
+        "required": [
+          "document_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "urn:hint:schema:v0.2:repository#/$defs/ChangeSetPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "document_type": {
+            "const": "activity_stream"
+          }
+        },
+        "required": [
+          "document_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "urn:hint:schema:v0.2:activity#/$defs/ActivityPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "document_type": {
+            "const": "recommendation_set"
+          }
+        },
+        "required": [
+          "document_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "urn:hint:schema:v0.2:recommendation#/$defs/RecommendationPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "document_type": {
+            "const": "effect_report"
+          }
+        },
+        "required": [
+          "document_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "urn:hint:schema:v0.2:recommendation#/$defs/EffectPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "document_type": {
+            "const": "export_policy"
+          }
+        },
+        "required": [
+          "document_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "urn:hint:schema:v0.2:policy#/$defs/PolicyPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "document_type": {
+            "const": "receipt"
+          }
+        },
+        "required": [
+          "document_type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "urn:hint:schema:v0.2:exchange#/$defs/ReceiptPayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "document_type": {
+            "const": "activity_stream"
+          }
+        },
+        "required": [
+          "document_type"
+        ]
+      },
+      "then": {
+        "required": [
+          "sources"
+        ]
+      }
+    }
+  ]
+}

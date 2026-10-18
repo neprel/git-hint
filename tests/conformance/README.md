@@ -7,6 +7,7 @@ Fixtures and checks for the [HINT data standard](../../docs/standard/README.md).
 | Path | Content |
 |---|---|
 | `../../examples/v0.1/` | valid example documents (also fixtures) |
+| `../../examples/v0.2/` | v0.2 examples: context measurements and the v0.2 export policy; `invalid/context-*.json` are their negative cases |
 | `valid/` | more valid documents: coarse and aggregate profiles, a later patch version, edge cases (unseen tool, errors, compaction, coordination with a blocking wait, concurrent edits, time correction) |
 | `invalid/` | invalid documents; `invalid/expected.json` gives the level (`schema` or `semantic`) and the semantic code of each |
 | `resolve/` | client import validation: local states, recommendation cases and `expected.json` |

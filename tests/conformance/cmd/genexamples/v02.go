@@ -1,0 +1,126 @@
+package main
+
+import "path/filepath"
+
+// v0.2 = v0.1 plus the optional context measurement of an observation. The example holds
+// one deliver call measured at two stages (raw tool output and delivered context), an
+// expansion, a retrieval of the original that repeats the first artifact, a stale
+// expansion that was refused, and a delivery with a disabled policy and unknown bytes.
+
+var (
+	ctxPolicyRef = id("context-policy", "default", "1", "sha256:policy")
+	ctxSnapshot  = id("snapshot", "shopkit", "c1")
+	ctxArtifact  = id("context-artifact", "shopkit", "c1", "ledger")
+	ctxRef       = id("context-ref", "shopkit", "c1", "ledger", "callers")
+	ctxCall1     = id("call", "ctx1")
+	ctxCall2     = id("call", "ctx2")
+	ctxCall3     = id("call", "ctx3")
+	ctxCall4     = id("call", "ctx4")
+	ctxCall5     = id("call", "ctx5")
+)
+
+func contextDoc(act M) M {
+	d := clone(act)
+	d["hint_version"] = "0.2.0"
+	obs := obj(d, "payload")["observations"].([]any)
+	base := plain(obs[2].(map[string]any)) // a READ with a tool call
+	mk := func(n int, op, call string, ctx M) M {
+		o := plain(base)
+		o["observation_id"] = id("event", "context", string(rune('a'+n)))
+		o["op"] = op
+		corr := o["correlation"].(map[string]any)
+		corr["tool_call_id"] = call
+		o["context"] = ctx
+		delete(o, "size")
+		return o
+	}
+	deliver := func(stage string, bytes int) M {
+		return M{"action": "deliver", "stage": stage, "artifact_id": ctxArtifact, "snapshot_id": ctxSnapshot, "policy_state": "enabled",
+			"policy_ref": ctxPolicyRef, "freshness": "current", "result": "delivered", "bytes": bytes, "omitted": 3,
+			"tokens": M{"value": bytes / 4, "estimator": "bytes-div-4", "estimator_version": "1", "label": "estimate"}}
+	}
+	extra := A{
+		mk(0, "DISCOVER", ctxCall1, deliver("raw_tool_output", 5400)),
+		mk(1, "DISCOVER", ctxCall1, deliver("delivered_context", 1800)),
+		mk(2, "DISCOVER", ctxCall2, M{"action": "expand", "stage": "delivered_context", "ref_id": ctxRef, "artifact_id": id("context-artifact", "shopkit", "c1", "callers"),
+			"snapshot_id": ctxSnapshot, "policy_state": "enabled", "policy_ref": ctxPolicyRef, "freshness": "current", "result": "delivered", "bytes": 900, "omitted": 0}),
+		mk(3, "READ", ctxCall3, M{"action": "retrieve_original", "stage": "delivered_context", "artifact_id": ctxArtifact, "snapshot_id": ctxSnapshot,
+			"policy_state": "enabled", "policy_ref": ctxPolicyRef, "freshness": "current", "result": "delivered", "bytes": 5400, "repeat_of": ctxArtifact}),
+		mk(4, "DISCOVER", ctxCall4, M{"action": "expand", "stage": "delivered_context", "ref_id": ctxRef, "policy_state": "enabled", "policy_ref": ctxPolicyRef,
+			"freshness": "stale", "result": "refused_stale", "bytes": 0}),
+		mk(5, "READ", ctxCall5, M{"action": "deliver", "stage": "delivered_context", "artifact_id": ctxArtifact, "snapshot_id": ctxSnapshot,
+			"policy_state": "disabled", "result": "delivered", "bytes": nil, "freshness": "unknown"}),
+	}
+	obj(d, "payload")["observations"] = append(obs, extra...)
+	return reseal(d)
+}
+
+// contextPolicy is the v0.2 export policy: the v0.1 fields plus the context measurement.
+func contextPolicy(pol M) M {
+	p := clone(pol)
+	p["hint_version"] = "0.2.0"
+	f := obj(p, "payload", "fields")
+	f["Observation"] = append(f["Observation"].([]any), "context")
+	return reseal(p)
+}
+
+func writeV02(root string, act, pol M) M {
+	ex := func(n string) string { return filepath.Join(root, "examples", "v0.2", n) }
+	doc := contextDoc(act)
+	write(ex("activity-context.json"), doc)
+	write(ex("export-policy.json"), contextPolicy(pol))
+	return doc
+}
+
+// v02Invalid are the negative cases of the context measurement.
+func v02Invalid() []invalidCase {
+	first := func(d M) int { // index of the first context measurement
+		for i, o := range obj(d, "payload")["observations"].([]any) {
+			if _, ok := o.(map[string]any)["context"]; ok {
+				return i
+			}
+		}
+		panic("no context measurement")
+	}
+	ctx := func(d M, i int) M { return obj(d, "payload", "observations", first(d)+i, "context") }
+	o0 := func(d M) M { return obj(d, "payload", "observations", first(d)) }
+	return []invalidCase{
+		{"context-on-edit-op", "activity-context.json", "schema", "observation", func(d M) {
+			o0(d)["op"] = "EDIT_INTENT"
+		}, nil},
+		{"context-without-tool-call", "activity-context.json", "schema", "observation", func(d M) {
+			delete(o0(d)["correlation"].(map[string]any), "tool_call_id")
+		}, nil},
+		{"context-enabled-without-policy-ref", "activity-context.json", "schema", "observation", func(d M) {
+			delete(ctx(d, 0), "policy_ref")
+		}, nil},
+		{"context-disabled-with-policy-ref", "activity-context.json", "schema", "observation", func(d M) {
+			ctx(d, 5)["policy_ref"] = ctxPolicyRef
+		}, nil},
+		{"context-tokens-without-estimator", "activity-context.json", "schema", "observation", func(d M) {
+			delete(ctx(d, 0)["tokens"].(map[string]any), "estimator")
+		}, nil},
+		{"context-tokens-observed-label", "activity-context.json", "schema", "observation", func(d M) {
+			ctx(d, 0)["tokens"].(map[string]any)["label"] = "observed"
+		}, nil},
+		{"context-stale-refusal-marked-current", "activity-context.json", "schema", "observation", func(d M) {
+			ctx(d, 4)["freshness"] = "current"
+		}, nil},
+		{"context-delivered-without-artifact", "activity-context.json", "schema", "observation", func(d M) {
+			delete(ctx(d, 2), "artifact_id")
+		}, nil},
+		{"context-raw-text-field", "activity-context.json", "schema", "content", func(d M) {
+			ctx(d, 1)["text"] = forbidden["prompt"]
+		}, nil},
+		{"context-in-v01-document", "activity-context.json", "schema", "version", func(d M) {
+			d["hint_version"] = "0.1.0"
+		}, nil},
+		// a second measurement of the same call, stage and action (two stages are fine)
+		{"context-duplicate-stage", "activity-context.json", "semantic", "duplicate_measurement", func(d M) {
+			o := plain(o0(d))
+			o["observation_id"] = id("event", "context", "dup")
+			obs := obj(d, "payload")["observations"].([]any)
+			obj(d, "payload")["observations"] = append(obs, o)
+		}, nil},
+	}
+}

@@ -10,6 +10,7 @@ The HINT data standard is an open format for **repository structure**, **agent a
 | [`privacy-v0.1.md`](privacy-v0.1.md) | forbidden content, opaque identifiers and keys, residual risks, export profiles, approval |
 | [`recommendation-v0.1.md`](recommendation-v0.1.md) | plans, steps, forecasts, destructive-change rule, effects |
 | [`exchange-v0.1.md`](exchange-v0.1.md) | file mode, API mode, receipts, client import validation |
+| [`hint-data-v0.2.md`](hint-data-v0.2.md) | v0.2 = v0.1 plus the context measurement of an observation |
 | [`compatibility.md`](compatibility.md) | versioning, unknown fields, OTLP mapping, other standards |
 | [`CHANGELOG.md`](CHANGELOG.md) | changes per version |
 

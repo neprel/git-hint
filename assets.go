@@ -8,6 +8,12 @@ import "embed"
 //go:embed schemas/v0.1/*.schema.json
 var SchemasV01 embed.FS
 
+// SchemasV02 holds the HINT v0.2 JSON Schemas (schemas/v0.2/*.schema.json): v0.1 plus the
+// optional context measurement of an observation.
+//
+//go:embed schemas/v0.2/*.schema.json
+var SchemasV02 embed.FS
+
 // SchemasEvalsV1 holds the schemas of the local eval library (schemas/evals-v1/*.schema.json).
 // These records stay on the user's machine; they are not part of the HINT wire standard.
 //

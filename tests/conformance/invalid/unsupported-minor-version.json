@@ -3,7 +3,7 @@
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "76fda6ecdf7e4d6cd00aa2d41cfc003f",
   "document_type": "repository_snapshot",
-  "hint_version": "0.2.0",
+  "hint_version": "0.3.0",
   "payload": {
     "constraints": [
       {

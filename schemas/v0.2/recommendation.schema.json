@@ -1,0 +1,719 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:schema:v0.2:recommendation",
+  "title": "HINT v0.2 recommendation and effect records",
+  "$defs": {
+    "Prediction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "const": "forecast"
+        },
+        "metric": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Metric"
+        },
+        "unit": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Unit"
+        },
+        "interval": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Interval"
+        },
+        "point": {
+          "type": "number"
+        },
+        "probability_improvement": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Probability"
+        },
+        "per": {
+          "type": "string",
+          "enum": [
+            "task",
+            "total_over_horizon"
+          ]
+        }
+      },
+      "required": [
+        "class",
+        "metric",
+        "unit",
+        "interval",
+        "per"
+      ],
+      "allOf": [
+        {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/MetricUnit"
+        }
+      ]
+    },
+    "Simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "NONE",
+            "L1",
+            "L2",
+            "L3"
+          ]
+        },
+        "task_distribution_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "agent_configuration_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "model_version": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/SemVer"
+        },
+        "calibration_status": {
+          "type": "string",
+          "enum": [
+            "uncalibrated",
+            "backtested",
+            "holdout_validated"
+          ]
+        },
+        "out_of_distribution": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "level"
+      ],
+      "description": "L4 is not a simulation level; empirical results are Effect records."
+    },
+    "Step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "SPLIT",
+            "MERGE",
+            "MOVE",
+            "EXTRACT",
+            "INTRODUCE_INTERFACE",
+            "ISOLATE_STATE",
+            "REMOVE_CANDIDATE",
+            "REASSIGN_OWNER",
+            "ADD_CONTEXT",
+            "RUN_CHECKS"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "destination": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "uniqueItems": true
+        },
+        "requires_approval": {
+          "type": "boolean"
+        },
+        "support": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "unsupported",
+            "ambiguous"
+          ]
+        }
+      },
+      "required": [
+        "step_id",
+        "action",
+        "targets",
+        "depends_on",
+        "requires_approval",
+        "support"
+      ],
+      "description": "A declarative step. It names entities and an action; it never carries a command or code."
+    },
+    "Plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "plan_schema": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/SpecVersion"
+        },
+        "project_namespace": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "repo_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "repo_id": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+              },
+              "snapshot_id": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+              },
+              "digest": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+              }
+            },
+            "required": [
+              "repo_id",
+              "snapshot_id",
+              "digest"
+            ]
+          },
+          "minItems": 1
+        },
+        "intervention_class": {
+          "type": "string",
+          "enum": [
+            "NO_CHANGE",
+            "CONTEXT_ONLY",
+            "REFACTOR_CODE",
+            "REPARTITION",
+            "REASSIGN_OWNER",
+            "COLLECT_MORE_EVIDENCE"
+          ]
+        },
+        "transformation": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "SPLIT",
+                "MERGE",
+                "MOVE",
+                "EXTRACT",
+                "INTRODUCE_INTERFACE",
+                "ISOLATE_STATE",
+                "REMOVE_CANDIDATE"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "recommend",
+            "refuse_uncertain",
+            "refuse_negative",
+            "collect_more_evidence"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true
+        },
+        "preconditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "check": {
+                "type": "string",
+                "enum": [
+                  "snapshot_matches",
+                  "entities_resolve",
+                  "worktree_clean",
+                  "tests_pass",
+                  "owner_approval",
+                  "constraint_holds"
+                ]
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "check"
+            ]
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "co_change",
+                  "boundary_crossings",
+                  "context_size",
+                  "navigation_repeats",
+                  "change_spread",
+                  "rework",
+                  "coordination_wait",
+                  "ownership_split",
+                  "weak_evidence",
+                  "low_adoption"
+                ]
+              },
+              "observation_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "uniqueItems": true
+              },
+              "metric_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "code"
+            ]
+          }
+        },
+        "predictions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Prediction"
+          }
+        },
+        "simulation": {
+          "$ref": "#/$defs/Simulation"
+        },
+        "refactoring_cost_estimate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "unit": {
+              "type": "string",
+              "enum": [
+                "tokens",
+                "seconds"
+              ]
+            },
+            "interval": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/NonNegativeInterval"
+            }
+          },
+          "required": [
+            "unit",
+            "interval"
+          ]
+        },
+        "break_even_horizon": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "unit": {
+              "const": "tasks"
+            },
+            "interval": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/NonNegativeInterval"
+            },
+            "unbounded": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "unit",
+            "unbounded"
+          ]
+        },
+        "risk_constraints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "behavior",
+                  "api",
+                  "test",
+                  "security",
+                  "performance"
+                ]
+              },
+              "requirement": {
+                "type": "string",
+                "enum": [
+                  "tests_unchanged_pass",
+                  "public_api_unchanged",
+                  "no_new_dependency",
+                  "no_permission_change",
+                  "latency_not_worse",
+                  "build_passes",
+                  "constraint_record_holds"
+                ]
+              },
+              "constraint_id": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+              },
+              "deterministic": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "requirement",
+              "deterministic"
+            ]
+          }
+        },
+        "required_approvals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "code_owner",
+              "security_reviewer"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "authorization_basis": {
+          "type": "string",
+          "enum": [
+            "deterministic",
+            "probabilistic"
+          ]
+        },
+        "created_at": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "plan_id",
+        "plan_schema",
+        "project_namespace",
+        "repo_ids",
+        "snapshots",
+        "intervention_class",
+        "transformation",
+        "decision",
+        "targets",
+        "preconditions",
+        "steps",
+        "reasons",
+        "risk_constraints",
+        "required_approvals",
+        "created_at",
+        "expires_at"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "intervention_class": {
+                "enum": [
+                  "REFACTOR_CODE",
+                  "REPARTITION"
+                ]
+              }
+            },
+            "required": [
+              "intervention_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transformation": {
+                "type": "string",
+                "enum": [
+                  "SPLIT",
+                  "MERGE",
+                  "MOVE",
+                  "EXTRACT",
+                  "INTRODUCE_INTERFACE",
+                  "ISOLATE_STATE",
+                  "REMOVE_CANDIDATE"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "intervention_class": {
+                "enum": [
+                  "NO_CHANGE",
+                  "CONTEXT_ONLY",
+                  "REASSIGN_OWNER",
+                  "COLLECT_MORE_EVIDENCE"
+                ]
+              }
+            },
+            "required": [
+              "intervention_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transformation": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "transformation": {
+                    "const": "REMOVE_CANDIDATE"
+                  }
+                },
+                "required": [
+                  "transformation"
+                ]
+              },
+              {
+                "properties": {
+                  "steps": {
+                    "contains": {
+                      "properties": {
+                        "action": {
+                          "const": "REMOVE_CANDIDATE"
+                        }
+                      },
+                      "required": [
+                        "action"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "steps"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "authorization_basis"
+            ],
+            "properties": {
+              "authorization_basis": {
+                "const": "deterministic"
+              },
+              "required_approvals": {
+                "contains": {
+                  "const": "owner"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "decision": {
+                  "const": "recommend"
+                }
+              },
+              "required": [
+                "decision"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "steps": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "RecommendationPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plans": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Plan"
+          }
+        }
+      },
+      "required": [
+        "plans"
+      ]
+    },
+    "TaskSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "task_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "task_ids"
+      ]
+    },
+    "Effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effect_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "class": {
+          "const": "confirmed_effect"
+        },
+        "evidence_level": {
+          "const": "L4"
+        },
+        "plan_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "metric": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Metric"
+        },
+        "unit": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Unit"
+        },
+        "control": {
+          "$ref": "#/$defs/TaskSet"
+        },
+        "treatment": {
+          "$ref": "#/$defs/TaskSet"
+        },
+        "pairs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "estimate": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Interval"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "paired_difference_bootstrap",
+            "paired_t",
+            "sign_test"
+          ]
+        },
+        "constraints_checked": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "tests_unchanged_pass",
+              "public_api_unchanged",
+              "no_new_dependency",
+              "no_permission_change",
+              "latency_not_worse",
+              "build_passes",
+              "constraint_record_holds"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "agent_configuration_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        }
+      },
+      "required": [
+        "effect_id",
+        "class",
+        "evidence_level",
+        "plan_id",
+        "metric",
+        "unit",
+        "control",
+        "treatment",
+        "pairs",
+        "estimate",
+        "method",
+        "agent_configuration_id"
+      ],
+      "allOf": [
+        {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/MetricUnit"
+        }
+      ],
+      "description": "An effect measured on comparable real tasks before and after a change (L4). Never a forecast."
+    },
+    "EffectPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Effect"
+          }
+        }
+      },
+      "required": [
+        "effects"
+      ]
+    }
+  }
+}
