@@ -207,6 +207,9 @@ func renderFindings(w func(string, ...any), payload map[string]any, name func(st
 			}
 			w("\n")
 		}
+		if d, ok := f["decision"].(map[string]any); ok {
+			renderDecision(w, d)
+		}
 		ns, _ := f["next_step"].(map[string]any)
 		w("Next step: **%s**", str(ns["check"]))
 		var tn []string
@@ -226,6 +229,31 @@ func renderFindings(w func(string, ...any), payload map[string]any, name func(st
 		}
 		w("\n")
 	}
+}
+
+// renderDecision writes the intervention comparison of a finding. Unknown inputs stay
+// unknown; a break-even horizon appears only when the server gives one.
+func renderDecision(w func(string, ...any), d map[string]any) {
+	w("Intervention comparison (heuristic, uncalibrated; %v future tasks, unit %s): **%s**.\n\n", d["horizon_tasks"], str(d["unit"]), str(d["chosen"]))
+	w("| Intervention | State | One-time | Per task | Success difference | Net over the horizon |\n|---|---|---|---|---|---|\n")
+	iv := func(v any) string {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return "unknown"
+		}
+		return fmt.Sprintf("%v to %v", m["lower"], m["upper"])
+	}
+	for _, x := range list(d["alternatives"]) {
+		a := x.(map[string]any)
+		w("| %s | %s | %s (%s) | %s | %s | %s |\n", str(a["intervention"]), str(a["state"]), iv(a["one_time"]), str(a["one_time_source"]),
+			iv(a["per_task"]), iv(a["success"]), iv(a["net"]))
+	}
+	if be, ok := d["break_even_tasks"].(map[string]any); ok {
+		w("\nBreak-even after %v to %v tasks (observed inputs, uncalibrated).\n", be["lower"], be["upper"])
+	} else {
+		w("\nNo break-even horizon: an input is unknown or not observed.\n")
+	}
+	w("\n")
 }
 
 func title(m map[string]any) string {

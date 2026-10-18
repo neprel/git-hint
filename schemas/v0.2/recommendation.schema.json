@@ -1025,6 +1025,9 @@
         },
         "priority": {
           "const": "heuristic"
+        },
+        "decision": {
+          "$ref": "#/$defs/Decision"
         }
       },
       "required": [
@@ -1068,6 +1071,230 @@
       "required": [
         "problem",
         "reason"
+      ]
+    },
+    "Decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The minimum sufficient intervention for a finding (v0.2): each alternative's inputs as intervals or null (unknown), its net value over the horizon, and the chosen class. A heuristic, uncalibrated comparison; unknown inputs are never filled.",
+      "properties": {
+        "chosen": {
+          "type": "string",
+          "enum": [
+            "NO_CHANGE",
+            "CONTEXT_ONLY",
+            "REFACTOR_CODE",
+            "REPARTITION",
+            "REASSIGN_OWNER",
+            "COLLECT_MORE_EVIDENCE"
+          ]
+        },
+        "horizon_tasks": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "unit": {
+          "const": "tokens"
+        },
+        "alternatives": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "intervention": {
+                "type": "string",
+                "enum": [
+                  "CONTEXT_ONLY",
+                  "REFACTOR_CODE"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "chosen",
+                  "known",
+                  "unknown",
+                  "excluded_correctness",
+                  "not_applicable"
+                ]
+              },
+              "one_time": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "lower": {
+                        "type": "number"
+                      },
+                      "upper": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "lower",
+                      "upper"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "per_task": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "lower": {
+                        "type": "number"
+                      },
+                      "upper": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "lower",
+                      "upper"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "success": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "lower": {
+                        "type": "number"
+                      },
+                      "upper": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "lower",
+                      "upper"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "net": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "lower": {
+                        "type": "number"
+                      },
+                      "upper": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "lower",
+                      "upper"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "one_time_source": {
+                "type": "string",
+                "enum": [
+                  "observed",
+                  "configuration",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "intervention",
+              "state",
+              "one_time",
+              "per_task",
+              "success",
+              "net",
+              "one_time_source"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "enum": [
+                        "unknown",
+                        "not_applicable"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "net": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "break_even_tasks": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "lower": {
+                  "type": "number"
+                },
+                "upper": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "lower",
+                "upper"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "basis": {
+          "const": "heuristic"
+        },
+        "evidence": {
+          "type": "string",
+          "enum": [
+            "project_eval_pairs",
+            "none"
+          ]
+        }
+      },
+      "required": [
+        "chosen",
+        "horizon_tasks",
+        "unit",
+        "alternatives",
+        "break_even_tasks",
+        "basis",
+        "evidence"
       ]
     }
   }

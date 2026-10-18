@@ -176,6 +176,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			defs := v2["$defs"].(map[string]any)
 			delete(defs, "Finding")
 			delete(defs, "Abstention")
+			delete(defs, "Decision")
 			props := defs["RecommendationPayload"].(map[string]any)["properties"].(map[string]any)
 			delete(props, "findings")
 			delete(props, "abstentions")

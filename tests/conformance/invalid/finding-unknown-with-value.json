@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:690f8a634a6ff102dd8482127febe8572d63295812e9d251af6cb2a9db5a814a",
+  "content_digest": "sha256:40efe5379b1b4621d730824c7a7b5db83d05d9427c73450c1d201c3daa9bc4eb",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
   "document_type": "recommendation_set",
@@ -37,6 +37,37 @@
             "state": "not_excluded"
           }
         ],
+        "decision": {
+          "alternatives": [
+            {
+              "intervention": "CONTEXT_ONLY",
+              "net": {
+                "lower": -15000,
+                "upper": 20000
+              },
+              "one_time": {
+                "lower": 0,
+                "upper": 0
+              },
+              "one_time_source": "configuration",
+              "per_task": {
+                "lower": -400,
+                "upper": 300
+              },
+              "state": "known",
+              "success": {
+                "lower": 0,
+                "upper": 0.2
+              }
+            }
+          ],
+          "basis": "heuristic",
+          "break_even_tasks": null,
+          "chosen": "COLLECT_MORE_EVIDENCE",
+          "evidence": "project_eval_pairs",
+          "horizon_tasks": 50,
+          "unit": "tokens"
+        },
         "evidence_state": "supported",
         "finding_id": "879476c356d6315ccc75baff1a56fdb8",
         "interventions": [

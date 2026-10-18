@@ -184,6 +184,16 @@
     "code": "dangling_reference",
     "level": "semantic"
   },
+  "decision-calibrated-basis.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "decision-unknown-with-net.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
   "derived-metric-estimated.json": {
     "base": "activity-trace.json",
     "code": "evidence",

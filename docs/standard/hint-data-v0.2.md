@@ -48,6 +48,7 @@ A recommendation set can carry up to 20 findings. A finding states what costs ef
 | `interventions` | candidate intervention classes (the plan classes) |
 | `next_step` | a checkable step: `refresh_index_and_recheck`, `compare_context_variant`, `inspect_coupling`, `review_validation_loop`, `review_ownership`, `collect_more_tasks`, with targets |
 | `priority` | always `heuristic`: the array order is a heuristic priority, not a calibrated ranking |
+| `decision` | optional: the minimum sufficient intervention over `horizon_tasks` future tasks. Each alternative (`CONTEXT_ONLY`, `REFACTOR_CODE`) has its one-time cost, per-task difference, success difference and net value as intervals in tokens, or null when unknown; `state` is `chosen`, `known`, `unknown`, `excluded_correctness` or `not_applicable`. `chosen` can also be `NO_CHANGE` or `COLLECT_MORE_EVIDENCE`. `break_even_tasks` is null unless every input of the chosen alternative was observed. `basis` is always `heuristic`; `evidence` says whether project eval pairs exist |
 
 `abstentions` lists the problem classes that the server did not diagnose and why (`no_confirmed_tasks`, `insufficient_coverage`). A plan in a v0.2 set names `plan_schema` 0.2.x. The client shows at most five findings.
 

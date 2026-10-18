@@ -89,18 +89,22 @@ func findingsDoc(rec, act, ctx M) M {
 	}
 	nav := M{"finding_id": id("finding", "repeated-navigation"), "problem": "repeated_navigation", "evidence_state": "supported",
 		"quantities": A{q("repeats_without_observed_edit", "operations", 4, 6, 6), q("repeats_after_edit", "operations", 1, 6, 6), q("tasks", "tasks", 3, 3, 3)},
-		"scope":   M{"task_ids": A{task, id("task", "shopkit", "2"), id("task", "shopkit", "3")}, "task_count": 3, "snapshot_ids": A{snap}},
-		"targets": A{targets[0]}, "observation_ids": A{oid(obs[2]), oid(cobs[len(cobs)-2])},
+		"scope":      M{"task_ids": A{task, id("task", "shopkit", "2"), id("task", "shopkit", "3")}, "task_count": 3, "snapshot_ids": A{snap}},
+		"targets":    A{targets[0]}, "observation_ids": A{oid(obs[2]), oid(cobs[len(cobs)-2])},
 		"causes": A{
 			M{"cause": "stale_index", "state": "supported", "basis": A{"stale_context_measurement", "repeat_without_observed_edit"}},
 			M{"cause": "architectural_coupling", "state": "not_supported", "basis": A{"single_component"}},
 			M{"cause": "intentional_repeat", "state": "not_excluded", "basis": A{"repeat_after_own_edit"}}},
 		"interventions": A{"CONTEXT_ONLY", "COLLECT_MORE_EVIDENCE"},
-		"next_step":     M{"check": "refresh_index_and_recheck", "targets": A{targets[0]}}, "priority": "heuristic"}
+		"next_step":     M{"check": "refresh_index_and_recheck", "targets": A{targets[0]}}, "priority": "heuristic",
+		"decision": M{"chosen": "COLLECT_MORE_EVIDENCE", "horizon_tasks": 50, "unit": "tokens", "basis": "heuristic", "evidence": "project_eval_pairs",
+			"break_even_tasks": nil, "alternatives": A{
+				M{"intervention": "CONTEXT_ONLY", "state": "known", "one_time": M{"lower": 0, "upper": 0}, "per_task": M{"lower": -400, "upper": 300},
+					"success": M{"lower": 0, "upper": 0.2}, "net": M{"lower": -15000, "upper": 20000}, "one_time_source": "configuration"}}}}
 	read := M{"finding_id": id("finding", "large-read"), "problem": "large_low_selectivity_read", "evidence_state": "limited",
 		"quantities": A{q("large_reads", "operations", 2, 2, 5), q("large_read_bytes", "bytes", nil, 2, 5)},
-		"scope":   M{"task_ids": A{task}, "task_count": 1, "snapshot_ids": A{snap}},
-		"targets": A{}, "observation_ids": A{oid(obs[2])},
+		"scope":      M{"task_ids": A{task}, "task_count": 1, "snapshot_ids": A{snap}},
+		"targets":    A{}, "observation_ids": A{oid(obs[2])},
 		"causes": A{M{"cause": "insufficient_context", "state": "not_excluded", "basis": A{"large_read_without_edit", "low_coverage"}},
 			M{"cause": "necessary_exploration", "state": "not_excluded", "basis": A{}}},
 		"interventions": A{"CONTEXT_ONLY", "COLLECT_MORE_EVIDENCE"},
@@ -178,6 +182,13 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"finding-without-cause", "recommendation-findings.json", "schema", "finding", func(d M) {
 			obj(d, "payload", "findings", 0)["causes"] = A{}
+		}, nil},
+		{"decision-unknown-with-net", "recommendation-findings.json", "schema", "finding", func(d M) {
+			a := obj(d, "payload", "findings", 0, "decision", "alternatives", 0)
+			a["state"], a["per_task"] = "unknown", nil
+		}, nil},
+		{"decision-calibrated-basis", "recommendation-findings.json", "schema", "finding", func(d M) {
+			obj(d, "payload", "findings", 0, "decision")["basis"] = "calibrated"
 		}, nil},
 		{"finding-in-v01-document", "recommendation-findings.json", "schema", "version", func(d M) {
 			d["hint_version"] = "0.1.0"

@@ -29,7 +29,9 @@ func TestRenderFindings(t *testing.T) {
 	md := Render(im, cur, "x.json")
 	for _, want := range []string{"## Findings", "heuristic priority, not a calibrated ranking", "### Finding 1: repeated_navigation (supported)",
 		"- stale_index: **supported** (stale_context_measurement, repeat_without_observed_edit)", "| large_read_bytes | bytes | unknown | 2 of 5 |",
-		"Next step: **refresh_index_and_recheck** on billing/ledger.go", "- coordination_wait: insufficient_coverage", "### Finding 2: large_low_selectivity_read (limited)"} {
+		"Next step: **refresh_index_and_recheck** on billing/ledger.go", "- coordination_wait: insufficient_coverage", "### Finding 2: large_low_selectivity_read (limited)",
+		"Intervention comparison (heuristic, uncalibrated; 50 future tasks, unit tokens): **COLLECT_MORE_EVIDENCE**.",
+		"| CONTEXT_ONLY | known | 0 to 0 (configuration) | -400 to 300 | 0 to 0.2 | -15000 to 20000 |", "No break-even horizon: an input is unknown or not observed."} {
 		if !strings.Contains(md, want) {
 			t.Errorf("missing %q in\n%s", want, md)
 		}
