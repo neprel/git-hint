@@ -205,6 +205,16 @@
             },
             "model_ref": {
               "$ref": "#/$defs/Ref"
+            },
+            "model_check": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "mismatch",
+                "unverified",
+                "not_observed"
+              ],
+              "description": "Whether every forwarded model request named the selected model (HINT's proxy check); only verified supports an effective launch_parameter model."
             }
           },
           "required": [
@@ -544,7 +554,7 @@
           ]
         },
         "model": {
-          "$ref": "#/$defs/RefState"
+          "$ref": "#/$defs/ModelState"
         },
         "harness": {
           "type": "object",
@@ -1033,6 +1043,47 @@
                 "unbounded",
                 "unknown"
               ]
+            }
+          },
+          "required": [
+            "state"
+          ]
+        }
+      ]
+    },
+    "ModelState": {
+      "description": "The effective model of the run: known with its provenance (launch_parameter: the selection that constructed and enforced the launch; agent_reported: reported by the agent) or unknown. A user's declaration alone is never effective (see declared).",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "ref": {
+              "$ref": "#/$defs/Ref"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "launch_parameter",
+                "agent_reported"
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "ref",
+            "provenance"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "unknown"
             }
           },
           "required": [

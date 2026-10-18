@@ -1115,6 +1115,7 @@
           }
         },
         "model": {
+          "provenance": "launch_parameter",
           "state": "known"
         }
       },

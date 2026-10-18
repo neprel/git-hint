@@ -57,7 +57,7 @@ func contextDoc(act M) M {
 	src := d["sources"].([]any)[0].(map[string]any)
 	src["configuration"] = M{
 		"agent":          M{"name": "opencode", "version": M{"state": "known", "value": "2.0.26"}},
-		"model":          M{"state": "known", "ref": id("eval-report:model", "local-model")},
+		"model":          M{"state": "known", "ref": id("eval-report:model", "local-model"), "provenance": "launch_parameter"},
 		"harness":        M{"kind": "direct", "version": M{"state": "not_applicable"}},
 		"context_policy": M{"state": "enabled", "ref": ctxPolicyRef, "version": 1},
 		"config_refs":    M{"state": "known", "refs": A{}},
@@ -336,6 +336,12 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"configuration-raw-model-text", "activity-context.json", "schema", "content", func(d M) {
 			cfg(d)["model"] = M{"state": "known", "ref": forbidden["identifier"]}
+		}, nil},
+		{"configuration-model-without-provenance", "activity-context.json", "schema", "source", func(d M) {
+			delete(cfg(d)["model"].(map[string]any), "provenance")
+		}, nil},
+		{"configuration-declared-as-effective", "activity-context.json", "schema", "source", func(d M) {
+			cfg(d)["model"].(map[string]any)["provenance"] = "declared"
 		}, nil},
 		{"configuration-without-budget", "activity-context.json", "schema", "source", func(d M) {
 			delete(cfg(d), "budget")

@@ -19,6 +19,14 @@ type RefState struct {
 	Ref   string `json:"ref,omitempty"`
 }
 
+// ModelState is the effective model: known with its provenance (launch_parameter or
+// agent_reported) or unknown. A declaration alone never makes it known.
+type ModelState struct {
+	State      string `json:"state"` // known, unknown
+	Ref        string `json:"ref,omitempty"`
+	Provenance string `json:"provenance,omitempty"`
+}
+
 // ConfigPolicy is the effective context policy of a run (enabled carries ref and version).
 type ConfigPolicy struct {
 	State   string `json:"state"` // enabled, disabled, not_applicable, unknown
@@ -69,7 +77,7 @@ type Configuration struct {
 		Name    string       `json:"name"`
 		Version VersionState `json:"version"`
 	} `json:"agent"`
-	Model   RefState `json:"model"`
+	Model   ModelState `json:"model"`
 	Harness struct {
 		Kind    string       `json:"kind"` // harbor, direct, other
 		Version VersionState `json:"version"`

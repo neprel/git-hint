@@ -268,6 +268,9 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 		if m, ok := ag["model"].(string); ok && m != "" {
 			agent["model_ref"] = b.ref("model", m)
 		}
+		if mc, ok := ag["model_check"].(string); ok {
+			agent["model_check"] = mc
+		}
 		var checks []any
 		for _, c := range t["checks"].([]any) {
 			cm := c.(map[string]any)

@@ -861,7 +861,7 @@
           ]
         },
         "model": {
-          "$ref": "#/$defs/RefState"
+          "$ref": "#/$defs/ModelState"
         },
         "harness": {
           "type": "object",
@@ -1059,6 +1059,47 @@
                 "unbounded",
                 "unknown"
               ]
+            }
+          },
+          "required": [
+            "state"
+          ]
+        }
+      ]
+    },
+    "ModelState": {
+      "description": "The effective model of the run: known with its provenance (launch_parameter: the selection that constructed and enforced the launch; agent_reported: reported by the agent) or unknown. A user's declaration alone is never effective (see declared).",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "ref": {
+              "$ref": "#/$defs/OpaqueId"
+            },
+            "provenance": {
+              "type": "string",
+              "enum": [
+                "launch_parameter",
+                "agent_reported"
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "ref",
+            "provenance"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "unknown"
             }
           },
           "required": [

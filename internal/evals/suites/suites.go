@@ -202,6 +202,11 @@ type TrialInput struct {
 	ContextPolicyID, ContextPolicyDigest string
 	ContextPolicyVersion                 int
 	DeclaredChanges                      []string
+	// ModelCheck is the proxy's check of the model field of every forwarded request
+	ModelCheck string
+	// ObservedConfig are digests of the effective launch configuration (kind, sha256 digest);
+	// nil: not observed (unknown), empty: observed none
+	ObservedConfig []map[string]string
 }
 
 // RecordTrial stores one trial (every attempt, whatever its outcome).
@@ -234,6 +239,9 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 	}
 	if in.Model != "" {
 		agent["model"] = in.Model
+	}
+	if in.ModelCheck != "" {
+		agent["model_check"] = in.ModelCheck
 	}
 	outcome := t.Outcome()
 	stop := in.Stop
@@ -274,6 +282,13 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 		cp = map[string]any{"state": in.ContextPolicy}
 	}
 	rec["context_policy"] = cp
+	if in.ObservedConfig != nil {
+		oc := []any{}
+		for _, c := range in.ObservedConfig {
+			oc = append(oc, map[string]any{"kind": c["kind"], "digest": c["digest"]})
+		}
+		rec["observed_config"] = oc
+	}
 	if len(in.DeclaredChanges) > 0 {
 		dc := []any{}
 		for _, c := range in.DeclaredChanges {

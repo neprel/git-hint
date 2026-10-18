@@ -1179,6 +1179,7 @@
           }
         },
         "model": {
+          "provenance": "launch_parameter",
           "ref": "f8ef94ad181419f6fc8bce58acda8315",
           "state": "known"
         }

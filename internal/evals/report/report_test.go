@@ -353,3 +353,47 @@ func TestActivityAndReportShareReferenceDerivations(t *testing.T) {
 		t.Fatal("activity and report derive different references for the same raw value")
 	}
 }
+
+// C7B-E: the proxy's model check and the launch digest of a live trial go out as model_check
+// and one observed configuration reference (the activity derivation); a mismatch stays visible.
+func TestLaunchProvenanceInReports(t *testing.T) {
+	l, _ := seeded(t)
+	suite, _, _ := suites.Freeze(l, nil, time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC))
+	var evalRef string
+	names, _ := l.Manifests("eval")
+	for _, n := range names {
+		if strings.HasSuffix(n, "@2") {
+			evalRef = n
+		}
+	}
+	one, digest := 1.0, "sha256:"+strings.Repeat("d", 64)
+	var ns []string
+	for i, check := range []string{"verified", "mismatch"} {
+		in := suites.TrialInput{Suite: suite, Eval: evalRef, Arm: "baseline", Agent: "opencode", AgentVersion: "2.0.26", Model: "local-coder",
+			RunnerVersion: "0.23.0", MaxSeconds: 900, MaxRequests: 40, Attempt: 20 + i, Started: time.Date(2026, 10, 18, 10, i, 0, 0, time.UTC),
+			ModelCheck: check, ObservedConfig: []map[string]string{{"kind": "setting_override", "digest": digest}}}
+		n, err := suites.RecordTrial(l, in, runner.Trial{Name: fmt.Sprint("m", i), Reward: &one, Checks: map[string]string{"C1": "pass", "C2": "pass"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ns = append(ns, n)
+	}
+	b, _, err := Builder{Key: fixedKey, Namespace: fixedNS}.Build(l, ns, time.Date(2026, 10, 18, 11, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	json.Unmarshal(b, &m)
+	checks := map[string]bool{}
+	for _, x := range m["trials"].([]any) {
+		tr := x.(map[string]any)
+		checks[tr["agent"].(map[string]any)["model_check"].(string)] = true
+		refs := tr["observed_config_refs"].([]any)
+		if len(refs) != 1 || refs[0] != activity.ConfigRef(fixedKey, "setting_override", digest) {
+			t.Fatalf("observed config refs %v", refs)
+		}
+	}
+	if !checks["verified"] || !checks["mismatch"] || strings.Contains(string(b), "local-coder") || strings.Contains(string(b), strings.Repeat("d", 64)) {
+		t.Fatalf("report: %s", b)
+	}
+}

@@ -169,6 +169,11 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				reqs, retries = counter.Requests(), counter.Retries()
 				in.Requests, in.Retries, in.MaxRequests = &reqs, &retries, lim.TrialRequests
 				in.AgentVersion, in.Model = o.Live.AgentVersion, o.Live.ModelLabel
+				in.ModelCheck = counter.ModelCheck()
+				// the launch HINT constructed and enforces (agent arguments, model selection,
+				// environment names; the per-trial proxy URL and the dummy key value are not
+				// configuration): one setting_override digest
+				in.ObservedConfig = []map[string]string{{"kind": "setting_override", "digest": runner.LaunchDigest(ro)}}
 				if counter.LimitHit() {
 					in.Stop = "request_limit"
 				}

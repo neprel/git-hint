@@ -175,7 +175,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 				}
 			}
 			fn["enum"] = keep
-			for _, k := range []string{"Configuration", "VersionState", "RefState", "Limit"} { // the canonical configuration identity (C7B-E)
+			for _, k := range []string{"Configuration", "VersionState", "RefState", "Limit", "ModelState"} { // the canonical configuration identity (C7B-E)
 				delete(v2["$defs"].(map[string]any), k)
 			}
 		case "activity.schema.json":

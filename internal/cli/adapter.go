@@ -278,7 +278,7 @@ func runConfiguration(s *store.Store, agentVersion, rawModel, configRefs string)
 	if agentVersion != "" {
 		c.Agent.Version = activity.VersionState{State: "known", Value: agentVersion}
 	}
-	c.Model = activity.RefState{State: "unknown"} // the plugin does not report the effective model
+	c.Model = activity.ModelState{State: "unknown"} // no authoritative launch and no agent report: unknown
 	if rawModel != "" {
 		if !project.ValidTaskID(rawModel) {
 			return nil, errors.New("HINT_MODEL is not a usable model name (1-200 bytes of printable text)")

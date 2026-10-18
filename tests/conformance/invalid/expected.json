@@ -19,12 +19,22 @@
     "code": "time_resolution",
     "level": "semantic"
   },
+  "configuration-declared-as-effective.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
   "configuration-known-limit-without-value.json": {
     "base": "activity-context.json",
     "code": "source",
     "level": "schema"
   },
   "configuration-model-known-without-ref.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
+  "configuration-model-without-provenance.json": {
     "base": "activity-context.json",
     "code": "source",
     "level": "schema"

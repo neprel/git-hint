@@ -1,17 +1,21 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +41,24 @@ type Counter struct {
 	requests atomic.Int64
 	retries  atomic.Int64
 	hit      atomic.Bool
+	// the model field of every forwarded request against the selected model
+	matched, mismatched, unverified atomic.Int64
+}
+
+// ModelCheck says whether the trial used the selected model: verified (every forwarded
+// request named it), mismatch (a request named another model: a runtime switch, subagent or
+// fallback), unverified (a request without a readable model field) or not_observed (no
+// request). Only verified supports an effective model with provenance launch_parameter.
+func (c *Counter) ModelCheck() string {
+	switch {
+	case c.mismatched.Load() > 0:
+		return "mismatch"
+	case c.unverified.Load() > 0:
+		return "unverified"
+	case c.matched.Load() > 0:
+		return "verified"
+	}
+	return "not_observed"
 }
 
 func (c *Counter) Requests() int64 { return c.requests.Load() }
@@ -122,6 +144,7 @@ func StartLive(cfg LiveConfig) (*Live, error) {
 			return
 		}
 		c.requests.Add(1)
+		lv.checkModel(c, r)
 		r.URL.Path, r.URL.RawPath = "/"+sub, "" // SetURL joins the base path
 		r.Header.Del("Authorization")
 		rp.ServeHTTP(w, r)
@@ -171,3 +194,55 @@ func (lv *Live) Model() string { return "openai/" + lv.model }
 
 // ErrNoLive is returned when a live trial is requested without a proxy.
 var ErrNoLive = errors.New("live trials need the model proxy")
+
+
+// LaunchDigest is the digest of the effective launch configuration of a live trial: the agent
+// arguments, the model selection and the names of the environment variables (values such as
+// the per-trial proxy URL and the dummy key are not configuration and never enter it).
+func LaunchDigest(ro RunOptions) string {
+	var names []string
+	for _, e := range ro.Env {
+		n, _, _ := strings.Cut(e, "=")
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	b, _ := json.Marshal(map[string]any{"agent": ro.Agent, "agent_args": ro.AgentArgs, "env_names": names, "model": ro.Model})
+	h := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(h[:])
+}
+
+
+// maxCheckedBody bounds the request body that the model check reads (larger bodies are
+// forwarded unread and count as unverified).
+const maxCheckedBody = 32 << 20
+
+// checkModel reads the model field of a forwarded request (the body is restored unchanged)
+// and counts it against the selected model.
+func (lv *Live) checkModel(c *Counter, r *http.Request) {
+	if r.Body == nil || r.Method != http.MethodPost {
+		c.unverified.Add(1)
+		return
+	}
+	b, err := io.ReadAll(io.LimitReader(r.Body, maxCheckedBody+1))
+	rest := r.Body
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(b), rest), rest}
+	if err != nil || len(b) > maxCheckedBody {
+		c.unverified.Add(1)
+		return
+	}
+	var m struct {
+		Model *string `json:"model"`
+	}
+	if json.Unmarshal(b, &m) != nil || m.Model == nil {
+		c.unverified.Add(1)
+		return
+	}
+	if *m.Model == lv.model {
+		c.matched.Add(1)
+	} else {
+		c.mismatched.Add(1)
+	}
+}

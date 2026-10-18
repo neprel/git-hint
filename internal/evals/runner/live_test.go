@@ -65,3 +65,63 @@ func TestModelProxy(t *testing.T) {
 		t.Fatal("a proxy without a key started")
 	}
 }
+
+func TestProxyChecksTheModelOfEveryRequest(t *testing.T) {
+	var bodies []string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		io.WriteString(w, `{"ok":true}`)
+	}))
+	defer up.Close()
+	t.Setenv("HINT_TEST_LAN_KEY", "lan-secret-word")
+	lv, err := StartLive(LiveConfig{BaseURL: up.URL + "/v1", Model: "local-coder", KeyEnv: "HINT_TEST_LAN_KEY", AgentVersion: "2.0.26"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lv.Close()
+	lv.ContainerHost = "127.0.0.1"
+	post := func(c *Counter, body string) {
+		resp, err := http.Post(lv.BaseURL(c)+"/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	ok := `{"model":"local-coder","messages":[{"role":"user","content":"x"}]}`
+	cases := []struct {
+		bodies []string
+		want   string
+	}{
+		{nil, "not_observed"},
+		{[]string{ok, ok}, "verified"},
+		{[]string{ok, `{"model":"other-model","messages":[]}`}, "mismatch"}, // a runtime switch or subagent
+		{[]string{ok, `not json`}, "unverified"},
+		{[]string{`{"messages":[]}`}, "unverified"}, // no model field
+	}
+	for _, tc := range cases {
+		c := lv.NewTrial(10)
+		for _, b := range tc.bodies {
+			post(c, b)
+		}
+		if got := c.ModelCheck(); got != tc.want {
+			t.Fatalf("%v: %s, want %s", tc.bodies, got, tc.want)
+		}
+	}
+	// the upstream receives every body unchanged
+	if bodies[0] != ok || bodies[len(bodies)-1] != `{"messages":[]}` {
+		t.Fatalf("forwarded bodies changed: %q", bodies)
+	}
+}
+
+func TestLaunchDigestIgnoresPerTrialValues(t *testing.T) {
+	a := RunOptions{Agent: "opencode", AgentArgs: []string{"version=2.0.26"}, Model: "openai/local-coder",
+		Env: []string{"OPENAI_BASE_URL=http://h:1/t/aaa", "OPENAI_API_KEY=hint-proxy"}}
+	b := a
+	b.Env = []string{"OPENAI_API_KEY=other", "OPENAI_BASE_URL=http://h:1/t/bbb"}
+	c := a
+	c.Model = "openai/other"
+	if LaunchDigest(a) != LaunchDigest(b) || LaunchDigest(a) == LaunchDigest(c) || !strings.HasPrefix(LaunchDigest(a), "sha256:") {
+		t.Fatal("the launch digest depends on per-trial values or ignores the model")
+	}
+}

@@ -104,7 +104,7 @@ func TestLegacySourceIdentityIsUnchangedWithoutDeclarations(t *testing.T) {
 		t.Fatal("declared settings changed the effective identity")
 	}
 	c := a
-	c.Model = activity.RefState{State: "known", Ref: "y"}
+	c.Model = activity.ModelState{State: "known", Ref: "y", Provenance: "launch_parameter"}
 	if c.Digest() == a.Digest() || activity.OpenCodeSource(key, activity.SourceOptions{Configuration: &a}).SourceID == activity.OpenCodeSource(key, activity.SourceOptions{Configuration: &c}).SourceID {
 		t.Fatal("a changed effective configuration kept the identity")
 	}
