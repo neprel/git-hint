@@ -102,7 +102,8 @@ patch; when it does not apply, the variant has no reference solution and stays
 `needs_review` (`reference_missing`). Each variant is qualified first; until it is
 `validated`, the command lists it and does not run it. `git hint eval compare` shows the
 arms of one task objective side by side. A label alone (`--arm refactor` without
-`--with`) is refused.
+`--with`) is refused. A HINT context policy as the treatment (`--context-policy`) is refused
+for now: the task container cannot run `hint_context` yet, so the policy would only be a label.
 
 Qualification needs Docker with buildx and Harbor 0.23 (`uv tool install harbor==0.23.0`); HINT
 turns Harbor's telemetry off for its runs. Without them, evals stay `packaged`.

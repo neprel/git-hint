@@ -504,8 +504,14 @@ func evalRun(e *Env, args []string) int {
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	var with repoFlags
 	fs.Var(&with, "with", "context_only: a file to add to each task's repository (repeatable); refactor: the work tree of the refactored repository")
+	ctxPolicy := fs.String("context-policy", "", "not supported yet: a HINT context policy as the treatment of a context_only arm")
 	if fs.Parse(args) != nil {
 		return 2
+	}
+	if *ctxPolicy != "" {
+		// a policy that is only written into the trial would be a label-only arm; the eval
+		// container cannot run hint_context yet, so the treatment cannot be applied
+		return fail(e, fmt.Errorf("--context-policy is not supported: the eval harness cannot apply a HINT context policy inside the task container yet, so no comparison is made; use --arm context_only --with FILE for a context variant"))
 	}
 	s, err := open(e)
 	if err != nil {

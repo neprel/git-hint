@@ -344,6 +344,12 @@ func TestEvalRunWithVariant(t *testing.T) {
 	if r := runEval(t, shop, &spawned, "eval", "run", id, "--agent", "oracle", "--with", "AGENTS.md"); r.code == 0 || !strings.Contains(r.stderr, "only for --arm context_only") {
 		t.Fatalf("--with on the baseline arm: %+v", r)
 	}
+	// D07: a context policy as a treatment cannot be applied inside the container yet: refused,
+	// nothing runs, nothing is recorded
+	if r := runEval(t, shop, &spawned, "eval", "run", id, "--agent", "oracle", "--arm", "context_only", "--context-policy", "depth=2"); r.code == 0 ||
+		!strings.Contains(r.stderr, "--context-policy is not supported") || len(spawned) != 0 {
+		t.Fatalf("--context-policy: %+v (spawned %v)", r, spawned)
+	}
 	outside := filepath.Join(t.TempDir(), "NOTES.md")
 	os.WriteFile(outside, []byte("x"), 0o644)
 	if r := runEval(t, shop, &spawned, "eval", "run", id, "--agent", "oracle", "--arm", "context_only", "--with", outside); r.code == 0 || !strings.Contains(r.stderr, "inside the repository") {
