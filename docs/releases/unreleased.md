@@ -1,6 +1,6 @@
 # git-hint — unreleased changes
 
-These notes describe changes after v0.1.0 that are not released yet. No version number, tag or package exists for them.
+These notes describe changes that are not released yet. They name no version, and no tag or package exists for them.
 
 ## Local evals from your own agent sessions
 

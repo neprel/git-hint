@@ -74,13 +74,14 @@ func (o openCodeCmd) Output(ctx context.Context, dir, name string, args ...strin
 	return c.Output()
 }
 
-// TestLiveProspectiveCapture is the E15 prospective check (protocol:
-// E15-prospective-protocol, private): one real OpenCode 2.0.22 session with the owner's
-// LAN model under a 40-request proxy limit, 900 s and loopback-only egress; then the HINT
-// pipeline imports the session and snapshots, proposes the episode and packages the eval;
-// the test acts as the user for the requirement mapping (no model in the policy); real
-// Harbor qualifies. Set HINT_LIVE_PROSPECTIVE=1, HINT_OPENCODE_TGZ (the npm tarball),
-// HINT_LIVE_MODEL_URL, HINT_LIVE_MODEL, HINT_LOCAL_MODEL_KEY, HINT_HARBOR, HINT_LIVE_OUT.
+// TestLiveProspectiveCapture checks prospective capture with a real agent: one OpenCode
+// 2.0.22 session (pinned binary) on the configured local model through HINT's counting
+// proxy, under a request limit, a time limit and loopback-only egress; then the HINT
+// pipeline imports the session and snapshots, proposes the episode and packages the eval
+// as collect does; the test acts as the user for the requirement mapping (the policy has
+// no model); real Harbor qualifies. Set HINT_LIVE_PROSPECTIVE=1, HINT_OPENCODE_TGZ (the
+// npm tarball), HINT_LIVE_MODEL_URL, HINT_LIVE_MODEL, HINT_LOCAL_MODEL_KEY, HINT_HARBOR and
+// HINT_LIVE_OUT.
 func TestLiveProspectiveCapture(t *testing.T) {
 	if os.Getenv("HINT_LIVE_PROSPECTIVE") == "" {
 		t.Skip("set HINT_LIVE_PROSPECTIVE=1 (live, bounded)")
@@ -112,6 +113,7 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	}
 	bin := filepath.Join(tools, "package", "bin", "opencode")
 	summary["agent"] = "opencode 2.0.22 (" + target + ", sha512 pinned)"
+	summary["limits"] = map[string]any{"model_requests_including_retries": SessionRequests, "wall_seconds": SessionTime.Seconds(), "attempts": 1, "trial_retries": 0}
 
 	// the project: the frozen synthetic task, HINT initialized, adapter installed, evals on
 	t.Setenv("HINT_KEY_DIR", t.TempDir())
@@ -143,14 +145,14 @@ func TestLiveProspectiveCapture(t *testing.T) {
 		t.Fatal(string(out))
 	}
 
-	// the counting proxy (40 requests, retries included) and the host log
+	// the counting proxy (SessionRequests, retries included) and the host log
 	lv, err := runner.StartLive(runner.LiveConfig{BaseURL: os.Getenv("HINT_LIVE_MODEL_URL"), Model: os.Getenv("HINT_LIVE_MODEL"), KeyEnv: "HINT_LOCAL_MODEL_KEY", AgentVersion: "2.0.22"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer lv.Close()
 	lv.ContainerHost = "127.0.0.1"
-	counter := lv.NewTrial(40)
+	counter := lv.NewTrial(SessionRequests)
 	logger := &hostLog{}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -172,9 +174,9 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	os.MkdirAll(filepath.Join(home, "config", "opencode"), 0o700)
 	os.WriteFile(filepath.Join(home, "config", "opencode", "opencode.json"), []byte(cfg), 0o600)
 
-	// the session: one attempt, 900 s, loopback-only egress
+	// the session: one attempt, SessionTime, loopback-only egress
 	args := []string{"run", "--standalone", "--format", "json", "--auto", "-m", "hint/" + model, "--", prospectiveRequest}
-	ctx, cancel := context.WithTimeout(context.Background(), 900*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), SessionTime)
 	defer cancel()
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -292,6 +294,13 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	summary["result"] = final["state"]
 	sort.Strings(names)
 }
+
+// Limits of one prospective session: model requests including retries (counted at the
+// proxy, refused beyond) and wall time (the agent process is killed).
+const (
+	SessionRequests = 37
+	SessionTime     = 14 * time.Minute
+)
 
 // IdleCloseForCheck is how far past the session the pipeline looks (the episode closes
 // after the idle time).
