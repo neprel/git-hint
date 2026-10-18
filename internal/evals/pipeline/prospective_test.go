@@ -191,7 +191,7 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	}
 	if runtime.GOOS == "linux" {
 		// the session user owns the project and its home
-		for _, d := range []string{dir, home, tools} {
+		for _, d := range []string{dir, home, tools, os.Getenv("HINT_KEY_DIR")} {
 			exec.Command("chown", "-R", os.Getenv("HINT_SESSION_UID")+":"+os.Getenv("HINT_SESSION_UID"), d).Run()
 		}
 	}

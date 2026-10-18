@@ -79,3 +79,30 @@ func TestOpenCode2022CheckIsTheOutcome(t *testing.T) {
 		t.Fatalf("outcome %s paths %v reasons %v", props[0].Outcome, props[0].Paths, props[0].Record["reasons"])
 	}
 }
+
+// The export of a live OpenCode 2.0.22 session on the owner's local model (the bug-fix
+// task; paths replaced): the replay gives one bug-fix episode whose passing go test is
+// its outcome and whose edits are the fix and the new test.
+func TestOpenCode2022LiveSessionReplay(t *testing.T) {
+	l := lib(t)
+	src, err := os.ReadFile(filepath.Join("..", "..", "..", "tests", "evals", "sessions", "opencode-2.0.22-live-bugfix.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := sessions.ParseOpenCode(src, sessions.OpenCodeOptions{Version: "2.0.22"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.Import(l, src, r); err != nil {
+		t.Fatal(err)
+	}
+	props, err := Discover(l, time.UnixMilli(r.Session.Items[len(r.Session.Items)-1].Time).Add(time.Hour),
+		func(_, _ string) string { return "" }, func(string) string { return "shop" })
+	if err != nil || len(props) != 1 {
+		t.Fatalf("%d proposals %v", len(props), err)
+	}
+	p := props[0]
+	if p.Outcome != "test_passed" || strings.Join(p.Paths, ",") != "cart.go,discount_test.go" || p.Record["family"] != "bug_fix" {
+		t.Fatalf("outcome %s paths %v family %v", p.Outcome, p.Paths, p.Record["family"])
+	}
+}
