@@ -79,8 +79,10 @@ func TestLiveRequirementMap(t *testing.T) {
 }
 
 // TestLiveOpenCodeTrial runs one OpenCode trial of the validated synthetic bug fix through
-// Harbor and HINT's counting proxy: 1 eval x 1 attempt, at most 40 model requests and 900
-// seconds. Set HINT_HARBOR too.
+// Harbor and HINT's counting proxy: 1 eval x 1 attempt, at most 40 model requests
+// (retries included: the proxy counts every request) and 900 seconds, no trial retry
+// (Harbor's default). Set HINT_HARBOR too; HINT_LIVE_OPENCODE_VERSION picks a pinned
+// OpenCode (default runner.OpenCodeVersion).
 func TestLiveOpenCodeTrial(t *testing.T) {
 	m := liveModel(t)
 	if os.Getenv("HINT_HARBOR") == "" {
@@ -96,7 +98,11 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	p.Model = m
 	p.Run = &evals.Run{Use: "docker", Runner: "harbor", MaxTrialsPerRun: 1, MaxSecondsPerTrial: 900, MaxRequestsPerTrial: 40, CPUs: 2, MemoryMB: 2048}
 	s.Cfg.Evals = &p
-	lv, err := runner.StartLive(runner.LiveConfig{BaseURL: m.BaseURL, Model: m.Model, KeyEnv: m.KeyEnv, AgentVersion: runner.OpenCodeVersion})
+	version := runner.OpenCodeVersion
+	if v := os.Getenv("HINT_LIVE_OPENCODE_VERSION"); v != "" {
+		version = v // a pinned 2.x runs through HINT's Harbor adapter
+	}
+	lv, err := runner.StartLive(runner.LiveConfig{BaseURL: m.BaseURL, Model: m.Model, KeyEnv: m.KeyEnv, AgentVersion: version})
 	if err != nil {
 		t.Fatal(err)
 	}

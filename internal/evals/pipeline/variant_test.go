@@ -332,6 +332,9 @@ func TestHarborRefactorComparison(t *testing.T) {
 	variant := strings.Split(ok.Ref, "@")[0] + "@2"
 	var vr map[string]any
 	l.Manifest("eval", variant, &vr)
+	bd, _ := l.ManifestDigest("eval", base)
+	vd, _ := l.ManifestDigest("eval", variant)
+	t.Logf("baseline %s %s; variant %s %s (%v); no-reference variant %s", base, bd, variant, vd, vr["variant"], bad.Ref)
 	for _, c := range vr["qualification"].(map[string]any)["checks"].([]any) {
 		t.Logf("  refactor %-20v %v", c.(map[string]any)["name"], c.(map[string]any)["status"])
 	}
