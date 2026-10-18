@@ -103,6 +103,10 @@ type Options struct {
 	RepoID string
 	Key    []byte
 	Cache  *Cache // nil: full scan without cache
+	// Files, when set, is the explicit list of repository-relative files to scan instead of
+	// the Git listing (an immutable input, for example a materialized captured tree); the same
+	// filtering applies: no .hint/, regular files only.
+	Files []string
 }
 
 var extLang = map[string]string{
@@ -140,6 +144,25 @@ func Language(p string) string {
 	return extLang[strings.ToLower(path.Ext(p))]
 }
 
+// filterFiles applies the ListFiles filter to an explicit list.
+func filterFiles(root string, in []string) []string {
+	seen := map[string]bool{}
+	var files []string
+	for _, p := range in {
+		if p == "" || seen[p] || p == ".hint" || strings.HasPrefix(p, ".hint/") {
+			continue
+		}
+		seen[p] = true
+		fi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p)))
+		if err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		files = append(files, p)
+	}
+	sort.Strings(files)
+	return files
+}
+
 // ListFiles returns the repository-relative paths that Git tracks or that are untracked
 // and not ignored, sorted. The `.hint/` store is never listed.
 func ListFiles(root string) ([]string, error) {
@@ -166,8 +189,11 @@ func ListFiles(root string) ([]string, error) {
 
 // Scan scans one repository.
 func Scan(opt Options) (*Result, error) {
-	files, err := ListFiles(opt.Root)
-	if err != nil {
+	var files []string
+	var err error
+	if opt.Files != nil {
+		files = filterFiles(opt.Root, opt.Files)
+	} else if files, err = ListFiles(opt.Root); err != nil {
 		return nil, err
 	}
 	res := &Result{Ambiguous: map[string][]string{}}

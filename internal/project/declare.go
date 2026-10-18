@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,10 @@ type Declaration struct {
 	// declaration); AfterDigest is the local digest of the after snapshot, frozen at declaration.
 	Work        WorkRef `json:"work,omitempty"`
 	AfterDigest string  `json:"after_digest,omitempty"`
+	// AfterTree is the captured canonical tree of the after state (local library tree ID; only
+	// for --after latest); empty: no artifact (a transport binding is then unavailable).
+	AfterTree     string         `json:"after_tree,omitempty"`
+	AfterTreeProv TreeProvenance `json:"after_tree_provenance,omitempty"`
 }
 
 // WorkRef names the exact closed successful attempt of a work unit.
@@ -244,5 +249,26 @@ func DeclareWork(s *store.Store, raw []byte, planID, label, after string, now ti
 	d = Declaration{RepoID: pr.RepoID, BeforeSnapshotID: u.PlanSnap, AfterSnapshotID: a.Record.SnapshotID, SetID: pr.SetID, SetDigest: pr.SetDigest,
 		PlanID: planID, PlanSnapshotDigest: pr.SnapshotDigest, Work: WorkRef{UnitRef: u.UnitRef, Revision: rev, AttemptRef: attempt.Ref},
 		AfterDigest: a.Record.Digest}
+	if after == "latest" { // only the current state can be captured; a historical ID has no artifact
+		var repo store.Repo
+		for _, r := range s.Cfg.Repos {
+			if s.RepoID(r) == pr.RepoID {
+				repo = r
+			}
+		}
+		if d.AfterTree, d.AfterTreeProv, err = captureAfter(context.Background(), s, repo, a, now); err != nil {
+			return d, false, err
+		}
+	}
+	// idempotent: the same association with the same captured tree keeps the stored declaration
+	var old Declaration
+	if err := s.ReadJSON(&old, "state", "declarations", declarationFile(d.RepoID, d.AfterSnapshotID)); err == nil {
+		cmp := old
+		cmp.AfterTreeProv = d.AfterTreeProv
+		if cmp == d {
+			return old, false, nil
+		}
+		return old, false, ErrDeclarationConflict
+	}
 	return record(s, d)
 }
