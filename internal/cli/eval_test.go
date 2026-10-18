@@ -197,10 +197,7 @@ func TestEvalReportFileAndConsentedUpload(t *testing.T) {
 	l := library.Open(s, 0)
 	rec := evaltest.GoBugFix(t, l)
 	l.PutManifest("eval", rec)
-	v2 := map[string]any{}
-	for k, v := range rec {
-		v2[k] = v
-	}
+	v2 := evaltest.MapGoBugFix(t, l, rec)
 	v2["version"], v2["previous"], v2["state"] = 2, fmt.Sprintf("%s@1", rec["eval_id"]), "validated"
 	l.PutManifest("eval", v2)
 	suite, _, err := suites.Freeze(l, nil, time.Now())

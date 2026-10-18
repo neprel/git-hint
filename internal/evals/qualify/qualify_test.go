@@ -21,6 +21,8 @@ type fakeRunner struct {
 	forgeable  bool   // simulate a shared verifier that trusts agent-written rewards
 	netOpen    bool   // simulate a container with network
 	infraFails map[string]bool
+	tests      map[string]string // per-test results: test ID -> the line it needs (default: the hidden test needs fixed)
+	unmapped   bool              // keep the request unmapped
 	calls      []string
 }
 
@@ -53,7 +55,17 @@ func (f *fakeRunner) Run(_ context.Context, task string, o runner.RunOptions) ([
 			})
 		}
 		all := strings.Join(mapValues(work), "\n")
-		c1 := strings.Contains(all, f.fixed)
+		tests := f.tests
+		if tests == nil {
+			tests = map[string]string{evaltest.GoBugFixTest: f.fixed}
+		}
+		c1 := true
+		per := map[string]string{}
+		for id, line := range tests {
+			ok := strings.Contains(all, line)
+			c1 = c1 && ok
+			per["C1 "+id] = pf(ok)
+		}
 		c2 := f.brokenC2 == "" || !strings.Contains(all, f.brokenC2)
 		reward := 0.0
 		if c1 && c2 {
@@ -62,7 +74,7 @@ func (f *fakeRunner) Run(_ context.Context, task string, o runner.RunOptions) ([
 		if probe && f.forgeable {
 			reward = 1
 		}
-		tr := runner.Trial{Name: fmt.Sprintf("%s-%d", o.JobName, k), Reward: &reward, Checks: map[string]string{"C1": pf(c1), "C2": pf(c2)}}
+		tr := runner.Trial{Name: fmt.Sprintf("%s-%d", o.JobName, k), Reward: &reward, Checks: map[string]string{"C1": pf(c1), "C2": pf(c2)}, Tests: per}
 		if o.Agent == "oracle" {
 			net := "blocked"
 			if f.netOpen {
@@ -100,6 +112,9 @@ func qualify(t *testing.T, f *fakeRunner) Result {
 	t.Helper()
 	l := evaltest.Library(t)
 	rec := evaltest.GoBugFix(t, l)
+	if !f.unmapped {
+		rec = evaltest.MapGoBugFix(t, l, rec)
+	}
 	res, err := Run(context.Background(), l, f, rec, Options{Work: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +142,28 @@ func TestValidatedBugFix(t *testing.T) {
 	}
 	if c := check(r, "reference_passes"); c.Runs != ReferenceRuns {
 		t.Fatalf("reference runs %+v", c)
+	}
+}
+
+// G10-3: a request that no one linked to tests is missing evidence; the eval is not
+// validated even when every other check passes.
+func TestUnmappedRequestBlocksValidation(t *testing.T) {
+	r := qualify(t, &fakeRunner{fixed: "price - discount", unmapped: true})
+	if r.State != "needs_review" || !has(r.Reasons, "requirement_coverage_missing") || check(r, "requirement_coverage").Status != "missing" {
+		t.Fatalf("%+v", r)
+	}
+	if len(r.Requirements) != 3 || r.Requirements[0].Status != "missing" {
+		t.Fatalf("%+v", r.Requirements)
+	}
+}
+
+// G10-3: a requirement whose linked test already passes on the base has no discriminating
+// evidence.
+func TestRequirementWithoutDiscriminatingTest(t *testing.T) {
+	// the hidden test holds on the base too, but C1 fails on the base through a second test
+	r := qualify(t, &fakeRunner{fixed: "price - discount", tests: map[string]string{evaltest.GoBugFixTest: "package shop", "other_test.go::TestOther": "price - discount"}})
+	if r.State != "needs_review" || !has(r.Reasons, "requirement_not_discriminating") || check(r, "requirement_coverage").Status != "fail" {
+		t.Fatalf("%+v", r)
 	}
 }
 
@@ -222,4 +259,33 @@ func has(xs []string, x string) bool {
 		}
 	}
 	return false
+}
+
+// G10-3, the reviewer's case: the request also asks for a panic on a negative discount; no
+// test checks it and the reference does not panic. The eval must not be validated, and the
+// uncovered requirement is named.
+func TestUncheckedRequirementBlocksValidation(t *testing.T) {
+	l := evaltest.Library(t)
+	c := evaltest.PanicRequirement()
+	b, err := evaltest.Package(t, l, c, "go test ./...")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := evaltest.MapChange(t, l, b.Record, c)
+	r, err := Run(context.Background(), l, &fakeRunner{fixed: "price - discount"}, rec, Options{Work: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.State != "needs_review" || !has(r.Reasons, "requirement_coverage_missing") {
+		t.Fatalf("%+v", r)
+	}
+	var missing []string
+	for _, q := range r.Requirements {
+		if q.Status == "missing" {
+			missing = append(missing, q.ReqID)
+		}
+	}
+	if len(missing) != 1 || missing[0] != "R2" {
+		t.Fatalf("requirements %+v", r.Requirements)
+	}
 }

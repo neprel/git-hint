@@ -357,18 +357,7 @@ func Build(l *library.Library, in Input) (*Built, error) {
 	if err != nil {
 		return nil, err
 	}
-	reqText, _ := l.PutObject([]byte(in.Request))
-	kind := "behavior"
-	if apiDirs != nil {
-		kind = "structure"
-	}
-	reqs := []any{map[string]any{"req_id": "R1", "kind": kind, "origin": "request", "text": reqText, "evidence": []any{in.RequestAt}, "checks": []any{"C1"}}}
-	for i, c := range in.Corrections {
-		d, _ := l.PutObject([]byte(c.Body))
-		reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", i+2), "kind": "behavior", "origin": "correction", "text": d, "evidence": []any{c.At}, "checks": []any{"C1"}})
-	}
-	preserveText, _ := l.PutObject([]byte("The existing tests keep passing."))
-	reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", len(reqs)+1), "kind": "preserve", "origin": "existing_test", "text": preserveText, "evidence": []any{}, "checks": []any{"C2"}})
+	reqs := requirements(l, in, apiDirs != nil)
 	evalID := "ev-" + short(in.EpisodeID, in.Base, in.Result)
 	rec := map[string]any{
 		"record": "eval", "manifest_version": 1, "eval_id": evalID, "version": 1, "previous": nil,
@@ -376,13 +365,42 @@ func Build(l *library.Library, in Input) (*Built, error) {
 		"repositories": []any{map[string]any{"repo": in.Repo, "base_tree": in.Base, "base_archive": baseArc, "result_tree": in.Result}},
 		"instruction":  instrD, "requirements": reqs,
 		"verifier": map[string]any{"archive": vArc, "checks": []any{
-			c1Check(l, apiDirs, apiAfter, in.Result, hidden, in.Generated), map[string]any{"check_id": "C2", "origin": "existing_test"}}},
+			c1Check(l, apiDirs, apiAfter, in.Result, hidden, in.Generated, plan.C1), map[string]any{"check_id": "C2", "origin": "existing_test"}}},
 		"reference":    sArc,
 		"environment":  map[string]any{"image": img.Ref, "setup": setupD, "workdir": Workdir, "test_command": "tests/test.sh"},
 		"dependencies": []any{}, "state": "packaged", "reasons": reasonsFor(unattributed),
-		"qualification": map[string]any{"policy": "q1", "checks": []any{}}, "override": nil,
+		"qualification": map[string]any{"policy": "q2", "checks": []any{}}, "override": nil,
 	}
 	return &Built{Record: rec, Language: lang, Hidden: hidden, Solution: solution, Deleted: deleted}, nil
+}
+
+// requirements lists the requirement-to-check matrix. The request and each correction are
+// requirements without a check (mapping "none") until the local model or the user links
+// them to tests: tests written with the change say nothing about which requested
+// behavior they cover. Requirements that hold by construction are linked: the
+// regression tests of the result state (or the derived API check of a refactoring) to C1,
+// the existing tests to C2.
+func requirements(l *library.Library, in Input, structural bool) []any {
+	kind := "behavior"
+	if structural {
+		kind = "structure"
+	}
+	reqText, _ := l.PutObject([]byte(in.Request))
+	reqs := []any{map[string]any{"req_id": "R1", "kind": kind, "origin": "request", "text": reqText, "evidence": []any{in.RequestAt}, "checks": []any{}, "mapping": "none"}}
+	for _, c := range in.Corrections {
+		d, _ := l.PutObject([]byte(c.Body))
+		reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", len(reqs)+1), "kind": "behavior", "origin": "correction", "text": d, "evidence": []any{c.At}, "checks": []any{}, "mapping": "none"})
+	}
+	if structural {
+		d, _ := l.PutObject([]byte("The exported API of the changed packages equals the API of the result state."))
+		reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", len(reqs)+1), "kind": "structure", "origin": "result_state", "text": d, "evidence": []any{}, "checks": []any{"C1"}, "mapping": "construction"})
+	} else {
+		d, _ := l.PutObject([]byte("The tests written with the change pass."))
+		reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", len(reqs)+1), "kind": "behavior", "origin": "result_test", "text": d, "evidence": []any{}, "checks": []any{"C1"}, "mapping": "construction"})
+	}
+	preserveText, _ := l.PutObject([]byte("The existing tests keep passing."))
+	reqs = append(reqs, map[string]any{"req_id": fmt.Sprintf("R%d", len(reqs)+1), "kind": "preserve", "origin": "existing_test", "text": preserveText, "evidence": []any{}, "checks": []any{"C2"}, "mapping": "construction"})
+	return reqs
 }
 
 func reasonsFor(unattributed int) []any {
@@ -547,14 +565,18 @@ func tarTree(l *library.Library, files []trees.File, prefix string, extras ...ex
 
 // c1Check describes C1: hidden tests from the result state, or the refactoring API check
 // that the builder derived from the result state's exported API (deterministic, no model).
-func c1Check(l *library.Library, apiDirs, apiAfter []string, result string, hidden []string, generated map[string]map[string]any) map[string]any {
+func c1Check(l *library.Library, apiDirs, apiAfter []string, result string, hidden []string, generated map[string]map[string]any, tests []TestRef) map[string]any {
 	if apiDirs == nil {
+		ids := []any{}
+		for _, t := range tests {
+			ids = append(ids, t.ID())
+		}
 		for _, h := range hidden {
 			if g := generated[h]; g != nil {
-				return map[string]any{"check_id": "C1", "origin": "generated", "generator": g}
+				return map[string]any{"check_id": "C1", "origin": "generated", "generator": g, "tests": ids}
 			}
 		}
-		return map[string]any{"check_id": "C1", "origin": "result_test"}
+		return map[string]any{"check_id": "C1", "origin": "result_test", "tests": ids}
 	}
 	out, _ := l.PutObject([]byte(strings.Join(apiAfter, "\n") + "\n"))
 	return map[string]any{"check_id": "C1", "origin": "generated", "generator": map[string]any{

@@ -64,10 +64,7 @@ func TestFreezeTakesValidatedVersionsOnly(t *testing.T) {
 	if _, skipped, err := Freeze(l, nil, time.Now()); err != ErrEmpty || len(skipped) != 1 {
 		t.Fatalf("packaged eval entered a suite: %v %v", err, skipped)
 	}
-	v2 := map[string]any{}
-	for k, v := range rec {
-		v2[k] = v
-	}
+	v2 := evaltest.MapGoBugFix(t, l, rec)
 	v2["version"], v2["previous"], v2["state"] = 2, fmt.Sprintf("%s@1", rec["eval_id"]), "validated"
 	if _, err := l.PutManifest("eval", v2); err != nil {
 		t.Fatal(err)

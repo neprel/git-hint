@@ -13,6 +13,7 @@ import (
 
 	"github.com/neprel/git-hint/internal/api"
 	"github.com/neprel/git-hint/internal/evals"
+	"github.com/neprel/git-hint/internal/evals/build"
 	"github.com/neprel/git-hint/internal/evals/bundle"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/pipeline"
@@ -328,12 +329,39 @@ func evalShow(e *Env, args []string) int {
 	if rs := rec["reasons"].([]any); len(rs) > 0 {
 		fmt.Fprintf(w, "Reasons: %v\n", rs)
 	}
-	fmt.Fprintf(w, "Requirements: %d; checks: %d; image: %s\n", len(rec["requirements"].([]any)),
+	fmt.Fprintf(w, "Requirements: %d (%d without a check); checks: %d; image: %s\n", len(rec["requirements"].([]any)), len(build.Unmapped(rec)),
 		len(rec["verifier"].(map[string]any)["checks"].([]any)), rec["environment"].(map[string]any)["image"])
+	cov := map[string]map[string]any{}
 	if q, ok := rec["qualification"].(map[string]any); ok {
+		rs, _ := q["requirements"].([]any)
+		for _, r := range rs {
+			m := r.(map[string]any)
+			cov[m["req_id"].(string)] = m
+		}
+	}
+	for _, r := range rec["requirements"].([]any) {
+		m := r.(map[string]any)
+		mapping, _ := m["mapping"].(string)
+		if mapping == "" {
+			mapping = "construction"
+		}
+		line := fmt.Sprintf("  %-4s %-13s %-12s checks %v", m["req_id"], m["origin"], mapping, m["checks"])
+		if ts, ok := m["tests"].([]any); ok {
+			line += fmt.Sprintf(" tests %d", len(ts))
+		}
+		if c := cov[m["req_id"].(string)]; c != nil {
+			line += fmt.Sprintf(" coverage %v", c["status"])
+			if c["reason"] != nil {
+				line += fmt.Sprintf(" (%v)", c["reason"])
+			}
+		}
+		fmt.Fprintln(w, line)
+	}
+	if q, ok := rec["qualification"].(map[string]any); ok {
+		fmt.Fprintf(w, "Qualification (policy %v):\n", q["policy"])
 		for _, c := range q["checks"].([]any) {
 			m := c.(map[string]any)
-			fmt.Fprintf(w, "  %-18s %-14s runs %v\n", m["name"], m["status"], m["runs"])
+			fmt.Fprintf(w, "  %-20s %-14s runs %v\n", m["name"], m["status"], m["runs"])
 		}
 	}
 	if *withText {

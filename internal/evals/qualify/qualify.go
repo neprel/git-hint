@@ -1,7 +1,7 @@
 // Package qualify runs the automatic qualification of a packaged eval version under the
-// named policy q1 and returns the new state with every check result.
+// named policy q2 and returns the new state with every check result.
 //
-// Policy q1 (all trials run through the runner; nothing runs on the host):
+// Policy q2 (all trials run through the runner; nothing runs on the host):
 //   - base_fails: the nop agent fails check C1 (the hidden tests);
 //   - reference_passes and repeatable: the oracle passes C1 and C2 in every one of
 //     ReferenceRuns clean trials;
@@ -12,13 +12,19 @@
 //     solutions are not independent); not required for promotion;
 //   - leak_probe: the agent build context holds no hidden test, no reference-only line
 //     and no Git metadata;
+//   - requirement_coverage: every requirement is linked to tests (a request or correction
+//     that neither the local model nor the user linked is missing evidence); the linked
+//     tests pass in every reference trial; for requested behavior at least one linked
+//     test fails on the base. Per-test results come from the verifier's TEST lines;
 //   - forgery_probe and isolation: a solution that tries the network, writes reward
 //     files (also from code under test) and adds test harness code that exits early
 //     with success (TestMain, conftest.py) must get reward 0 and must see no network.
 //
-// State: validated when every required check passes; reproducible when base and
-// reference checks pass but other evidence is missing; needs_review or quarantined with
-// reasons otherwise. A missing result never counts as a pass.
+// State: validated when every required check passes; needs_review when a requirement
+// lacks coverage; reproducible when base and reference checks pass but other evidence is
+// missing; needs_review or quarantined with reasons otherwise. A missing result never
+// counts as a pass. q2 replaces q1, which took the hidden tests as evidence for every
+// requirement.
 package qualify
 
 import (
@@ -34,7 +40,7 @@ import (
 )
 
 // Policy is the qualification policy name.
-const Policy = "q1"
+const Policy = "q2"
 
 // ReferenceRuns is the number of clean oracle trials.
 const ReferenceRuns = 3
@@ -55,12 +61,20 @@ type Check struct {
 	Independent *bool  `json:"independent,omitempty"`
 }
 
+// Requirement is the coverage result of one requirement.
+type Requirement struct {
+	ReqID  string `json:"req_id"`
+	Status string `json:"status"` // pass, fail, missing
+	Reason string `json:"reason,omitempty"`
+}
+
 // Result of a qualification.
 type Result struct {
-	State   string   `json:"state"`
-	Reasons []string `json:"reasons"`
-	Checks  []Check  `json:"checks"`
-	Trials  int      `json:"trials"`
+	State        string        `json:"state"`
+	Reasons      []string      `json:"reasons"`
+	Checks       []Check       `json:"checks"`
+	Requirements []Requirement `json:"requirements"`
+	Trials       int           `json:"trials"`
 }
 
 // Options of one qualification.
@@ -134,6 +148,15 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 		add(Check{Name: "repeatable", Status: "fail", Runs: len(or)})
 		reason("not_repeatable")
 	}
+	// requirement coverage, from the per-test results of the base and reference trials
+	var baseTrial *runner.Trial
+	if len(nop) == 1 && !infra(nop[0]) {
+		baseTrial = &nop[0]
+	}
+	cov, reqs, rs := coverage(rec, baseTrial, or, refOK)
+	add(cov)
+	res.Requirements = reqs
+	reason(rs...)
 	// near misses
 	variants, err := nearMisses(task, MaxNearMisses)
 	if err != nil {
@@ -241,7 +264,10 @@ func decide(r Result) string {
 	if st["base_fails"] == "fail" || st["repeatable"] == "fail" || st["near_miss_fails"] == "fail" {
 		return "needs_review"
 	}
-	required := []string{"leak_probe", "base_fails", "reference_passes", "repeatable", "near_miss_fails", "forgery_probe", "isolation"}
+	if st["requirement_coverage"] == "fail" || st["requirement_coverage"] == "missing" && st["reference_passes"] == "pass" {
+		return "needs_review"
+	}
+	required := []string{"leak_probe", "base_fails", "reference_passes", "repeatable", "near_miss_fails", "requirement_coverage", "forgery_probe", "isolation"}
 	all := true
 	for _, q := range required {
 		if st[q] != "pass" {
@@ -255,6 +281,91 @@ func decide(r Result) string {
 		return "reproducible"
 	}
 	return "packaged"
+}
+
+// coverage checks the requirement-to-test matrix of rec against the base trial and the
+// reference trials. Tests are named "C1 file::Name" in the trial results.
+func coverage(rec map[string]any, base *runner.Trial, refs []runner.Trial, refOK bool) (Check, []Requirement, []string) {
+	var out []Requirement
+	var reasons []string
+	missing, failed := false, false
+	for _, r := range rec["requirements"].([]any) {
+		m := r.(map[string]any)
+		id, _ := m["req_id"].(string)
+		var checks, tests []string
+		for _, c := range anyList(m["checks"]) {
+			checks = append(checks, c)
+		}
+		for _, t := range anyList(m["tests"]) {
+			tests = append(tests, t)
+		}
+		res := Requirement{ReqID: id, Status: "pass"}
+		switch {
+		case m["mapping"] == "none" || len(checks) == 0:
+			res.Status, res.Reason = "missing", "requirement_coverage_missing"
+		case !refOK || base == nil:
+			res.Status, res.Reason = "missing", "runner_unavailable"
+		default:
+			// every linked check (or test) passes in every reference trial
+			for _, t := range refs {
+				for _, c := range checks {
+					if t.Checks[c] != "pass" {
+						res.Status, res.Reason = "fail", "reference_fails"
+					}
+				}
+				for _, x := range tests {
+					if t.Tests[checks[0]+" "+x] != "pass" {
+						res.Status, res.Reason = "fail", "reference_fails"
+					}
+				}
+			}
+			// requested behavior: at least one linked check (or test) fails on the base
+			if res.Status == "pass" && m["kind"] != "preserve" {
+				disc := false
+				if len(tests) > 0 {
+					for _, x := range tests {
+						disc = disc || base.Tests[checks[0]+" "+x] == "fail"
+					}
+				} else {
+					for _, c := range checks {
+						disc = disc || base.Checks[c] == "fail"
+					}
+				}
+				if !disc {
+					res.Status, res.Reason = "fail", "requirement_not_discriminating"
+				}
+			}
+		}
+		switch res.Status {
+		case "missing":
+			missing = true
+		case "fail":
+			failed = true
+		}
+		if res.Reason != "" {
+			reasons = append(reasons, res.Reason)
+		}
+		out = append(out, res)
+	}
+	c := Check{Name: "requirement_coverage", Status: "pass", Runs: len(refs)}
+	switch {
+	case failed:
+		c.Status = "fail"
+	case missing:
+		c.Status = "missing"
+	}
+	return c, out, reasons
+}
+
+func anyList(v any) []string {
+	xs, _ := v.([]any)
+	out := make([]string, 0, len(xs))
+	for _, x := range xs {
+		if s, ok := x.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func uniq(in []string) []string {

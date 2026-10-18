@@ -121,7 +121,7 @@ func TestDamagedBundlesAreRefusedWhole(t *testing.T) {
 func TestConflictingVersionIsRefused(t *testing.T) {
 	_, name, b := packed(t)
 	dst := evaltest.Library(t)
-	other := evaltest.GoBugFix(t, dst)
+	other := evaltest.MapGoBugFix(t, dst, evaltest.GoBugFix(t, dst))
 	other["state"] = "validated"
 	if _, err := dst.PutManifest("eval", other); err != nil {
 		t.Fatal(err)

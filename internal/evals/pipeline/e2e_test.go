@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/neprel/git-hint/internal/evals"
+	"github.com/neprel/git-hint/internal/evals/build"
 	"github.com/neprel/git-hint/internal/evals/evaltest"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/qualify"
@@ -110,7 +113,8 @@ func (r *e2eRunner) Run(_ context.Context, task string, o runner.RunOptions) ([]
 		if fixed {
 			rw, c1 = 1, "pass"
 		}
-		tr := runner.Trial{Name: fmt.Sprintf("%s-%d", o.JobName, k), Reward: &rw, Checks: map[string]string{"C1": c1, "C2": "pass"}}
+		tr := runner.Trial{Name: fmt.Sprintf("%s-%d", o.JobName, k), Reward: &rw, Checks: map[string]string{"C1": c1, "C2": "pass"},
+			Tests: map[string]string{"C1 " + evaltest.GoBugFixTest: c1, "C2 cart_test.go::TestNoDiscount": "pass"}}
 		if probe {
 			p := filepath.Join(o.JobsDir, o.JobName, tr.Name, "agent", "oracle.txt")
 			os.MkdirAll(filepath.Dir(p), 0o755)
@@ -121,11 +125,78 @@ func (r *e2eRunner) Run(_ context.Context, task string, o runner.RunOptions) ([]
 	return out, nil
 }
 
-func TestSessionToQualifiedEval(t *testing.T) {
+// mappingServer is a local model that answers with a requirement mapping.
+func mappingServer(t *testing.T, answer string) (*httptest.Server, *int) {
+	t.Helper()
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": answer}}}})
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("HINT_TEST_MODEL_KEY", "model-key")
+	return srv, &calls
+}
+
+const e2eMapping = `{"requirements": [{"source": "R1", "quote": "Fix Total so it subtracts the discount from the price.", "tests": ["discount_test.go::TestDiscount"]}], "context": ["Total ignores the discount."]}`
+
+// G10-3: without the local model the request stays unmapped, and the eval is not
+// validated although every other check passes.
+func TestSessionWithoutMappingNeedsReview(t *testing.T) {
 	s, env := e2eProject(t)
 	p := evals.Enabled([]string{"opencode"})
+	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	s.Cfg.Evals = &p
+	Run(context.Background(), s, env)
+	l := library.Open(s, 0)
+	names, _ := l.Manifests("eval")
+	var v1 map[string]any
+	if len(names) != 1 || l.Manifest("eval", names[0], &v1) != nil || !strings.Contains(fmt.Sprint(v1["reasons"]), "model_disabled") {
+		t.Fatalf("v1 %v", v1["reasons"])
+	}
+	q := Qualify(context.Background(), s, &e2eRunner{}, env.Now())
+	if q.States["needs_review"] != 1 {
+		t.Fatalf("qualify %+v", q)
+	}
+	names, _ = l.Manifests("eval")
+	var v2 map[string]any
+	l.Manifest("eval", names[1], &v2)
+	qual := v2["qualification"].(map[string]any)
+	if !strings.Contains(fmt.Sprint(v2["reasons"]), "requirement_coverage_missing") || qual["policy"] != "q2" || len(qual["requirements"].([]any)) != 3 {
+		t.Fatalf("v2 %v %v", v2["reasons"], qual)
+	}
+	if err := evals.ValidateValue("eval", v2); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A mapping that leaves out a requested behavior is refused; the request stays unmapped.
+func TestIncompleteMappingIsRefused(t *testing.T) {
+	s, env := e2eProject(t)
+	srv, calls := mappingServer(t, `{"requirements": [{"source": "R1", "quote": "Fix Total", "tests": ["discount_test.go::TestDiscount"]}], "context": ["Total ignores the discount."]}`)
+	p := evals.Enabled([]string{"opencode"})
+	p.Model = &evals.Model{Use: "lan", BaseURL: srv.URL + "/v1", Model: "local-coder", KeyEnv: "HINT_TEST_MODEL_KEY"}
+	s.Cfg.Evals = &p
+	Run(context.Background(), s, env)
+	l := library.Open(s, 0)
+	names, _ := l.Manifests("eval")
+	var v1 map[string]any
+	l.Manifest("eval", names[0], &v1)
+	if *calls != 1 || len(build.Unmapped(v1)) != 1 || !strings.Contains(fmt.Sprint(v1["reasons"]), "requirement_mapping_incomplete") {
+		t.Fatalf("calls %d reasons %v", *calls, v1["reasons"])
+	}
+}
+
+func TestSessionToQualifiedEval(t *testing.T) {
+	s, env := e2eProject(t)
+	srv, calls := mappingServer(t, e2eMapping)
+	p := evals.Enabled([]string{"opencode"})
+	p.Model = &evals.Model{Use: "lan", BaseURL: srv.URL + "/v1", Model: "local-coder", KeyEnv: "HINT_TEST_MODEL_KEY"}
 	s.Cfg.Evals = &p
 	r := Run(context.Background(), s, env)
+	if *calls != 1 {
+		t.Fatalf("model calls %d", *calls)
+	}
 	if r.Episodes.Proposed != 1 || r.Packages.Packaged != 1 || r.Pending != 1 {
 		t.Fatalf("pass: episodes %+v packages %+v pending %d", r.Episodes, r.Packages, r.Pending)
 	}

@@ -166,6 +166,7 @@ func packageOne(l *library.Library, ep map[string]any, p *evals.Policy, now time
 		// no test of its own: a local model draft may supply a hidden check (policy model)
 		if drafted, ok := draftVerifier(context.Background(), l, p, in); ok {
 			built, err = build.Build(l, drafted)
+			in.Result = drafted.Result
 		}
 	}
 	if errors.As(err, &ref) {
@@ -174,7 +175,10 @@ func packageOne(l *library.Library, ep map[string]any, p *evals.Policy, now time
 	if err != nil {
 		return evalMap{Refused: []string{"verifier_missing"}}
 	}
-	rec := built.Record
+	rec, why := mapRequirements(context.Background(), l, p, built, in.Result)
+	if why != "" {
+		rec["reasons"] = append(rec["reasons"].([]any), why)
+	}
 	if p.Check(evals.OpExecute, "") != nil {
 		rec["reasons"] = append(rec["reasons"].([]any), "execution_disabled")
 	}
@@ -299,7 +303,7 @@ func Qualify(ctx context.Context, s *store.Store, r qualify.Runner, now time.Tim
 	return rep
 }
 
-// qualifyTrials is the number of trials one q1 qualification needs at most.
+// qualifyTrials is the number of trials one qualification needs at most.
 const qualifyTrials = 1 + qualify.ReferenceRuns + qualify.MaxNearMisses + 1
 
 func nextVersion(rec map[string]any, res qualify.Result, evidence string, now time.Time) map[string]any {
@@ -331,7 +335,19 @@ func nextVersion(rec map[string]any, res qualify.Result, evidence string, now ti
 		}
 		checks = append(checks, m)
 	}
-	next["qualification"] = map[string]any{"policy": qualify.Policy, "checks": checks}
+	q := map[string]any{"policy": qualify.Policy, "checks": checks}
+	if len(res.Requirements) > 0 {
+		var reqs []any
+		for _, r := range res.Requirements {
+			m := map[string]any{"req_id": r.ReqID, "status": r.Status}
+			if r.Reason != "" {
+				m["reason"] = r.Reason
+			}
+			reqs = append(reqs, m)
+		}
+		q["requirements"] = reqs
+	}
+	next["qualification"] = q
 	return next
 }
 

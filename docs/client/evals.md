@@ -43,13 +43,33 @@ Sessions that do not meet these rules are listed with their reasons, for example
 
 ## Qualification
 
-An eval is `validated` (policy q1) only when, in disposable containers without network:
-the starting state fails the hidden checks; the reference passes them and your existing
-tests in three clean runs; partial references fail; a probe that tries the network and
-writes fake results gets no network and no credit; and the agent's environment holds no
-Git history, hidden test or reference solution. `validated` means qualified under q1; it
-is not a proof that the task is complete or that the reference is the only correct
-solution.
+An eval is `validated` (policy q2) only when, in disposable containers without network:
+
+- the starting state fails the hidden checks;
+- the reference passes them and your existing tests in three clean runs;
+- partial references fail;
+- every requirement is linked to tests, the linked tests pass with the reference, and for
+  requested behavior at least one linked test fails on the starting state;
+- a probe that tries the network, writes fake results and adds test code that ends the
+  test run early (a `TestMain` or `conftest.py` that exits 0) gets no network and no
+  credit, and the agent's environment holds no Git history, hidden test or reference
+  solution.
+
+A check counts only when each required test actually ran: the verifier reads Go's
+`go test -json` events and pytest's per-test lines, and it removes test files that the
+agent added. `validated` means qualified under q2; it is not a proof that the task is
+complete or that the reference is the only correct solution.
+
+**Requirements.** Tests written with a change do not show which requested behavior they
+check. So your request and each correction start without a link to a check. With the local
+model allowed in the eval policy, HINT asks it once per eval to split the text into
+requirements and to link each one to hidden tests. HINT accepts the answer only when every
+quote is your exact text, every test exists, and every part of your text is either a
+requirement or marked as background. A requirement that no test checks stays without a
+check and is shown as missing evidence. Without the model, these evals stay
+`needs_review` with the reason `requirement_coverage_missing`. A model link is labeled
+`model`; it is not independent evidence. `git hint eval show <id>` lists each requirement,
+its link and its coverage.
 
 Qualification needs Docker and Harbor 0.23 (`uv tool install harbor==0.23.0`); HINT
 turns Harbor's telemetry off for its runs. Without them, evals stay `packaged`.
@@ -63,7 +83,10 @@ git hint eval run --arm configuration     # label a run, for example after a set
 git hint eval compare                     # raw results per arm and agent
 ```
 
-`eval run` freezes a suite of validated evals and runs bounded trials in containers. A
+`eval run` freezes a suite of validated evals and runs bounded trials in containers. The
+results of each trial (verifier output, agent log, the files the agent left) are stored in
+the local library before the work directory is removed; when they do not fit the quota,
+the directory stays. A
 live agent uses only the local model named in the eval policy (`model.use: lan`, a
 private-network `base_url`, the key in the environment variable `key_env`). HINT runs a
 small proxy that holds the key, counts the model requests of each trial and stops them at

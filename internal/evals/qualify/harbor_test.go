@@ -24,7 +24,7 @@ func TestHarborQualification(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := evaltest.Library(t)
-	rec := evaltest.GoBugFix(t, l)
+	rec := evaltest.MapGoBugFix(t, l, evaltest.GoBugFix(t, l))
 	work := t.TempDir()
 	if keep := os.Getenv("HINT_HARBOR_JOBS"); keep != "" {
 		work = filepath.Join(keep, "qualify-"+time.Now().UTC().Format("20060102T150405"))
@@ -45,8 +45,10 @@ func TestHarborQualification(t *testing.T) {
 }
 
 // TestHarborFamilies qualifies one change per task family through the real Harbor CLI with
-// no model, plus a refactoring whose request is only partly visible in the exported API
-// (it must not be validated). Set HINT_HARBOR to run it.
+// no model (the user's requirement mapping), plus a refactoring whose request is only
+// partly visible in the exported API and the reviewer's G10-3 case (a requested panic that
+// no test checks and the reference breaks): neither may be validated. Set HINT_HARBOR to
+// run it.
 func TestHarborFamilies(t *testing.T) {
 	if os.Getenv("HINT_HARBOR") == "" {
 		t.Skip("set HINT_HARBOR to the harbor executable")
@@ -56,21 +58,22 @@ func TestHarborFamilies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cases := append(evaltest.Families(), evaltest.RefactorExtract())
+	cases := append(evaltest.Families(), evaltest.RefactorExtract(), evaltest.PanicRequirement())
 	for i, c := range cases {
 		l := evaltest.Library(t)
 		b, err := evaltest.Package(t, l, c, "go test ./...")
 		if err != nil {
 			t.Fatalf("%s: %v", c.Family, err)
 		}
+		rec := evaltest.MapChange(t, l, b.Record, c)
 		start := time.Now()
-		res, err := Run(ctx, l, h, b.Record, Options{Work: t.TempDir(), Settings: runner.Settings{AgentSeconds: 300, VerifierSeconds: 300, BuildSeconds: 900, CPUs: 2, MemoryMB: 2048, Pids: 512}})
+		res, err := Run(ctx, l, h, rec, Options{Work: t.TempDir(), Settings: runner.Settings{AgentSeconds: 300, VerifierSeconds: 300, BuildSeconds: 900, CPUs: 2, MemoryMB: 2048, Pids: 512}})
 		if err != nil {
 			t.Fatalf("%s: %v", c.Family, err)
 		}
 		t.Logf("%d %-13s state %-12s reasons %v trials %d in %s", i, c.Family, res.State, res.Reasons, res.Trials, time.Since(start).Round(time.Second))
 		want := "validated"
-		if i == len(cases)-1 {
+		if i >= len(cases)-2 {
 			want = "needs_review"
 		}
 		if res.State != want {

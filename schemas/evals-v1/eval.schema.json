@@ -5,6 +5,17 @@
   "description": "One immutable eval version: base state, instruction, environment, hidden verifier and qualification evidence. A content change makes a new version and invalidates dependent qualifications.",
   "type": "object",
   "additionalProperties": false,
+  "$defs": {
+    "Generator": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "maxLength": 100}, "version": {"type": "string", "maxLength": 64},
+        "model": {"type": "string", "maxLength": 200}, "inputs": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}},
+        "output": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}, "requests": {"type": "integer", "minimum": 0}
+      },
+      "required": ["name", "version", "inputs", "output", "requests"]
+    }
+  },
   "properties": {
     "record": {"const": "eval"},
     "manifest_version": {"const": 1},
@@ -35,12 +46,20 @@
         "properties": {
           "req_id": {"type": "string", "pattern": "^R[1-9][0-9]{0,2}$"},
           "kind": {"type": "string", "enum": ["behavior", "constraint", "interface", "preserve", "structure"]},
-          "origin": {"type": "string", "enum": ["request", "correction", "result_test", "existing_test"]},
+          "origin": {"type": "string", "enum": ["request", "correction", "result_test", "result_state", "existing_test"]},
           "text": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
           "evidence": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/SourceLocation"}},
-          "checks": {"type": "array", "items": {"type": "string", "pattern": "^C[1-9][0-9]{0,2}$"}, "minItems": 1, "uniqueItems": true}
+          "checks": {"type": "array", "items": {"type": "string", "pattern": "^C[1-9][0-9]{0,2}$"}, "uniqueItems": true},
+          "tests": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9._/+-]+::[A-Za-z_][A-Za-z0-9_]*$"}, "uniqueItems": true,
+            "description": "The tests of the checks that verify this requirement; absent means the whole check."},
+          "generator": {"$ref": "#/$defs/Generator", "description": "Provenance of a model mapping."},
+          "mapping": {"type": "string", "enum": ["construction", "model", "user", "none"],
+            "description": "How the requirement-to-check link was made: by construction (existing tests, derived API check), by the local model (not independent), by the user, or not at all. Absent means construction (manifests before G10-3)."}
         },
-        "required": ["req_id", "kind", "origin", "text", "evidence", "checks"]
+        "required": ["req_id", "kind", "origin", "text", "evidence", "checks"],
+        "if": {"properties": {"mapping": {"const": "none"}}, "required": ["mapping"]},
+        "then": {"properties": {"checks": {"maxItems": 0}, "tests": {"maxItems": 0}}},
+        "else": {"properties": {"checks": {"minItems": 1}}}
       }
     },
     "verifier": {
@@ -54,15 +73,9 @@
             "properties": {
               "check_id": {"type": "string", "pattern": "^C[1-9][0-9]{0,2}$"},
               "origin": {"type": "string", "enum": ["existing_test", "result_test", "generated"]},
-              "generator": {
-                "type": "object", "additionalProperties": false,
-                "properties": {
-                  "name": {"type": "string", "maxLength": 100}, "version": {"type": "string", "maxLength": 64},
-                  "model": {"type": "string", "maxLength": 200}, "inputs": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}},
-                  "output": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}, "requests": {"type": "integer", "minimum": 0}
-                },
-                "required": ["name", "version", "inputs", "output", "requests"]
-              }
+              "tests": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9._/+-]+::[A-Za-z_][A-Za-z0-9_]*$"}, "uniqueItems": true,
+                "description": "The tests that the check requires to run (C1: each must pass)."},
+              "generator": {"$ref": "#/$defs/Generator"}
             },
             "required": ["check_id", "origin"]
           }
@@ -93,13 +106,26 @@
           "items": {
             "type": "object", "additionalProperties": false,
             "properties": {
-              "name": {"type": "string", "enum": ["base_fails", "reference_passes", "repeatable", "near_miss_fails", "alternative_passes", "isolation", "leak_probe", "forgery_probe"]},
+              "name": {"type": "string", "enum": ["base_fails", "reference_passes", "repeatable", "near_miss_fails", "alternative_passes", "isolation", "leak_probe", "forgery_probe", "requirement_coverage"]},
               "status": {"type": "string", "enum": ["pass", "fail", "missing", "not_applicable"]},
               "runs": {"type": "integer", "minimum": 0},
               "independent": {"type": "boolean"},
               "evidence": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}}
             },
             "required": ["name", "status", "runs"]
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "description": "Per requirement: pass when its mapped tests pass in every reference run and (for requested behavior) at least one fails on the base.",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "req_id": {"type": "string", "pattern": "^R[1-9][0-9]{0,2}$"},
+              "status": {"type": "string", "enum": ["pass", "fail", "missing", "not_applicable"]},
+              "reason": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Reason"}
+            },
+            "required": ["req_id", "status"]
           }
         }
       },
@@ -114,5 +140,7 @@
       "x-hint-class": "local", "description": "A user decision, kept apart from the automatic qualification."
     }
   },
-  "required": ["record", "manifest_version", "eval_id", "version", "previous", "created_at", "episode_id", "family", "repositories", "instruction", "requirements", "verifier", "environment", "dependencies", "state", "reasons", "qualification", "override"]
+  "required": ["record", "manifest_version", "eval_id", "version", "previous", "created_at", "episode_id", "family", "repositories", "instruction", "requirements", "verifier", "environment", "dependencies", "state", "reasons", "qualification", "override"],
+  "if": {"properties": {"state": {"const": "validated"}}, "required": ["state"]},
+  "then": {"properties": {"requirements": {"items": {"not": {"properties": {"mapping": {"const": "none"}}, "required": ["mapping"]}}}}}
 }
