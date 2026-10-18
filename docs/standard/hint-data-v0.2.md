@@ -2,7 +2,7 @@
 
 **Version:** 0.2.0 (draft) | **Status:** draft; not final | **Date:** 2026-10-18
 
-v0.2 is v0.1 plus two optional additions: the **context measurement** of an observation and the **effort findings** of a recommendation set. All other rules of [hint-data v0.1](hint-data-v0.1.md), [privacy](privacy-v0.1.md), [recommendation](recommendation-v0.1.md) and [exchange](exchange-v0.1.md) stay the same:
+v0.2 is v0.1 plus two optional additions: the **context measurement** of an observation (and `context` as a missing field) and the **effort findings** (with decisions and context policy feedback) of a recommendation set. All other rules of [hint-data v0.1](hint-data-v0.1.md), [privacy](privacy-v0.1.md), [recommendation](recommendation-v0.1.md) and [exchange](exchange-v0.1.md) stay the same:
 
 - identifiers and their derivation;
 - digests and the canonical form;
@@ -49,6 +49,8 @@ A recommendation set can carry up to 20 findings. A finding states what costs ef
 | `next_step` | a checkable step: `refresh_index_and_recheck`, `compare_context_variant`, `inspect_coupling`, `review_validation_loop`, `review_ownership`, `collect_more_tasks`, with targets |
 | `priority` | always `heuristic`: the array order is a heuristic priority, not a calibrated ranking |
 | `decision` | optional: the minimum sufficient intervention. Each alternative (`CONTEXT_ONLY`, `REFACTOR_CODE`) has the observed differences of the project's eval variant pairs (`effort_delta` in tokens per attempt, every attempt counted; `success_delta` as correctness evidence), each with its interval and coverage, or null; its pair `scope`; and `state` (`chosen`, `known`, `unknown`, `excluded_correctness`, `cost_unknown`, `not_applicable`). `chosen` can also be `NO_CHANGE` or `COLLECT_MORE_EVIDENCE`. There is no net value, horizon or break-even: `cost_model` is `unavailable` (Stage 07B). `basis` is always `heuristic`. The differences are observations on eval tasks, not a forecast |
+
+`context_feedback` (up to 20) reports on each effective context policy identity (`policy_ref`): counters derived from the context measurements (deliveries, expansions, repeated originals, stale refusals, delivered bytes), navigation and test pass rates of tasks with delivery against comparable tasks without delivery, each with coverage, and a `proposal`: `keep`, `propose_revision`, `propose_disable` or `insufficient_evidence`, with the `basis` codes. An expansion is normal progressive disclosure, never a failure by itself. Proposals only; `basis_label` is always `heuristic`.
 
 `abstentions` lists the problem classes that the server did not diagnose and why (`no_confirmed_tasks`, `insufficient_coverage`). A plan in a v0.2 set names `plan_schema` 0.2.x. The client shows at most five findings.
 

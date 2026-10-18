@@ -166,6 +166,7 @@ const MaxShownFindings = 5
 // enumeration, a number or a resolved local name.
 func renderFindings(w func(string, ...any), payload map[string]any, name func(string) string) {
 	fs, abst := list(payload["findings"]), list(payload["abstentions"])
+	defer renderFeedback(w, list(payload["context_feedback"]))
 	if len(fs) == 0 && len(abst) == 0 {
 		return
 	}
@@ -229,6 +230,29 @@ func renderFindings(w func(string, ...any), payload map[string]any, name func(st
 		}
 		w("\n")
 	}
+}
+
+// renderFeedback writes the proposals on the local context policy versions. Nothing changes
+// by itself: the user changes or restores the policy with git hint init --context-limits.
+func renderFeedback(w func(string, ...any), fb []any) {
+	if len(fb) == 0 {
+		return
+	}
+	w("## Context policy feedback\n\n")
+	w("Proposals only (heuristic). Change or restore the policy with `git hint init --context-limits`.\n\n")
+	for _, x := range fb {
+		f := x.(map[string]any)
+		w("- policy `%s`: **%s** (%s)\n", str(f["policy_ref"]), str(f["proposal"]), joinAny(f["basis"]))
+		for _, y := range list(f["quantities"]) {
+			q := y.(map[string]any)
+			v := "unknown"
+			if q["state"] == "observed" {
+				v = fmt.Sprint(q["value"])
+			}
+			w("  - %s: %s %s\n", str(q["metric"]), v, str(q["unit"]))
+		}
+	}
+	w("\n")
 }
 
 // renderDecision writes the intervention comparison of a finding: observed differences of

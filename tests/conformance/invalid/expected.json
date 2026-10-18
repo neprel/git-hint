@@ -229,6 +229,16 @@
     "code": "time_order",
     "level": "semantic"
   },
+  "feedback-automatic-change.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "feedback-free-text.json": {
+    "base": "recommendation-findings.json",
+    "code": "content",
+    "level": "schema"
+  },
   "finding-calibrated-priority.json": {
     "base": "recommendation-findings.json",
     "code": "finding",

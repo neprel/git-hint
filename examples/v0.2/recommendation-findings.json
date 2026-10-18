@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:066f841dd257d41be9a95347335f52cb200adb8777468e4a89c0ba1b0cf16e00",
+  "content_digest": "sha256:87ffa2b469c5360b6d6b1a805b8022e444a139a46086785b73b76df5b777831a",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
   "document_type": "recommendation_set",
@@ -9,6 +9,97 @@
       {
         "problem": "coordination_wait",
         "reason": "insufficient_coverage"
+      }
+    ],
+    "context_feedback": [
+      {
+        "basis": [
+          "expansion_is_normal",
+          "less_navigation_after_delivery",
+          "no_worse_outcome_with_delivery"
+        ],
+        "basis_label": "heuristic",
+        "feedback_id": "9c3e8c6133834eb560fc38e9c9fd9110",
+        "observation_ids": [
+          "674812dcf3d6c3a0afebb7417ef70060"
+        ],
+        "policy_ref": "4d2af0baecd6001e8cd4ae29223cc4ba",
+        "proposal": "keep",
+        "quantities": [
+          {
+            "coverage": [
+              12,
+              12
+            ],
+            "metric": "tasks_with_delivery",
+            "state": "observed",
+            "unit": "tasks",
+            "value": 12
+          },
+          {
+            "coverage": [
+              15,
+              15
+            ],
+            "metric": "comparable_tasks",
+            "state": "observed",
+            "unit": "tasks",
+            "value": 15
+          },
+          {
+            "coverage": [
+              20,
+              20
+            ],
+            "metric": "expansions",
+            "state": "observed",
+            "unit": "operations",
+            "value": 9
+          },
+          {
+            "coverage": [
+              12,
+              12
+            ],
+            "metric": "navigation_after_delivery_per_task",
+            "state": "observed",
+            "unit": "operations_per_task",
+            "value": 2.5
+          },
+          {
+            "coverage": [
+              15,
+              15
+            ],
+            "metric": "navigation_per_comparable_task",
+            "state": "observed",
+            "unit": "operations_per_task",
+            "value": 4
+          },
+          {
+            "coverage": [
+              12,
+              12
+            ],
+            "metric": "pass_rate_with_delivery",
+            "state": "observed",
+            "unit": "fraction",
+            "value": 0.92
+          },
+          {
+            "coverage": [
+              15,
+              15
+            ],
+            "metric": "pass_rate_comparable",
+            "state": "observed",
+            "unit": "fraction",
+            "value": 0.87
+          }
+        ],
+        "task_ids": [
+          "f81aa6bcaf28b4d064d7335bb684b97b"
+        ]
       }
     ],
     "findings": [

@@ -604,6 +604,13 @@
           "items": {
             "$ref": "#/$defs/Abstention"
           }
+        },
+        "context_feedback": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/ContextFeedback"
+          }
         }
       },
       "required": [
@@ -1313,6 +1320,172 @@
         "cost_model",
         "basis",
         "evidence"
+      ]
+    },
+    "ContextFeedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Feedback on one effective context policy identity (v0.2): counters derived from context measurements, comparable tasks without delivery, and a conservative proposal. Proposals only; nothing changes automatically. Heuristic.",
+      "properties": {
+        "feedback_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "policy_ref": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "proposal": {
+          "type": "string",
+          "enum": [
+            "keep",
+            "propose_revision",
+            "propose_disable",
+            "insufficient_evidence"
+          ]
+        },
+        "quantities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "metric": {
+                "type": "string",
+                "enum": [
+                  "tasks_with_delivery",
+                  "comparable_tasks",
+                  "deliveries",
+                  "expansions",
+                  "repeated_originals",
+                  "stale_refusals",
+                  "delivered_bytes",
+                  "navigation_after_delivery_per_task",
+                  "navigation_per_comparable_task",
+                  "pass_rate_with_delivery",
+                  "pass_rate_comparable"
+                ]
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "tasks",
+                  "operations",
+                  "bytes",
+                  "operations_per_task",
+                  "fraction"
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "observed",
+                  "unknown"
+                ]
+              },
+              "coverage": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "metric",
+              "unit",
+              "value",
+              "state",
+              "coverage"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "const": "unknown"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "value": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "basis": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "enum": [
+              "below_minimum_tasks",
+              "missing_comparable_tasks",
+              "missing_outcomes",
+              "expansion_is_normal",
+              "more_navigation_after_delivery",
+              "less_navigation_after_delivery",
+              "worse_outcome_with_delivery",
+              "no_worse_outcome_with_delivery",
+              "hysteresis_hold"
+            ]
+          }
+        },
+        "task_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "observation_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "basis_label": {
+          "const": "heuristic"
+        }
+      },
+      "required": [
+        "feedback_id",
+        "policy_ref",
+        "proposal",
+        "quantities",
+        "basis",
+        "task_ids",
+        "observation_ids",
+        "basis_label"
       ]
     }
   }

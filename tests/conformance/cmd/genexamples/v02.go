@@ -115,6 +115,12 @@ func findingsDoc(rec, act, ctx M) M {
 	p := obj(d, "payload")
 	p["findings"] = A{nav, read}
 	p["abstentions"] = A{M{"problem": "coordination_wait", "reason": "insufficient_coverage"}}
+	p["context_feedback"] = A{M{"feedback_id": id("feedback", "policy-1"), "policy_ref": ctxPolicyRef, "proposal": "keep", "basis_label": "heuristic",
+		"basis": A{"expansion_is_normal", "less_navigation_after_delivery", "no_worse_outcome_with_delivery"},
+		"quantities": A{q("tasks_with_delivery", "tasks", 12, 12, 12), q("comparable_tasks", "tasks", 15, 15, 15), q("expansions", "operations", 9, 20, 20),
+			q("navigation_after_delivery_per_task", "operations_per_task", 2.5, 12, 12), q("navigation_per_comparable_task", "operations_per_task", 4.0, 15, 15),
+			q("pass_rate_with_delivery", "fraction", 0.92, 12, 12), q("pass_rate_comparable", "fraction", 0.87, 15, 15)},
+		"task_ids": A{task}, "observation_ids": A{oid(cobs[len(cobs)-6])}}}
 	return reseal(d)
 }
 
@@ -191,6 +197,12 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"decision-calibrated-basis", "recommendation-findings.json", "schema", "finding", func(d M) {
 			obj(d, "payload", "findings", 0, "decision")["basis"] = "calibrated"
+		}, nil},
+		{"feedback-automatic-change", "recommendation-findings.json", "schema", "finding", func(d M) {
+			obj(d, "payload", "context_feedback", 0)["proposal"] = "apply_revision"
+		}, nil},
+		{"feedback-free-text", "recommendation-findings.json", "schema", "content", func(d M) {
+			obj(d, "payload", "context_feedback", 0)["note"] = forbidden["prompt"]
 		}, nil},
 		{"finding-in-v01-document", "recommendation-findings.json", "schema", "version", func(d M) {
 			d["hint_version"] = "0.1.0"
