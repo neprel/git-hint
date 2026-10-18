@@ -104,6 +104,14 @@ The server address must use `https`; `http` is allowed only for a loopback addre
 
 The Markdown plan shows local file and symbol names, the steps, the preconditions and the constraints. Forecasts are marked as predictions with their simulation level and calibration status. HINT does not apply any step. Review a plan before you act on it.
 
+When the server sends a HINT v0.2 set, the plan starts with a summary and adds:
+
+- **Findings** (at most five): the problem, the observed quantities with their coverage, the cause hypotheses and their state, the candidate interventions and a next step. An intervention comparison shows only observed differences of eval runs that are bound to the finding; today no finding is bound, so it says to collect more evidence. There is no net value or break-even: no cost model is available yet.
+- **Project eval comparisons**: the observed differences of your eval variants, which decide nothing alone.
+- **Context policy feedback**: proposals only (keep, revise, disable, or not enough evidence). You change or restore the policy with `git hint init --context-limits`.
+
+The report keeps the kinds of values apart: observed, estimated, predicted and experimentally supported. A set that you received as a file (`git hint plan --from FILE`) renders with the same checks as one fetched with `git hint recommend`.
+
 ## 8. Privacy profile
 
 The export policy is in `.hint/state/project.json` (`policy`). It is an allowlist:

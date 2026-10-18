@@ -27,7 +27,9 @@ func TestRenderFindings(t *testing.T) {
 	cur := &Current{Names: map[string]string{target: "billing/ledger.go"}}
 	im := &Imported{Result: hint.ImportResult{Document: "accepted"}, Doc: doc}
 	md := Render(im, cur, "x.json")
-	for _, want := range []string{"## Findings", "heuristic priority, not a calibrated ranking", "### Finding 1: repeated_navigation (supported)",
+	for _, want := range []string{"## Summary", "- Problems found: 2 (1 with enough evidence, 1 limited). Not diagnosed: coordination_wait.",
+		"- First problem: repeated_navigation (supported). Proposed action: COLLECT_MORE_EVIDENCE. Next step: refresh_index_and_recheck.",
+		"- Evaluation: 1 eval comparisons of your project", "Kinds of values: **observed**", "## Findings", "heuristic priority, not a calibrated ranking", "### Finding 1: repeated_navigation (supported)",
 		"- stale_index: **supported** (stale_context_measurement, repeat_without_observed_edit)", "| large_read_bytes | bytes | unknown | 2 of 5 |",
 		"Next step: **refresh_index_and_recheck** on billing/ledger.go", "- coordination_wait: insufficient_coverage", "### Finding 2: large_low_selectivity_read (limited)",
 		"Intervention comparison (heuristic; cost model unavailable, so no net value or break-even): **COLLECT_MORE_EVIDENCE**.",
@@ -39,7 +41,7 @@ func TestRenderFindings(t *testing.T) {
 			t.Errorf("missing %q in\n%s", want, md)
 		}
 	}
-	if strings.Index(md, "## Findings") > strings.Index(md, "## Plan 1") {
+	if strings.Index(md, "## Summary") > strings.Index(md, "## Findings") || strings.Index(md, "## Findings") > strings.Index(md, "## Plan 1") {
 		t.Error("findings come after the plans")
 	}
 	// seven findings: five are shown
@@ -55,7 +57,7 @@ func TestRenderFindings(t *testing.T) {
 	delete(payload, "abstentions")
 	delete(payload, "context_feedback")
 	delete(payload, "project_comparisons")
-	if md := Render(im, cur, "x.json"); strings.Contains(md, "## Findings") {
+	if md := Render(im, cur, "x.json"); strings.Contains(md, "## Findings") || strings.Contains(md, "## Summary") {
 		t.Error("a set without findings shows a findings section")
 	}
 }

@@ -35,6 +35,7 @@ func Render(im *Imported, cur *Current, source string) string {
 		}
 		return fmt.Sprintf("unresolved `%s`", id)
 	}
+	renderSummary(w, im.Doc["payload"].(map[string]any), len(plans))
 	renderFindings(w, im.Doc["payload"].(map[string]any), name)
 	for i, p := range plans {
 		m := p.(map[string]any)
@@ -156,6 +157,52 @@ func Render(im *Imported, cur *Current, source string) string {
 		}
 	}
 	return b.String()
+}
+
+// renderSummary writes the short answer first: the problems, the proposed action and next
+// step, the evaluation status, and what kind of value each part of the report is.
+func renderSummary(w func(string, ...any), payload map[string]any, plans int) {
+	fs, abst := list(payload["findings"]), list(payload["abstentions"])
+	cmp, fb := list(payload["project_comparisons"]), list(payload["context_feedback"])
+	if len(fs) == 0 && len(abst) == 0 && len(cmp) == 0 && len(fb) == 0 {
+		return
+	}
+	w("## Summary\n\n")
+	supported := 0
+	for _, x := range fs {
+		if x.(map[string]any)["evidence_state"] == "supported" {
+			supported++
+		}
+	}
+	w("- Problems found: %d (%d with enough evidence, %d limited).", len(fs), supported, len(fs)-supported)
+	if len(abst) > 0 {
+		var ps []string
+		for _, x := range abst {
+			ps = append(ps, str(x.(map[string]any)["problem"]))
+		}
+		w(" Not diagnosed: %s.", strings.Join(ps, ", "))
+	}
+	w("\n")
+	if len(fs) > 0 {
+		f := fs[0].(map[string]any)
+		action := joinAny(f["interventions"])
+		if d, ok := f["decision"].(map[string]any); ok {
+			action = str(d["chosen"])
+		}
+		ns, _ := f["next_step"].(map[string]any)
+		w("- First problem: %s (%s). Proposed action: %s. Next step: %s.\n", str(f["problem"]), str(f["evidence_state"]), action, str(ns["check"]))
+	}
+	if len(cmp) > 0 {
+		w("- Evaluation: %d eval comparisons of your project (observed; not bound to a finding, so they decide nothing alone).\n", len(cmp))
+	} else {
+		w("- Evaluation: no eval comparison yet. Run the variants with `git hint eval run` and send a report to measure a change.\n")
+	}
+	for _, x := range fb {
+		f := x.(map[string]any)
+		w("- Context policy `%s`: %s.\n", str(f["policy_ref"]), str(f["proposal"]))
+	}
+	w("- Plans: %d. Rejected and refused plans stay listed. HINT does not record whether you applied a plan; after a change, collect again and compare (`git hint changes`, `git hint eval compare`).\n\n", plans)
+	w("Kinds of values: **observed** = counted in your activity or eval runs; **estimated** = a labeled estimate (for example tokens from bytes); **predicted** = a plan forecast, not measured; **experimentally supported** = an effect from paired runs, shown only in an effect report. A cause is a hypothesis unless it is `supported`.\n\n")
 }
 
 // MaxShownFindings is the number of findings that the ordinary report shows.

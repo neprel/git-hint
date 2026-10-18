@@ -25,7 +25,7 @@ import (
 	"github.com/neprel/git-hint/internal/store"
 )
 
-// hint_context (Stage 11 D05, C11-A decision 1): a bounded neighborhood of one entity of the
+// hint_context: a bounded neighborhood of one entity of the
 // local index, and the expansion of a detail by an immutable reference. It reuses the stored
 // snapshot (declarations, imports, test flags); it reads source only to answer and stores
 // nothing. A reference names one snapshot and one entity. Source is returned only when the

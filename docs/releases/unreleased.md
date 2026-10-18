@@ -41,7 +41,7 @@ These notes describe changes that are not released yet. They name no version, an
 
 - The client reads v0.1 and v0.2 and still writes v0.1.
 - v0.2 adds two optional parts: the context measurement of an observation, and effort findings in a recommendation set. See [v0.2 changes](../standard/hint-data-v0.2.md).
-- The local plan (`git hint plan`, MCP `hint_plan`) shows at most five findings with local names: the problem, observed quantities with coverage, cause hypotheses and their state, candidate interventions and a next step. The order is a heuristic priority.
+- The local plan (`git hint plan`, MCP `hint_plan`) starts with a summary and shows at most five findings with local names: the problem, observed quantities with coverage, cause hypotheses and their state, candidate interventions and a next step. The order is a heuristic priority. It also shows the project's eval comparisons (observed) and proposals on the context policy. No net value or break-even is given.
 
 ## Known limits
 

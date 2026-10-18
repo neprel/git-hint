@@ -1036,3 +1036,74 @@ func TestExportWithContextMeasurementIsV02(t *testing.T) {
 	}
 	noCanary(t, "export", readAll(t, out), shop, `"ses_`, `"call_`)
 }
+
+// D08: a v0.2 recommendation set with findings, project comparisons and context feedback
+// renders the same from the API (recommend) and from a saved file (plan --from), with local
+// names and the same checks.
+func TestReportFromFileEqualsAPI(t *testing.T) {
+	shop, _ := setup(t)
+	raw, err := os.ReadFile(filepath.Join("..", "..", "examples", "v0.2", "recommendation-findings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ex map[string]any
+	_ = json.Unmarshal(raw, &ex)
+	srv := testkit.NewServer()
+	defer srv.Close()
+	srv.Mutate = func(d map[string]any) {
+		d["hint_version"] = "0.2.0"
+		p := d["payload"].(map[string]any)
+		for _, pl := range p["plans"].([]any) {
+			pl.(map[string]any)["plan_schema"] = "0.2.0"
+		}
+		targets := p["plans"].([]any)[0].(map[string]any)["targets"].([]any)
+		fs := ex["payload"].(map[string]any)["findings"].([]any)
+		for _, f := range fs {
+			fm := f.(map[string]any)
+			fm["targets"] = targets[:1]
+			fm["next_step"].(map[string]any)["targets"] = targets[:1]
+		}
+		for _, k := range []string{"findings", "abstentions", "project_comparisons", "context_feedback"} {
+			p[k] = ex["payload"].(map[string]any)[k]
+		}
+	}
+	must(t, run(t, shop, "", "recommend", "--yes", "--server", srv.URL))
+	api := filepath.Join(t.TempDir(), "api.md")
+	must(t, run(t, shop, "", "plan", "--out", api))
+	ns := func() string {
+		s, _ := store.Open(shop)
+		return s.Cfg.ProjectNamespace
+	}()
+	file := filepath.Join(t.TempDir(), "received.hint.json")
+	if err := os.WriteFile(file, srv.RecommendationFor(ns), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fromFile := filepath.Join(t.TempDir(), "file.md")
+	must(t, run(t, shop, "", "plan", "--from", file, "--out", fromFile))
+	a, _ := os.ReadFile(api)
+	b, _ := os.ReadFile(fromFile)
+	strip := func(md []byte) string { // the source line names where the document came from
+		var out []string
+		for _, l := range strings.Split(string(md), "\n") {
+			if !strings.HasPrefix(l, "Source: ") {
+				out = append(out, l)
+			}
+		}
+		return strings.Join(out, "\n")
+	}
+	if strip(a) != strip(b) {
+		t.Fatalf("file and API render differently:\n--- api\n%s\n--- file\n%s", a, b)
+	}
+	md := string(a)
+	for _, want := range []string{"Document check: **accepted**", "## Summary", "## Findings", "## Project eval comparisons", "## Context policy feedback",
+		"Next step: **refresh_index_and_recheck** on shop: "} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing %q in\n%s", want, md)
+		}
+	}
+	for _, internal := range []string{"07B", "Stage ", "C11", "D04", "pipeline"} {
+		if strings.Contains(md, internal) {
+			t.Errorf("internal name %q in the user report", internal)
+		}
+	}
+}
