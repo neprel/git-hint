@@ -45,6 +45,18 @@ func (c ConfigRefs) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"state": c.State, "refs": refs})
 }
 
+// Limit is a run limit: known with a value, unbounded (explicitly no limit) or unknown.
+type Limit struct {
+	State string `json:"state"`
+	Value int    `json:"value,omitempty"`
+}
+
+// Budget holds the request and time limits of the runs (both essential for comparison).
+type Budget struct {
+	MaxRequests Limit `json:"max_requests"`
+	MaxSeconds  Limit `json:"max_seconds"`
+}
+
 // Declared holds the user's explicit settings (provenance only; never the effective value).
 type Declared struct {
 	Model *RefState `json:"model,omitempty"`
@@ -64,6 +76,7 @@ type Configuration struct {
 	} `json:"harness"`
 	ContextPolicy ConfigPolicy `json:"context_policy"`
 	ConfigRefs    ConfigRefs   `json:"config_refs"`
+	Budget        Budget       `json:"budget"`
 	Declared      *Declared    `json:"declared,omitempty"`
 }
 

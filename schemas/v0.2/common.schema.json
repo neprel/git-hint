@@ -994,28 +994,13 @@
         "budget": {
           "type": "object",
           "additionalProperties": false,
+          "description": "The request and time limits of the run (both essential for comparison).",
           "properties": {
             "max_requests": {
-              "oneOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "$ref": "#/$defs/Limit"
             },
             "max_seconds": {
-              "oneOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "$ref": "#/$defs/Limit"
             }
           },
           "required": [
@@ -1041,7 +1026,45 @@
         "model",
         "harness",
         "context_policy",
-        "config_refs"
+        "config_refs",
+        "budget"
+      ]
+    },
+    "Limit": {
+      "description": "A run limit: known with its value, unbounded when the run had explicitly no such limit, unknown otherwise. An absent value is never unbounded.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "state",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "enum": [
+                "unbounded",
+                "unknown"
+              ]
+            }
+          },
+          "required": [
+            "state"
+          ]
+        }
       ]
     }
   }

@@ -40,6 +40,10 @@ func TestAdapterDeclaredFamilyAndConfiguration(t *testing.T) {
 	if c.Model.State != "unknown" || c.Declared.Model.Ref != activity.ModelRef(s.Key(), "HINTCANARY_MODEL_local") {
 		t.Fatalf("model: %+v %+v", c.Model, c.Declared)
 	}
+	// a direct run's limits are unknown to HINT: never inferred as unbounded
+	if c.Budget.MaxRequests.State != "unknown" || c.Budget.MaxSeconds.State != "unknown" {
+		t.Fatalf("budget: %+v", c.Budget)
+	}
 	if c.Harness.Kind != "direct" || c.Harness.Version.State != "not_applicable" || c.Agent.Version.Value != "2.0.26" {
 		t.Fatalf("harness/agent: %+v", c)
 	}

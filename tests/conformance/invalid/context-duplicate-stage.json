@@ -1150,8 +1150,12 @@
           }
         },
         "budget": {
-          "max_requests": null,
-          "max_seconds": null
+          "max_requests": {
+            "state": "unknown"
+          },
+          "max_seconds": {
+            "state": "unknown"
+          }
         },
         "config_refs": {
           "refs": [],

@@ -19,7 +19,17 @@
     "code": "time_resolution",
     "level": "semantic"
   },
+  "configuration-known-limit-without-value.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
   "configuration-model-known-without-ref.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
+  "configuration-null-limit.json": {
     "base": "activity-context.json",
     "code": "source",
     "level": "schema"
@@ -45,6 +55,11 @@
     "level": "schema"
   },
   "configuration-unknown-version-with-value.json": {
+    "base": "activity-context.json",
+    "code": "source",
+    "level": "schema"
+  },
+  "configuration-without-budget.json": {
     "base": "activity-context.json",
     "code": "source",
     "level": "schema"

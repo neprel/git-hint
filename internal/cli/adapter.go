@@ -292,6 +292,9 @@ func runConfiguration(s *store.Store, agentVersion, rawModel, configRefs string)
 	if state == "enabled" {
 		c.ContextPolicy.Ref, c.ContextPolicy.Version = hint.EvalRef(s.Key(), "context-policy", id, strconv.Itoa(version), digest), version
 	}
+	// a direct run's limits are not known to HINT (the agent session has no HINT budget); they
+	// stay unknown, never inferred as unbounded
+	c.Budget = activity.Budget{MaxRequests: activity.Limit{State: "unknown"}, MaxSeconds: activity.Limit{State: "unknown"}}
 	c.ConfigRefs = activity.ConfigRefs{State: "unknown"}
 	if configRefs != "" {
 		refs := []string{}

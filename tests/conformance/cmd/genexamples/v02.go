@@ -61,7 +61,7 @@ func contextDoc(act M) M {
 		"harness":        M{"kind": "direct", "version": M{"state": "not_applicable"}},
 		"context_policy": M{"state": "enabled", "ref": ctxPolicyRef, "version": 1},
 		"config_refs":    M{"state": "known", "refs": A{}},
-		"budget":         M{"max_requests": nil, "max_seconds": nil},
+		"budget":         M{"max_requests": M{"state": "unknown"}, "max_seconds": M{"state": "unknown"}},
 		"declared":       M{"model": M{"state": "known", "ref": id("eval-report:model", "local-model")}},
 	}
 	src["capabilities"] = append(src["capabilities"].([]any), "correlation.task_family_id")
@@ -336,6 +336,15 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"configuration-raw-model-text", "activity-context.json", "schema", "content", func(d M) {
 			cfg(d)["model"] = M{"state": "known", "ref": forbidden["identifier"]}
+		}, nil},
+		{"configuration-without-budget", "activity-context.json", "schema", "source", func(d M) {
+			delete(cfg(d), "budget")
+		}, nil},
+		{"configuration-null-limit", "activity-context.json", "schema", "source", func(d M) {
+			cfg(d)["budget"] = M{"max_requests": nil, "max_seconds": M{"state": "unknown"}}
+		}, nil},
+		{"configuration-known-limit-without-value", "activity-context.json", "schema", "source", func(d M) {
+			cfg(d)["budget"] = M{"max_requests": M{"state": "known"}, "max_seconds": M{"state": "unknown"}}
 		}, nil},
 		{"task-family-without-task", "activity-context.json", "schema", "observation", func(d M) {
 			corr := o0(d)["correlation"].(map[string]any)
