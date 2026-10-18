@@ -135,6 +135,11 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 		add(Check{Name: "base_fails", Status: "fail", Runs: 1})
 		reason("base_passes")
 	}
+	// a variant without a verified reference (a refactored base where the original change
+	// does not apply): base and C2 are observed; reference evidence is missing
+	if ref, _ := rec["reference"].(string); ref == "" {
+		return noReference(res, rec, nop, baseFails, task, run)
+	}
 	// reference, repeated
 	or, err := run("reference", "oracle", task, ReferenceRuns)
 	passes, infraErr := 0, err != nil
@@ -288,6 +293,71 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 		}
 	}
 	res.State = decide(res)
+	res.Reasons = uniq(res.Reasons)
+	return res, nil
+}
+
+// noReference finishes the qualification of a record without a reference: the base
+// trial gives base_fails and the kept behavior (C2) of preserve requirements; every check
+// that needs the reference is missing; the state is needs_review (reference_missing).
+func noReference(res Result, rec map[string]any, nop []runner.Trial, baseFails bool, task string, run func(string, string, string, int) ([]runner.Trial, error)) (Result, error) {
+	add := func(c Check) { res.Checks = append(res.Checks, c) }
+	for _, n := range []string{"reference_passes", "repeatable", "near_miss_fails"} {
+		add(Check{Name: n, Status: "missing"})
+	}
+	var base *runner.Trial
+	if len(nop) == 1 && !infra(nop[0]) {
+		base = &nop[0]
+	}
+	for _, r := range rec["requirements"].([]any) {
+		m := r.(map[string]any)
+		q := Requirement{ReqID: m["req_id"].(string), Status: "missing", Reason: "reference_missing"}
+		if m["kind"] == "preserve" && base != nil {
+			// kept behavior is observed on the base itself
+			q.Status, q.Reason = status(base.Checks["C2"] == "pass"), ""
+		}
+		res.Requirements = append(res.Requirements, q)
+	}
+	add(Check{Name: "requirement_coverage", Status: "missing"})
+	no := false
+	add(Check{Name: "alternative_passes", Status: "missing", Independent: &no})
+	probe, err := probeTask(task)
+	if err != nil {
+		return res, err
+	}
+	pt, err := run("probe", "oracle", probe, 1)
+	switch {
+	case err != nil || len(pt) != 1 || pt[0].Exception != "":
+		add(Check{Name: "forgery_probe", Status: "missing", Runs: len(pt)})
+		add(Check{Name: "isolation", Status: "missing", Runs: len(pt)})
+	default:
+		forged := pt[0].Reward != nil && *pt[0].Reward > 0
+		switch {
+		case !baseFails:
+			add(Check{Name: "forgery_probe", Status: "not_applicable", Runs: 1})
+		case forged:
+			add(Check{Name: "forgery_probe", Status: "fail", Runs: 1})
+			res.Reasons = append(res.Reasons, "verifier_forgeable")
+		default:
+			add(Check{Name: "forgery_probe", Status: "pass", Runs: 1})
+		}
+		jobs := filepath.Join(filepath.Dir(task), "jobs", "probe")
+		net, vnet := netSeen(jobs), verifierNetSeen(jobs)
+		switch {
+		case net != "blocked" || vnet == "reachable":
+			add(Check{Name: "isolation", Status: "fail", Runs: 1})
+			res.Reasons = append(res.Reasons, "isolation_failed")
+		case vnet == "":
+			add(Check{Name: "isolation", Status: "missing", Runs: 1})
+		default:
+			add(Check{Name: "isolation", Status: "pass", Runs: 1})
+		}
+	}
+	res.Reasons = append(res.Reasons, "reference_missing")
+	res.State = decide(res)
+	if res.State != "quarantined" {
+		res.State = "needs_review" // never reproducible or validated without a reference
+	}
 	res.Reasons = uniq(res.Reasons)
 	return res, nil
 }

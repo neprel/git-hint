@@ -19,6 +19,7 @@ import (
 	"github.com/neprel/git-hint/internal/evals/pipeline"
 	"github.com/neprel/git-hint/internal/evals/report"
 	"github.com/neprel/git-hint/internal/evals/runner"
+	"github.com/neprel/git-hint/internal/evals/trees"
 	"github.com/neprel/git-hint/internal/store"
 )
 
@@ -43,6 +44,10 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
                                      checks your edited file and stores a new version
   git hint eval run [ID...] [--agent opencode|oracle|nop] [--attempts N] [--arm ARM]
                                      freeze a suite of validated evals and run bounded trials
+  git hint eval run ID... --arm context_only --with FILE...
+  git hint eval run ID... --arm refactor --with WORKTREE
+                                     the same tasks with added context files, or on your
+                                     refactored code; each variant is qualified first
   git hint eval compare [SUITE]      raw results per arm and agent (every attempt counts)
   git hint eval report [-o FILE] [--send] [--yes]
                                      minimized results of new trials (no task content);
@@ -276,7 +281,7 @@ func state(p *evals.Policy) string {
 }
 
 // valueFlags take a separate value token (`-o FILE`).
-var valueFlags = map[string]bool{"-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
+var valueFlags = map[string]bool{"-with": true, "--with": true, "-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
 
 // flagsFirst moves flag tokens (with their values) before positional ones, so
 // `eval show ID --text` and `eval pack ID -o FILE` work.
@@ -497,6 +502,8 @@ func evalRun(e *Env, args []string) int {
 	attempts := fs.Int("attempts", 1, "attempts per eval")
 	arm := fs.String("arm", "baseline", "label for comparisons: "+strings.Join(pipeline.Arms, ", "))
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	var with repoFlags
+	fs.Var(&with, "with", "context_only: a file to add to each task's repository (repeatable); refactor: the work tree of the refactored repository")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -509,11 +516,22 @@ func evalRun(e *Env, args []string) int {
 		return fail(e, err)
 	}
 	ctx := context.Background()
+	evalsToRun := fs.Args()
+	if len(with) > 0 {
+		refs, ready, err := prepareVariants(e, s, *arm, fs.Args(), with)
+		if err != nil {
+			return fail(e, err)
+		}
+		if !ready {
+			return 1
+		}
+		evalsToRun = refs
+	}
 	h, err := runner.FindHarbor(ctx)
 	if err != nil {
 		return fail(e, err)
 	}
-	o := pipeline.SuiteOptions{Evals: fs.Args(), Agent: *agent, Attempts: *attempts, Arm: *arm}
+	o := pipeline.SuiteOptions{Evals: evalsToRun, Agent: *agent, Attempts: *attempts, Arm: *arm}
 	if *agent == "opencode" {
 		if err := p.Check(evals.OpModel, ""); err != nil {
 			return fail(e, err)
@@ -574,16 +592,21 @@ func evalCompare(e *Env, args []string) int {
 		}
 		return fmt.Sprint(*p)
 	}
-	fmt.Fprintf(e.Stdout, "%-20s %-13s %-22s %6s %6s %6s %8s %7s %9s %10s %10s %8s\n", "suite", "arm", "agent", "trials", "passed", "failed", "timeouts", "errors", "requests", "in tokens", "out tokens", "median s")
+	fmt.Fprintf(e.Stdout, "%-19s %-20s %-13s %-22s %6s %6s %6s %8s %7s %9s %10s %10s %8s\n", "objective", "suite", "arm", "agent", "trials", "passed", "failed", "timeouts", "errors", "requests", "in tokens", "out tokens", "median s")
 	for _, r := range rows {
 		med := "unknown"
 		if r.MedianWall != nil {
 			med = fmt.Sprintf("%.0f", *r.MedianWall)
 		}
-		fmt.Fprintf(e.Stdout, "%-20s %-13s %-22s %6d %6d %6d %8d %7d %9s %10s %10s %8s\n", r.Suite, r.Arm, r.Agent, r.Trials, r.Passed, r.Failed,
+		obj := r.Objective
+		if obj == "" {
+			obj = "-"
+		}
+		fmt.Fprintf(e.Stdout, "%-19s %-20s %-13s %-22s %6d %6d %6d %8d %7d %9s %10s %10s %8s\n", obj, r.Suite, r.Arm, r.Agent, r.Trials, r.Passed, r.Failed,
 			r.Timeouts, r.Errors+r.Budget, num(r.Requests), num(r.InputTokens), num(r.OutputTokens), med)
 	}
 	fmt.Fprintln(e.Stdout, "Raw counts only: failed and timed-out attempts and their resources count. Unknown usage stays unknown.")
+	fmt.Fprintln(e.Stdout, "Arms pair only within one objective (a baseline eval and its variants).")
 	return 0
 }
 
@@ -831,4 +854,100 @@ func evalMap(e *Env, args []string) int {
 		fmt.Fprintln(e.Stdout, "Qualification runs in the background (git hint eval show shows the result).")
 	}
 	return 0
+}
+
+// prepareVariants makes (or finds) the variant of each named baseline eval for a variant
+// arm. It reports ready only when every variant is validated; otherwise it lists their
+// states, starts the qualification worker when variants wait, and nothing runs.
+func prepareVariants(e *Env, s *store.Store, arm string, ids, with []string) ([]string, bool, error) {
+	if arm != "context_only" && arm != "refactor" {
+		return nil, false, fmt.Errorf("--with is only for --arm context_only or --arm refactor")
+	}
+	if len(ids) == 0 {
+		return nil, false, fmt.Errorf("name the baseline evals of the variant (eval run ID... --arm %s --with ...)", arm)
+	}
+	if arm == "refactor" && len(with) != 1 {
+		return nil, false, fmt.Errorf("--arm refactor takes one --with: the work tree of the refactored repository")
+	}
+	l := library.Open(s, s.Cfg.Evals.Limits().QuotaBytes)
+	latest := map[string]string{}
+	for _, r := range latestEvals(l) {
+		id, _, _ := strings.Cut(r.Ref, "@")
+		latest[id] = r.Ref
+	}
+	for i, w := range with {
+		if !filepath.IsAbs(w) {
+			with[i] = filepath.Join(e.Dir, w)
+		}
+	}
+	var refs []string
+	ready, pending := true, false
+	for _, id := range ids {
+		ref := id
+		if !strings.Contains(ref, "@") {
+			if ref = latest[id]; ref == "" {
+				return nil, false, fmt.Errorf("no eval %s", id)
+			}
+		}
+		var rec map[string]any
+		if err := l.Manifest("eval", ref, &rec); err != nil {
+			return nil, false, fmt.Errorf("no eval %s", id)
+		}
+		in := pipeline.VariantInput{Arm: arm}
+		repoName := fmt.Sprint(rec["repositories"].([]any)[0].(map[string]any)["repo"])
+		if arm == "refactor" {
+			tree, err := trees.FromWorktree(context.Background(), l, with[0], trees.Limits{})
+			if err != nil {
+				return nil, false, fmt.Errorf("the refactored work tree: %v", err)
+			}
+			in.Base = tree
+		} else {
+			root := ""
+			for _, r := range s.Cfg.Repos {
+				if r.Name == repoName {
+					root = s.RepoRoot(r)
+				}
+			}
+			if root == "" {
+				return nil, false, fmt.Errorf("the repository %s of %s is not in this project", repoName, ref)
+			}
+			for _, w := range with {
+				abs, _ := filepath.Abs(w)
+				rel, err := filepath.Rel(root, abs)
+				fi, serr := os.Lstat(abs)
+				if err != nil || strings.HasPrefix(rel, "..") || serr != nil || !fi.Mode().IsRegular() {
+					return nil, false, fmt.Errorf("%s is not a regular file inside the repository %s", w, repoName)
+				}
+				data, err := os.ReadFile(abs)
+				if err != nil {
+					return nil, false, err
+				}
+				mode := "100644"
+				if fi.Mode()&0o111 != 0 {
+					mode = "100755"
+				}
+				in.Context = append(in.Context, pipeline.ContextFile{Path: filepath.ToSlash(rel), Data: data, Mode: mode})
+			}
+		}
+		v, err := pipeline.MakeVariant(l, ref, in, e.Now())
+		if err != nil {
+			return nil, false, err
+		}
+		refs = append(refs, v.Ref)
+		if v.State != "validated" {
+			ready = false
+			pending = pending || v.State == "packaged"
+			fmt.Fprintf(e.Stdout, "Variant %s of %s: %s (reference: %s); it runs when it is validated.\n", v.Ref, ref, v.State, v.Reference)
+		}
+	}
+	if pending {
+		spawn := func() error { return pipeline.SpawnWorker(s) }
+		if e.Spawn != nil {
+			spawn = func() error { return e.Spawn("eval", "__qualify") }
+		}
+		if spawn() == nil {
+			fmt.Fprintln(e.Stdout, "Qualification of the variants runs in the background; run the same command again later.")
+		}
+	}
+	return refs, ready, nil
 }

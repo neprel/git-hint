@@ -147,6 +147,9 @@ func Freeze(l *library.Library, want []string, now time.Time) (string, []string,
 		if len(want) > 0 && !pick[ref] && !pick[id] {
 			continue
 		}
+		if v, _ := rec["variant"].(map[string]any); v != nil && len(want) == 0 {
+			continue // a variant enters a suite only when named (eval run --with)
+		}
 		if rec["state"] != "validated" {
 			skipped = append(skipped, ref+": "+fmt.Sprint(rec["state"]))
 			continue
@@ -190,6 +193,9 @@ type TrialInput struct {
 	Retries       *int64
 	Stop          string   // completed, request_limit, time_limit, cancelled, error
 	Artifacts     []string // archived run results (library objects)
+	// Objective is the baseline eval ID; Baseline, BaselineDigest and EvalDigest bind the
+	// immutable versions (the eval that ran is the baseline or its variant)
+	Objective, Baseline, BaselineDigest, EvalDigest string
 }
 
 // RecordTrial stores one trial (every attempt, whatever its outcome).
@@ -249,6 +255,10 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 		"counters": map[string]any{"requests": count(in.Requests), "retries": count(in.Retries), "input_tokens": count(t.InputTokens),
 			"output_tokens": count(t.OutputTokens), "cache_tokens": count(t.CacheTokens), "wall_seconds": sec(t.WallSeconds), "agent_seconds": sec(t.AgentSeconds)},
 		"budget": budget,
+	}
+	if in.Objective != "" {
+		rec["objective"] = in.Objective
+		rec["binding"] = map[string]any{"baseline": in.Baseline, "baseline_digest": in.BaselineDigest, "eval_digest": in.EvalDigest}
 	}
 	if len(in.Artifacts) > 0 {
 		arts := []any{}

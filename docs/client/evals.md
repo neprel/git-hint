@@ -88,6 +88,22 @@ records the claim and does not check it. Qualification runs each alternative; on
 fails sends the eval to `needs_review`. Without alternatives the check stays `missing`;
 HINT never generates one.
 
+**Variants: context and refactoring.** To see whether added context or a refactoring
+helps agents on the same tasks, run a variant of validated evals:
+
+- `git hint eval run ID... --arm context_only --with AGENTS.md` adds the named files to
+  each task's repository;
+- `git hint eval run ID... --arm refactor --with ../refactored` uses the current state of
+  that Git work tree as the starting code.
+
+A variant keeps the task: the same request, requirements, hidden tests and environment.
+For a refactoring, HINT ports the original change onto the refactored code with a strict
+patch; when it does not apply, the variant has no reference solution and stays
+`needs_review` (`reference_missing`). Each variant is qualified first; until it is
+`validated`, the command lists it and does not run it. `git hint eval compare` shows the
+arms of one task objective side by side. A label alone (`--arm refactor` without
+`--with`) is refused.
+
 Qualification needs Docker with buildx and Harbor 0.23 (`uv tool install harbor==0.23.0`); HINT
 turns Harbor's telemetry off for its runs. Without them, evals stay `packaged`.
 

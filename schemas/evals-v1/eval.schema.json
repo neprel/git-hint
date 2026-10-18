@@ -114,6 +114,20 @@
         "required": ["text", "source", "by"]
       }
     },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-hint-class": "local",
+      "description": "An executable variant of a validated baseline eval with the same task objective (E14): what changed and how the reference was obtained.",
+      "properties": {
+        "arm": {"type": "string", "enum": ["context_only", "refactor"]},
+        "of": {"type": "string", "pattern": "^ev-[0-9a-f]{16}@[1-9][0-9]*$", "description": "The baseline eval version."},
+        "of_digest": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "description": "Digest of the baseline record."},
+        "inputs": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}, "description": "Context file objects, or the refactored repository tree."},
+        "reference": {"type": "string", "enum": ["original", "reconstructed_patch", "missing"], "description": "original: the baseline's change applies unchanged; reconstructed_patch: the change ported onto the refactored base with a strict patch; missing: no reference (never validated)."}
+      },
+      "required": ["arm", "of", "of_digest", "inputs", "reference"]
+    },
     "alternatives": {
       "type": "array",
       "maxItems": 8,

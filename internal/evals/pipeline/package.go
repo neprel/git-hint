@@ -111,11 +111,50 @@ func packageEpisodes(l *library.Library, p *evals.Policy, now time.Time) Package
 }
 
 func packageOne(l *library.Library, ep map[string]any, p *evals.Policy, now time.Time) evalMap {
+	in, refused := episodeInput(l, ep, now)
+	if refused != nil {
+		return evalMap{Refused: refused}
+	}
+	built, err := build.Build(l, in)
+	var ref *build.Refusal
+	if errors.As(err, &ref) && len(ref.Reasons) == 1 && ref.Reasons[0] == "verifier_missing" {
+		// no test of its own: a local model draft may supply a hidden check (policy model)
+		if drafted, ok := draftVerifier(context.Background(), l, p, in); ok {
+			built, err = build.Build(l, drafted)
+			in.Result = drafted.Result
+		}
+	}
+	if errors.As(err, &ref) {
+		return evalMap{Refused: ref.Reasons}
+	}
+	if err != nil {
+		return evalMap{Refused: []string{"verifier_missing"}}
+	}
+	rec, why := mapRequirements(context.Background(), l, p, built, in.Result)
+	if why != "" {
+		rec["reasons"] = append(rec["reasons"].([]any), why)
+	}
+	if p.Check(evals.OpExecute, "") != nil {
+		rec["reasons"] = append(rec["reasons"].([]any), "execution_disabled")
+	}
+	name, err := l.PutManifest("eval", rec)
+	if err != nil {
+		if errors.Is(err, library.ErrQuota) {
+			return evalMap{Refused: []string{"quota_exceeded"}}
+		}
+		return evalMap{Refused: []string{"verifier_missing"}}
+	}
+	return evalMap{Eval: name}
+}
+
+// episodeInput reads the packaging input of an episode: its repository states, request,
+// corrections and the session's check. It returns refusal reasons when it cannot.
+func episodeInput(l *library.Library, ep map[string]any, now time.Time) (build.Input, []string) {
 	repos, _ := ep["repositories"].([]any)
 	srcs, _ := ep["sources"].([]any)
 	reqs, _ := ep["requests"].([]any)
 	if len(repos) != 1 || len(srcs) == 0 || len(reqs) == 0 {
-		return evalMap{Refused: []string{"requirements_missing"}}
+		return build.Input{}, []string{"requirements_missing"}
 	}
 	repo := repos[0].(map[string]any)
 	src := srcs[0].(map[string]any)
@@ -123,11 +162,11 @@ func packageOne(l *library.Library, ep map[string]any, p *evals.Policy, now time
 	agent, _ := src["agent"].(string)
 	session, _ := src["session"].(string)
 	if l.Index(agent+"/"+safe(session), &idx) != nil {
-		return evalMap{Refused: []string{"requirements_missing"}}
+		return build.Input{}, []string{"requirements_missing"}
 	}
 	s, err := sessions.Load(l, idx)
 	if err != nil {
-		return evalMap{Refused: []string{"requirements_missing"}}
+		return build.Input{}, []string{"requirements_missing"}
 	}
 	b := ep["boundary"].(map[string]any)
 	start := b["start"].(map[string]any)["record"].(string)
@@ -160,36 +199,7 @@ func packageOne(l *library.Library, ep map[string]any, p *evals.Policy, now time
 			in.Corrections = append(in.Corrections, build.Text{Body: textOf(l, c), At: at})
 		}
 	}
-	built, err := build.Build(l, in)
-	var ref *build.Refusal
-	if errors.As(err, &ref) && len(ref.Reasons) == 1 && ref.Reasons[0] == "verifier_missing" {
-		// no test of its own: a local model draft may supply a hidden check (policy model)
-		if drafted, ok := draftVerifier(context.Background(), l, p, in); ok {
-			built, err = build.Build(l, drafted)
-			in.Result = drafted.Result
-		}
-	}
-	if errors.As(err, &ref) {
-		return evalMap{Refused: ref.Reasons}
-	}
-	if err != nil {
-		return evalMap{Refused: []string{"verifier_missing"}}
-	}
-	rec, why := mapRequirements(context.Background(), l, p, built, in.Result)
-	if why != "" {
-		rec["reasons"] = append(rec["reasons"].([]any), why)
-	}
-	if p.Check(evals.OpExecute, "") != nil {
-		rec["reasons"] = append(rec["reasons"].([]any), "execution_disabled")
-	}
-	name, err := l.PutManifest("eval", rec)
-	if err != nil {
-		if errors.Is(err, library.ErrQuota) {
-			return evalMap{Refused: []string{"quota_exceeded"}}
-		}
-		return evalMap{Refused: []string{"verifier_missing"}}
-	}
-	return evalMap{Eval: name}
+	return in, nil
 }
 
 func str(v any) string { s, _ := v.(string); return s }

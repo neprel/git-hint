@@ -95,6 +95,9 @@ func validPath(p string) bool {
 }
 
 // putTree writes the manifest and returns the tree digest.
+// Put stores a tree of files whose objects are already in the library.
+func Put(l *library.Library, files []File) (string, error) { return putTree(l, files) }
+
 func putTree(l *library.Library, files []File) (string, error) {
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	b, err := json.Marshal(Tree{TreeVersion: 1, Files: files})

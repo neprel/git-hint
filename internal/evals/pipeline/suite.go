@@ -80,6 +80,36 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 	if err := l.Manifest("suite", suite, &sr); err != nil {
 		return rep, err
 	}
+	// a variant arm runs only variants of that arm; other arms run only baselines (a label
+	// alone is not an intervention)
+	bind := map[string]suites.TrialInput{}
+	for _, m := range sr["members"].([]any) {
+		ref := m.(map[string]any)["eval"].(string)
+		var rec map[string]any
+		if l.Manifest("eval", ref, &rec) != nil {
+			continue
+		}
+		d, err := l.ManifestDigest("eval", ref)
+		if err != nil {
+			return rep, err
+		}
+		b := suites.TrialInput{Baseline: ref, BaselineDigest: d, EvalDigest: d}
+		b.Objective, _, _ = strings.Cut(ref, "@")
+		arm := ""
+		if v, _ := rec["variant"].(map[string]any); v != nil {
+			arm = str(v["arm"])
+			b.Baseline, b.BaselineDigest = str(v["of"]), str(v["of_digest"])
+			b.Objective, _, _ = strings.Cut(b.Baseline, "@")
+		}
+		variantArm := o.Arm == "context_only" || o.Arm == "refactor"
+		switch {
+		case arm != "" && arm != o.Arm:
+			return rep, fmt.Errorf("%s is a %s variant; it cannot run as arm %s", ref, arm, o.Arm)
+		case arm == "" && variantArm:
+			return rep, fmt.Errorf("arm %s needs a variant that changes the task (eval run --arm %s --with ...); %s is a baseline", o.Arm, o.Arm, ref)
+		}
+		bind[ref] = b
+	}
 	h := sha256.Sum256([]byte("suite\x00" + suite + "\x00" + now.UTC().Format(time.RFC3339Nano)))
 	job := "jb-" + hex.EncodeToString(h[:8])
 	if err := l.StartJob(job, "trials", library.Budget{Trials: lim.Trials, Requests: lim.TrialRequests * lim.Trials, Seconds: lim.Trials * lim.TrialSeconds}); err != nil {
@@ -130,8 +160,9 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			if err != nil || len(trials) == 0 {
 				trials = []runner.Trial{{Name: "trial", Exception: "RunnerError", Checks: map[string]string{}}}
 			}
+			b := bind[ref]
 			in := suites.TrialInput{Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
-				Started: started, MaxSeconds: lim.TrialSeconds}
+				Started: started, MaxSeconds: lim.TrialSeconds, Objective: b.Objective, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, EvalDigest: b.EvalDigest}
 			var reqs, retries int64
 			if counter != nil {
 				reqs, retries = counter.Requests(), counter.Retries()
@@ -177,6 +208,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 // Row is one group of trials in a comparison (raw counters only; statistical comparison
 // and derived effort metrics are not computed locally).
 type Row struct {
+	Objective    string   `json:"objective"` // baseline eval ID; arms pair only within one objective
 	Suite        string   `json:"suite"`
 	Arm          string   `json:"arm"`
 	Agent        string   `json:"agent"`
@@ -199,7 +231,7 @@ func Compare(l *library.Library, suite string) ([]Row, error) {
 	if err != nil {
 		return nil, err
 	}
-	type key struct{ suite, arm, agent string }
+	type key struct{ objective, suite, arm, agent string }
 	groups := map[key]*Row{}
 	walls := map[key][]float64{}
 	for _, n := range names {
@@ -215,12 +247,13 @@ func Compare(l *library.Library, suite string) ([]Row, error) {
 		if m, ok := ag["model"]; ok {
 			label += "/" + fmt.Sprint(m)
 		}
-		k := key{t["suite_id"].(string), t["arm"].(string), label}
+		obj, _ := t["objective"].(string)
+		k := key{obj, t["suite_id"].(string), t["arm"].(string), label}
 		r := groups[k]
 		if r == nil {
 			zero := int64(0)
 			z1, z2 := zero, zero
-			r = &Row{Suite: k.suite, Arm: k.arm, Agent: k.agent, Requests: new(int64), InputTokens: &z1, OutputTokens: &z2}
+			r = &Row{Objective: k.objective, Suite: k.suite, Arm: k.arm, Agent: k.agent, Requests: new(int64), InputTokens: &z1, OutputTokens: &z2}
 			groups[k] = r
 		}
 		r.Trials++
@@ -271,7 +304,7 @@ func Compare(l *library.Library, suite string) ([]Row, error) {
 		out = append(out, *r)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].Suite+out[i].Arm+out[i].Agent < out[j].Suite+out[j].Arm+out[j].Agent
+		return out[i].Objective+out[i].Suite+out[i].Arm+out[i].Agent < out[j].Objective+out[j].Suite+out[j].Arm+out[j].Agent
 	})
 	return out, nil
 }

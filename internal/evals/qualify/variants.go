@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/patch"
 	"github.com/neprel/git-hint/internal/evals/trees"
 )
 
@@ -87,7 +88,7 @@ func nearMisses(task string, max int) ([]string, error) {
 			return nil, nil // a new file has no hunks to leave out
 		}
 		ref, _ := os.ReadFile(filepath.Join(files, filepath.FromSlash(f)))
-		hunks := diffHunks(string(base), string(ref))
+		hunks := patch.Hunks(string(base), string(ref))
 		if len(hunks) < 2 {
 			return nil, nil
 		}
@@ -95,7 +96,7 @@ func nearMisses(task string, max int) ([]string, error) {
 			if i >= max {
 				break
 			}
-			partial := applyExcept(string(base), hunks, i)
+			partial := patch.ApplyExcept(string(base), hunks, i)
 			if err := mk(i+1, func(dir string) error {
 				return os.WriteFile(filepath.Join(dir, "solution", "files", filepath.FromSlash(f)), []byte(partial), 0o644)
 			}); err != nil {
@@ -104,93 +105,6 @@ func nearMisses(task string, max int) ([]string, error) {
 		}
 	}
 	return out, nil
-}
-
-// hunk replaces base lines [start, end) with new lines.
-type hunk struct {
-	start, end int
-	lines      []string
-}
-
-// diffHunks computes line hunks with a longest-common-subsequence table (files here are
-// small; limits apply before packaging).
-func diffHunks(a, b string) []hunk {
-	x, y := strings.SplitAfter(a, "\n"), strings.SplitAfter(b, "\n")
-	if len(x)*len(y) > 4_000_000 {
-		return nil
-	}
-	n, m := len(x), len(y)
-	dp := make([][]int, n+1)
-	for i := range dp {
-		dp[i] = make([]int, m+1)
-	}
-	for i := n - 1; i >= 0; i-- {
-		for j := m - 1; j >= 0; j-- {
-			if x[i] == y[j] {
-				dp[i][j] = dp[i+1][j+1] + 1
-			} else if dp[i+1][j] >= dp[i][j+1] {
-				dp[i][j] = dp[i+1][j]
-			} else {
-				dp[i][j] = dp[i][j+1]
-			}
-		}
-	}
-	var hs []hunk
-	i, j := 0, 0
-	var cur *hunk
-	flush := func() {
-		if cur != nil {
-			hs = append(hs, *cur)
-			cur = nil
-		}
-	}
-	for i < n || j < m {
-		switch {
-		case i < n && j < m && x[i] == y[j]:
-			flush()
-			i++
-			j++
-		case j < m && (i == n || dp[i][j+1] >= dp[i+1][j]):
-			if cur == nil {
-				cur = &hunk{start: i, end: i}
-			}
-			cur.lines = append(cur.lines, y[j])
-			j++
-		default:
-			if cur == nil {
-				cur = &hunk{start: i, end: i}
-			}
-			cur.end = i + 1
-			i++
-		}
-	}
-	flush()
-	return hs
-}
-
-func applyExcept(a string, hs []hunk, skip int) string {
-	x := strings.SplitAfter(a, "\n")
-	var b strings.Builder
-	pos := 0
-	for k, h := range hs {
-		for ; pos < h.start; pos++ {
-			b.WriteString(x[pos])
-		}
-		if k == skip {
-			for ; pos < h.end; pos++ {
-				b.WriteString(x[pos])
-			}
-			continue
-		}
-		for _, ln := range h.lines {
-			b.WriteString(ln)
-		}
-		pos = h.end
-	}
-	for ; pos < len(x); pos++ {
-		b.WriteString(x[pos])
-	}
-	return b.String()
 }
 
 // probeTask is a copy of the task whose reference solution tries the network and writes

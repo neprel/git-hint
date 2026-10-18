@@ -76,7 +76,14 @@ type Input struct {
 	// Generated names hidden test files that the local model drafted (path -> generator
 	// record); their check is labeled generated, never as a test of the session.
 	Generated map[string]map[string]any
+	// NoReference packages a variant whose solution is unknown (a refactored base where
+	// the original change does not apply): Result holds the base plus the hidden tests,
+	// and the record has no reference.
+	NoReference bool
 }
+
+// IsTest reports whether a path is a test file of the language.
+func IsTest(lang, p string) bool { return testFile[lang] != nil && testFile[lang].MatchString(p) }
 
 // Text is a request or correction with its source location.
 type Text struct {
@@ -233,7 +240,7 @@ func Build(l *library.Library, in Input) (*Built, error) {
 			unattributed++
 		}
 	}
-	if len(solution)+len(deleted) == 0 {
+	if len(solution)+len(deleted) == 0 && !in.NoReference {
 		return nil, &Refusal{[]string{"no_checkable_outcome"}}
 	}
 	var apiDirs, apiAfter []string
@@ -370,6 +377,9 @@ func Build(l *library.Library, in Input) (*Built, error) {
 		"environment":  map[string]any{"image": img.Ref, "setup": setupD, "workdir": Workdir, "test_command": "tests/test.sh"},
 		"dependencies": []any{}, "state": "packaged", "reasons": reasonsFor(unattributed),
 		"qualification": map[string]any{"policy": "q2", "checks": []any{}}, "override": nil,
+	}
+	if in.NoReference {
+		delete(rec, "reference")
 	}
 	return &Built{Record: rec, Language: lang, Hidden: hidden, Solution: solution, Deleted: deleted}, nil
 }

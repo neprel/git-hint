@@ -323,3 +323,37 @@ func TestEvalMapPrintAndApply(t *testing.T) {
 		t.Fatalf("runs on: %s %v", r.stdout, spawned)
 	}
 }
+
+// E14: --with makes a variant for a variant arm only; a variant that is not validated yet
+// does not run: the command lists it and starts the qualification worker.
+func TestEvalRunWithVariant(t *testing.T) {
+	shop, _ := setup(t)
+	var spawned []string
+	must(t, runEval(t, shop, &spawned, "eval", "on", "--run", "docker"))
+	s, _ := store.Open(shop)
+	l := library.Open(s, 0)
+	rec := evaltest.GoBugFix(t, l)
+	l.PutManifest("eval", rec)
+	v2 := evaltest.MapGoBugFix(t, l, rec)
+	v2["version"], v2["previous"], v2["state"] = 2, fmt.Sprintf("%s@1", rec["eval_id"]), "validated"
+	if _, err := l.PutManifest("eval", v2); err != nil {
+		t.Fatal(err)
+	}
+	id := rec["eval_id"].(string)
+	os.WriteFile(filepath.Join(shop, "AGENTS.md"), []byte("Run go test ./... before you finish.\n"), 0o644)
+	if r := runEval(t, shop, &spawned, "eval", "run", id, "--agent", "oracle", "--with", "AGENTS.md"); r.code == 0 || !strings.Contains(r.stderr, "only for --arm context_only") {
+		t.Fatalf("--with on the baseline arm: %+v", r)
+	}
+	outside := filepath.Join(t.TempDir(), "NOTES.md")
+	os.WriteFile(outside, []byte("x"), 0o644)
+	if r := runEval(t, shop, &spawned, "eval", "run", id, "--agent", "oracle", "--arm", "context_only", "--with", outside); r.code == 0 || !strings.Contains(r.stderr, "inside the repository") {
+		t.Fatalf("a file outside the repository: %+v", r)
+	}
+	r := runEval(t, shop, &spawned, "eval", "run", id, "--agent", "oracle", "--arm", "context_only", "--with", "AGENTS.md")
+	if r.code == 0 || !strings.Contains(r.stdout, "packaged (reference: original)") || len(spawned) != 1 {
+		t.Fatalf("first run: %+v %v", r, spawned)
+	}
+	if trials, _ := l.Manifests("trial"); len(trials) != 0 {
+		t.Fatal("an unqualified variant ran")
+	}
+}

@@ -12,6 +12,17 @@
     "suite_id": {"$ref": "urn:hint:local:evals:v1:common#/$defs/SuiteID", "x-hint-class": "reportable"},
     "eval": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalRef", "x-hint-class": "reportable"},
     "attempt": {"type": "integer", "minimum": 1, "x-hint-class": "reportable"},
+    "objective": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalID", "x-hint-class": "reportable", "description": "The task objective: the baseline eval ID, the same for the baseline and its variants. Trials pair only within one objective."},
+    "binding": {
+      "type": "object", "additionalProperties": false, "x-hint-class": "local",
+      "description": "The immutable versions this trial ran: the baseline and the eval that ran (the baseline itself or its variant).",
+      "properties": {
+        "baseline": {"$ref": "urn:hint:local:evals:v1:common#/$defs/EvalRef"},
+        "baseline_digest": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
+        "eval_digest": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"}
+      },
+      "required": ["baseline", "baseline_digest", "eval_digest"]
+    },
     "arm": {"type": "string", "enum": ["baseline", "no_change", "context_only", "refactor", "configuration"], "x-hint-class": "reportable"},
     "agent": {
       "type": "object", "additionalProperties": false, "x-hint-class": "reportable",
