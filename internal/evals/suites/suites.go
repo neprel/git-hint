@@ -202,6 +202,8 @@ type TrialInput struct {
 	ContextPolicyID, ContextPolicyDigest string
 	ContextPolicyVersion                 int
 	DeclaredChanges                      []string
+	// RunID is the run (job) whose manifest planned this trial (immutable binding)
+	RunID string
 	// ModelCheck is the proxy's check of the model field of every forwarded request
 	ModelCheck string
 	// ObservedConfig are digests of the effective launch configuration (kind, sha256 digest);
@@ -269,6 +271,9 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 		"counters": map[string]any{"requests": count(in.Requests), "retries": count(in.Retries), "input_tokens": count(t.InputTokens),
 			"output_tokens": count(t.OutputTokens), "cache_tokens": count(t.CacheTokens), "wall_seconds": sec(t.WallSeconds), "agent_seconds": sec(t.AgentSeconds)},
 		"budget": budget,
+	}
+	if in.RunID != "" {
+		rec["run_id"] = in.RunID
 	}
 	if in.Objective != "" {
 		rec["objective"] = in.Objective

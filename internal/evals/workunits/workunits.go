@@ -136,8 +136,17 @@ func Record(s *store.Store, l *library.Library, runID, eval, name string) error 
 	if err := l.Manifest("eval", eval, &ev); err != nil {
 		return err
 	}
-	if len(u.Attempts) >= r.Manifest.Attempts {
-		return fmt.Errorf("more trial records than planned attempts for %s", eval)
+	// the trial must be the one this run planned for this member (CU3, C7BE-7): checked before
+	// the journal changes; a refused trial record stays in the library with its spent usage and
+	// the planned slot stays open
+	if err := bound(r.Manifest, eval, t); err != nil {
+		return fmt.Errorf("trial %s does not belong to this run's plan: %w", name, err)
+	}
+	ord := int(num(t["attempt"]))
+	for _, a := range u.Attempts {
+		if int(num(a["ordinal"])) == ord {
+			return fmt.Errorf("trial %s: planned attempt %d already has a trial record", name, ord)
+		}
 	}
 	u.Attempts = append(u.Attempts, attempt(s, r.Manifest.RunID, eval, name, t, ev))
 	u.Trials = append(u.Trials, name)
@@ -202,11 +211,11 @@ func attempt(s *store.Store, run, eval, name string, t, ev map[string]any) map[s
 	if ag, _ := t["agent"].(map[string]any); ag != nil && str(ag["model_check"]) != "" {
 		check = str(ag["model_check"])
 	}
-	n := fmt.Sprint(t["attempt"])
+	n := fmt.Sprint(int(num(t["attempt"])))
 	return plain(map[string]any{"attempt_ref": ref("attempt", "controlled", run, eval, n), "task_ids": []any{}, "outcome": out, "closure": closure,
 		"application_change_set": nil, "usage": map[string]any{"requests": c["requests"], "input_tokens": c["input_tokens"], "output_tokens": c["output_tokens"],
 			"cache_tokens": c["cache_tokens"]}, "usage_provenance": prov, "coverage": map[string]any{"tasks": 1, "tasks_with_complete_usage": complete},
-		"trial_ref": tr, "trial_outcome": outcome, "model_check": check,
+		"trial_ref": tr, "trial_outcome": outcome, "model_check": check, "ordinal": int(num(t["attempt"])),
 		"checks": map[string]any{"mandatory": len(mandatory), "present": present, "passed": passed}, "qualification": nullable(qual)}).(map[string]any)
 }
 
@@ -331,3 +340,39 @@ func plain(v any) any {
 func list(v any) []any { l, _ := v.([]any); return l }
 
 func str(v any) string { s, _ := v.(string); return s }
+
+// bound checks that a trial record is the planned one: run, suite, member, arm, agent and
+// version, model, runner version, limits, the launch configuration digest and an ordinal of
+// the schedule.
+func bound(m Manifest, eval string, t map[string]any) error {
+	ag, _ := t["agent"].(map[string]any)
+	run, _ := t["runner"].(map[string]any)
+	bud, _ := t["budget"].(map[string]any)
+	launch := ""
+	for _, c := range list(t["observed_config"]) {
+		if x, _ := c.(map[string]any); x != nil && str(x["kind"]) == "setting_override" {
+			launch = str(x["digest"])
+		}
+	}
+	ord := num(t["attempt"])
+	checks := []struct {
+		what      string
+		got, want any
+	}{
+		{"run", str(t["run_id"]), m.RunID}, {"suite", str(t["suite_id"]), m.Suite}, {"eval", str(t["eval"]), eval}, {"arm", str(t["arm"]), m.Arm},
+		{"agent", str(ag["name"]), m.Agent}, {"agent version", str(ag["version"]), m.AgentVersion}, {"model", str(ag["model"]), m.ModelLabel},
+		{"runner version", str(run["version"]), m.RunnerVersion}, {"time limit", num(bud["max_seconds"]), float64(m.MaxSeconds)},
+		{"request limit", num(bud["max_requests"]), float64(m.MaxRequests)}, {"launch configuration", launch, m.LaunchDigest},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			return fmt.Errorf("%s differs", c.what)
+		}
+	}
+	if ord < 1 || int(ord) > m.Attempts || ord != float64(int(ord)) {
+		return fmt.Errorf("attempt %v is not a planned slot", t["attempt"])
+	}
+	return nil
+}
+
+func num(v any) float64 { f, _ := v.(float64); return f }

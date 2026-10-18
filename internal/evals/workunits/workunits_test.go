@@ -36,10 +36,19 @@ func project(t *testing.T) (*store.Store, *library.Library, string) {
 	return s, l, ref
 }
 
+var launch = "sha256:" + strings.Repeat("a", 64)
+
+// planned is a trial input that matches the test manifest exactly.
+func planned(ref string, attempt int) suites.TrialInput {
+	return suites.TrialInput{RunID: "jb-0000000000000001", Suite: "su-0000000000000001", Eval: ref, Attempt: attempt, Arm: "baseline", Agent: "opencode",
+		AgentVersion: "2.0.26", Model: "m", RunnerVersion: "0.23.0", MaxSeconds: 900, MaxRequests: 40, ModelCheck: "verified",
+		Started: time.Date(2026, 10, 18, 10, attempt, 0, 0, time.UTC), ObservedConfig: []map[string]string{{"kind": "setting_override", "digest": launch}}}
+}
+
 func manifest(ref string, attempts int) Manifest {
 	obj, _, _ := strings.Cut(ref, "@")
 	return Manifest{RunID: "jb-0000000000000001", Suite: "su-0000000000000001", Agent: "opencode", AgentVersion: "2.0.26", Arm: "baseline", Attempts: attempts,
-		RunnerVersion: "0.23.0", ModelLabel: "m", LaunchDigest: "sha256:" + strings.Repeat("a", 64), MaxRequests: 40, MaxSeconds: 900,
+		RunnerVersion: "0.23.0", ModelLabel: "m", LaunchDigest: launch, MaxRequests: 40, MaxSeconds: 900,
 		Members: []Member{{Eval: ref, Baseline: ref, Objective: obj, TaskFamily: "fam", Eligible: true}, {Eval: "ev-x@1", Eligible: false}}}
 }
 
@@ -59,8 +68,8 @@ func TestAPlannedUnitIsOpenBeforeAnyAttempt(t *testing.T) {
 
 func record(t *testing.T, s *store.Store, l *library.Library, ref string, attempt int, tr runner.Trial, check string) string {
 	t.Helper()
-	in := suites.TrialInput{Suite: "su-0000000000000001", Eval: ref, Attempt: attempt, Arm: "baseline", Agent: "opencode", AgentVersion: "2.0.26", Model: "m",
-		RunnerVersion: "0.23.0", MaxSeconds: 900, MaxRequests: 40, Started: time.Date(2026, 10, 18, 10, attempt, 0, 0, time.UTC), ModelCheck: check}
+	in := planned(ref, attempt)
+	in.ModelCheck = check
 	tr.Name = "t" + string(rune('0'+attempt))
 	n, err := suites.RecordTrial(l, in, tr)
 	if err != nil {
@@ -100,8 +109,7 @@ func TestEveryTrialIsKeptOnceAndClosesTheUnit(t *testing.T) {
 }
 
 func record3(t *testing.T, s *store.Store, l *library.Library, ref string) string {
-	in := suites.TrialInput{Suite: "su-0000000000000001", Eval: ref, Attempt: 3, Arm: "baseline", Agent: "opencode", RunnerVersion: "0.23.0", MaxSeconds: 900,
-		Started: time.Date(2026, 10, 18, 11, 0, 0, 0, time.UTC)}
+	in := planned(ref, 3)
 	n, err := suites.RecordTrial(l, in, runner.Trial{Name: "t3"})
 	if err != nil {
 		t.Fatal(err)
@@ -150,5 +158,58 @@ func TestValidatedCompletionRules(t *testing.T) {
 		if a["usage_provenance"] != "unknown" || a["model_check"] != "unverified" { // a null count stays null
 			t.Fatalf("usage/model check: %v", a)
 		}
+	}
+}
+
+// C7BE-7: a trial that is not the planned one is refused before the journal changes; the
+// intended trial still works afterwards; a second record for one planned slot is refused.
+func TestOnlyThePlannedTrialEntersTheJournal(t *testing.T) {
+	s, l, ref := project(t)
+	if err := Start(s, l, manifest(ref, 2), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := Unreported(s)
+	one := 1.0
+	ok := runner.Trial{Reward: &one, Checks: map[string]string{"C1": "pass", "C2": "pass"}, InputTokens: ptr(10), OutputTokens: ptr(1)}
+	for i, change := range []func(*suites.TrialInput){
+		func(in *suites.TrialInput) { in.Model = "different-model" }, // verified against another selection
+		func(in *suites.TrialInput) {
+			in.ObservedConfig = []map[string]string{{"kind": "setting_override", "digest": "sha256:" + strings.Repeat("b", 64)}}
+		},
+		func(in *suites.TrialInput) { in.MaxRequests = 80 },
+		func(in *suites.TrialInput) { in.RunID = "jb-0000000000000002" },
+		func(in *suites.TrialInput) { in.RunID = "" }, // no run binding
+		func(in *suites.TrialInput) { in.Arm = "configuration" },
+		func(in *suites.TrialInput) { in.AgentVersion = "2.0.27" },
+		func(in *suites.TrialInput) { in.Attempt = 3 }, // not a planned slot
+	} {
+		in := planned(ref, 1)
+		change(&in)
+		ok.Name = fmt.Sprintf("bad%d", i)
+		n, err := suites.RecordTrial(l, in, ok)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Record(s, l, "jb-0000000000000001", ref, n); err == nil || !strings.Contains(err.Error(), "does not belong") {
+			t.Fatalf("case %d accepted: %v", i, err)
+		}
+		var kept map[string]any
+		if err := l.Manifest("trial", n, &kept); err != nil {
+			t.Fatalf("case %d: the refused trial record was lost", i)
+		}
+	}
+	if after, _ := Unreported(s); len(after) != len(before) {
+		t.Fatal("a refused trial changed the journal")
+	}
+	record(t, s, l, ref, 1, ok, "verified") // the intended trial still works
+	ok.Name = "dup"
+	n, _ := suites.RecordTrial(l, planned(ref, 1), ok)
+	if err := Record(s, l, "jb-0000000000000001", ref, n); err == nil || !strings.Contains(err.Error(), "already has a trial record") {
+		t.Fatalf("a second record for slot 1: %v", err)
+	}
+	revs, _ := Unreported(s)
+	last := revs[len(revs)-1].(map[string]any)
+	if last["state"] != "open" || len(last["attempts"].([]any)) != 1 || last["attempts"].([]any)[0].(map[string]any)["ordinal"].(float64) != 1 {
+		t.Fatalf("journal %v", last)
 	}
 }

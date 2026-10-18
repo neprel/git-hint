@@ -342,6 +342,12 @@
         "$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"
       },
       "x-hint-class": "local"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^jb-[0-9a-f]{16}$",
+      "x-hint-class": "local",
+      "description": "The run (job) whose manifest planned this trial; set at creation, never inferred."
     }
   },
   "required": [

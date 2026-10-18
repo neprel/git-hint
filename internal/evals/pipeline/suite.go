@@ -183,7 +183,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				trials = []runner.Trial{{Name: "trial", Exception: "RunnerError", Checks: map[string]string{}}}
 			}
 			b := bind[ref]
-			in := suites.TrialInput{Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
+			in := suites.TrialInput{RunID: job, Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
 				Started: started, MaxSeconds: lim.TrialSeconds, Objective: b.Objective, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, EvalDigest: b.EvalDigest,
 				ContextPolicy: "disabled"} // HINT delivers no managed context in eval trials yet
 			var reqs, retries int64

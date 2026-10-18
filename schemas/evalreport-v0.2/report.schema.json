@@ -971,6 +971,19 @@
               "type": "null"
             }
           ]
+        },
+        "ordinal": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Controlled attempts: the planned attempt slot (1..planned_attempts)."
         }
       },
       "required": [
@@ -1304,6 +1317,41 @@
                   "arm",
                   "planned_attempts"
                 ]
+              },
+              "attempts": {
+                "items": {
+                  "properties": {
+                    "ordinal": {
+                      "type": "integer"
+                    },
+                    "trial_ref": {
+                      "$ref": "#/$defs/Ref"
+                    },
+                    "trial_outcome": {
+                      "type": "string"
+                    },
+                    "model_check": {
+                      "type": "string"
+                    },
+                    "checks": {
+                      "type": "object"
+                    },
+                    "qualification": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ordinal",
+                    "trial_ref",
+                    "trial_outcome",
+                    "model_check",
+                    "checks",
+                    "qualification"
+                  ]
+                }
               }
             }
           }
