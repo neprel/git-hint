@@ -54,7 +54,7 @@ print("RUN " + m.run_command("openai/ai01", "fix it", False, ""))`
 		t.Fatalf("%v: %s", err, out)
 	}
 	install, run, _ := strings.Cut(string(out), "\nRUN ")
-	for _, want := range []string{"run --standalone --format json --thinking --auto", "-m openai/ai01 -- 'fix it'", "/logs/agent/opencode.txt"} {
+	for _, want := range []string{"run --standalone --format json --thinking --auto", "-m hint/ai01 -- 'fix it'", "/logs/agent/opencode.txt", "@ai-sdk/openai-compatible", "$OPENAI_BASE_URL"} {
 		if !strings.Contains(run, want) {
 			t.Fatalf("run command %q lacks %q", run, want)
 		}

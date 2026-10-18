@@ -62,11 +62,31 @@ def install_command(version: str) -> str:
     )
 
 
+def config_command(model: str) -> str:
+    """Writes the v2 config: the model through the bundled OpenAI-compatible provider
+    (Chat Completions at OPENAI_BASE_URL, HINT's counting proxy), no auto-update, no
+    sharing. v2's built-in "openai" provider uses the Responses API, whose stream the LAN
+    server does not produce in the form v2 expects (live smoke 2026-10-18)."""
+    mid = model.split("/", 1)[1]
+    if not mid.replace("-", "").replace("_", "").replace(".", "").isalnum():
+        raise ValueError("unexpected model name")
+    return (
+        '[ -n "${OPENAI_BASE_URL:-}" ] || { echo "no model URL" >&2; exit 1; }; '
+        "mkdir -p ~/.config/opencode && "
+        'printf \'{"provider":{"hint":{"npm":"@ai-sdk/openai-compatible","name":"hint",'
+        '"options":{"baseURL":"%s","apiKey":"%s"},"models":{"' + mid + '":{"name":"' + mid + '"}}}},'
+        '"autoupdate":false,"share":"disabled"}\' "$OPENAI_BASE_URL" "${OPENAI_API_KEY:-none}" '
+        "> ~/.config/opencode/opencode.json"
+    )
+
+
 def run_command(model: str, instruction: str, resume: bool, flags: str) -> str:
     """The v2 command line; JSON events go to /logs/agent/opencode.txt as in Harbor."""
+    mid = model.split("/", 1)[1]
     return (
+        config_command(model) + " && "
         "~/.local/bin/opencode run --standalone --format json --thinking --auto "
-        f"{'--continue ' if resume else ''}{flags}-m {shlex.quote(model)} -- {shlex.quote(instruction)} "
+        f"{'--continue ' if resume else ''}{flags}-m {shlex.quote('hint/' + mid)} -- {shlex.quote(instruction)} "
         "2>&1 </dev/null | stdbuf -oL tee /logs/agent/opencode.txt"
     )
 
@@ -96,9 +116,6 @@ class OpenCodeV2(OpenCode):
         skills = self._build_register_skills_command()
         if skills:
             await self.exec_as_agent(environment, command=skills, env=env)
-        config = self._build_register_config_command()
-        if config:
-            await self.exec_as_agent(environment, command=config, env=env)
         flags = self.build_cli_flags()
         await self.exec_as_agent(
             environment,
