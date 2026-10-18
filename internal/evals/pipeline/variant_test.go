@@ -359,3 +359,45 @@ func TestHarborRefactorComparison(t *testing.T) {
 	}
 	t.Logf("harbor %s: %s", h.Version, time.Since(start).Round(time.Second))
 }
+
+// G10-9: a variant belongs to the exact baseline version, its digest, the arm and the
+// inputs. The same input reuses the variant; a new baseline version with the same trees,
+// or the same trees reached through another arm, make another variant.
+func TestVariantIdentity(t *testing.T) {
+	_, l := validatedProject(t)
+	base := baselineRef(t, l)
+	agents := []byte("Run go test ./... before you finish.\n")
+	ctx := VariantInput{Arm: "context_only", Context: []ContextFile{{Path: "AGENTS.md", Data: agents}}}
+	v1, err := MakeVariant(l, base, ctx, variantNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := MakeVariant(l, base, ctx, variantNow)
+	if err != nil || same.Created || same.Ref != v1.Ref {
+		t.Fatalf("same input: %+v %v", same, err)
+	}
+	// a new validated baseline version with the same trees
+	var rec map[string]any
+	l.Manifest("eval", base, &rec)
+	id, _, _ := strings.Cut(base, "@")
+	rec["version"], rec["previous"], rec["created_at"] = 3, base, "2026-10-18T14:00:00Z"
+	base3, err := l.PutManifest("eval", rec)
+	if err != nil || base3 != id+"@3" {
+		t.Fatalf("%s %v", base3, err)
+	}
+	v3, err := MakeVariant(l, base3, ctx, variantNow)
+	if err != nil || !v3.Created || v3.Ref == v1.Ref {
+		t.Fatalf("new baseline version: %+v %v", v3, err)
+	}
+	var r3 map[string]any
+	l.Manifest("eval", v3.Ref, &r3)
+	if r3["variant"].(map[string]any)["of"] != base3 {
+		t.Fatalf("variant of %v", r3["variant"])
+	}
+	// the refactor arm with a work tree equal to the base plus AGENTS.md: the same trees
+	files := map[string]string{"go.mod": evaltest.GoMod, "cart.go": evaltest.GoBug, "cart_test.go": evaltest.GoOld, "AGENTS.md": string(agents)}
+	rf, err := MakeVariant(l, base3, VariantInput{Arm: "refactor", Base: evaltest.Tree(t, l, files)}, variantNow)
+	if err != nil || !rf.Created || rf.Ref == v3.Ref {
+		t.Fatalf("other arm: %+v %v", rf, err)
+	}
+}

@@ -1,6 +1,8 @@
 package pipeline
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -185,7 +187,16 @@ func MakeVariant(l *library.Library, baseline string, in VariantInput, now time.
 		v["reasons"] = []any{"reference_missing"}
 	}
 	v["variant"] = map[string]any{"arm": in.Arm, "of": baseline, "of_digest": digest, "inputs": inputs, "reference": refRole}
-	id := v["eval_id"].(string)
+	// the variant's identity is the exact baseline version and digest, the arm and the
+	// intervention inputs: the same trees from another baseline version or arm are
+	// another variant (G10-9)
+	parts := []string{"variant", baseline, digest, in.Arm}
+	for _, x := range inputs {
+		parts = append(parts, x.(string))
+	}
+	h := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	id := "ev-" + hex.EncodeToString(h[:8])
+	v["eval_id"] = id
 	latest := ""
 	names, _ := l.Manifests("eval")
 	for _, n := range names {
@@ -197,6 +208,10 @@ func MakeVariant(l *library.Library, baseline string, in VariantInput, now time.
 		var cur map[string]any
 		if err := l.Manifest("eval", latest, &cur); err != nil {
 			return Variant{}, err
+		}
+		cv, _ := cur["variant"].(map[string]any)
+		if cv == nil || cv["of"] != baseline || cv["of_digest"] != digest || cv["arm"] != in.Arm || fmt.Sprint(cv["inputs"]) != fmt.Sprint(inputs) {
+			return Variant{}, fmt.Errorf("%w: %s exists with another binding", ErrVariant, latest)
 		}
 		return Variant{Ref: latest, State: str(cur["state"]), Reference: refRole}, nil
 	}
