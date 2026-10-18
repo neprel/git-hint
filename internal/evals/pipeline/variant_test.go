@@ -521,3 +521,16 @@ func TestContextVariantInputIdentity(t *testing.T) {
 		t.Fatalf("the README variant's base: %v", paths)
 	}
 }
+
+// D02: a variant keeps the baseline's environment; a refactored state that needs another
+// image (here another Go version) is not a comparable variant.
+func TestVariantRefusesAnotherEnvironment(t *testing.T) {
+	_, l := validatedProject(t)
+	base := baselineRef(t, l)
+	files := refactoredShop("// Package shop sells things.\n" + evaltest.GoBug)
+	files["go.mod"] = "module shop\n\ngo 1.27\n"
+	_, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: evaltest.Tree(t, l, files)}, variantNow)
+	if !errors.Is(err, ErrVariant) || !strings.Contains(err.Error(), "environment image") {
+		t.Fatalf("%v", err)
+	}
+}

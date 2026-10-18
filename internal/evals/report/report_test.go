@@ -204,3 +204,61 @@ func TestUnreportedTrials(t *testing.T) {
 		t.Fatalf("after marking %v", got)
 	}
 }
+
+// D02: an enabled context policy goes out as one project reference of its full identity
+// (id, version, digest) and its version; another digest gives another reference; the other
+// states stay distinct; a trial recorded without the field is unknown.
+func TestContextPolicyReference(t *testing.T) {
+	l, _ := seeded(t)
+	suite, _, _ := suites.Freeze(l, nil, time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC))
+	var evalRef string
+	names, _ := l.Manifests("eval")
+	for _, n := range names {
+		if strings.HasSuffix(n, "@2") {
+			evalRef = n
+		}
+	}
+	one := 1.0
+	record := func(i int, in suites.TrialInput) string {
+		in.Suite, in.Eval, in.Arm, in.Agent, in.RunnerVersion, in.MaxSeconds = suite, evalRef, "baseline", "oracle", "0.23.0", 900
+		in.Attempt, in.Started = 10+i, time.Date(2026, 10, 18, 10, i, 0, 0, time.UTC)
+		n, err := suites.RecordTrial(l, in, runner.Trial{Name: fmt.Sprint("p", i), Reward: &one, Checks: map[string]string{"C1": "pass", "C2": "pass"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	ns := []string{
+		record(0, suites.TrialInput{ContextPolicy: "enabled", ContextPolicyID: "default", ContextPolicyVersion: 1, ContextPolicyDigest: "sha256:" + strings.Repeat("a", 64)}),
+		record(1, suites.TrialInput{ContextPolicy: "enabled", ContextPolicyID: "default", ContextPolicyVersion: 1, ContextPolicyDigest: "sha256:" + strings.Repeat("a", 64)}),
+		record(2, suites.TrialInput{ContextPolicy: "enabled", ContextPolicyID: "default", ContextPolicyVersion: 1, ContextPolicyDigest: "sha256:" + strings.Repeat("b", 64)}),
+		record(3, suites.TrialInput{ContextPolicy: "disabled"}),
+		record(4, suites.TrialInput{ContextPolicy: "not_applicable", DeclaredChanges: []string{"context_policy"}}),
+		record(5, suites.TrialInput{}),
+	}
+	b, _, err := Builder{Key: fixedKey, Namespace: fixedNS}.Build(l, ns, time.Date(2026, 10, 18, 11, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	json.Unmarshal(b, &m)
+	cp := map[int]map[string]any{}
+	for _, x := range m["trials"].([]any) {
+		tr := x.(map[string]any)
+		cp[int(tr["attempt"].(float64))-10] = tr["context_policy"].(map[string]any)
+		if tr["attempt"].(float64) == 14 && fmt.Sprint(tr["declared_changes"]) != "[context_policy]" {
+			t.Fatalf("declared changes %v", tr["declared_changes"])
+		}
+	}
+	if cp[0]["ref"] == nil || cp[0]["ref"] != cp[1]["ref"] || cp[0]["ref"] == cp[2]["ref"] || cp[0]["version"] != 1.0 {
+		t.Fatalf("enabled references %v %v %v", cp[0], cp[1], cp[2])
+	}
+	for i, want := range map[int]string{3: "disabled", 4: "not_applicable", 5: "unknown"} {
+		if cp[i]["state"] != want || cp[i]["ref"] != nil {
+			t.Fatalf("%d: %v", i, cp[i])
+		}
+	}
+	if strings.Contains(string(b), "default") || strings.Contains(string(b), strings.Repeat("a", 64)) {
+		t.Fatal("the policy id or digest left the machine")
+	}
+}
