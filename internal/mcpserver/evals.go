@@ -111,7 +111,7 @@ func (h *handlers) evalRun(ctx context.Context, _ *mcp.CallToolRequest, in EvalR
 		if err := p.Check(evals.OpModel, ""); err != nil {
 			return nil, EvalRunOut{}, h.fail("hint_eval_run", err)
 		}
-		lv, err := runner.StartLive(runner.LiveConfig{BaseURL: p.Model.BaseURL, Model: p.Model.Model, KeyEnv: p.Model.KeyEnv, AgentVersion: "2.0.26"})
+		lv, err := runner.StartLive(runner.LiveConfig{BaseURL: p.Model.BaseURL, Model: p.Model.Model, KeyEnv: p.Model.KeyEnv, AgentVersion: runner.OpenCodeVersion})
 		if err != nil {
 			return nil, EvalRunOut{}, h.fail("hint_eval_run", err)
 		}

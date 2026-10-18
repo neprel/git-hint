@@ -96,7 +96,7 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	p.Model = m
 	p.Run = &evals.Run{Use: "docker", Runner: "harbor", MaxTrialsPerRun: 1, MaxSecondsPerTrial: 900, MaxRequestsPerTrial: 40, CPUs: 2, MemoryMB: 2048}
 	s.Cfg.Evals = &p
-	lv, err := runner.StartLive(runner.LiveConfig{BaseURL: m.BaseURL, Model: m.Model, KeyEnv: m.KeyEnv, AgentVersion: "2.0.26"})
+	lv, err := runner.StartLive(runner.LiveConfig{BaseURL: m.BaseURL, Model: m.Model, KeyEnv: m.KeyEnv, AgentVersion: runner.OpenCodeVersion})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +124,9 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	}
 	if rep.Trials != 1 || rep.Requests == nil || *rep.Requests > 40 {
 		t.Fatalf("limits: %+v", rep)
+	}
+	if rep.Outcomes["infrastructure_error"] > 0 || rep.Outcomes["verifier_error"] > 0 {
+		t.Errorf("the trial did not run as a measurement: %v", rep.Outcomes)
 	}
 }
 

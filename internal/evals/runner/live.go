@@ -18,6 +18,12 @@ import (
 	"time"
 )
 
+// OpenCodeVersion is the OpenCode release that Harbor installs in the task container
+// (npm opencode-ai, released 2026-09-30, MIT). Harbor installs agents from npm only; the
+// newest npm release at least two weeks old is pinned. It can differ from the user's own
+// OpenCode, and trials record it.
+const OpenCodeVersion = "1.18.34"
+
 // Network modes of an exported task.
 const (
 	Offline  = ""          // no network at run time
