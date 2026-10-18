@@ -431,6 +431,9 @@
         },
         "expires_at": {
           "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+        },
+        "forecast_basis": {
+          "$ref": "#/$defs/ForecastBasis"
         }
       },
       "required": [
@@ -1697,6 +1700,113 @@
         "intervention_refs",
         "baseline_refs",
         "label"
+      ]
+    },
+    "ForecastBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How a plan's forecast is to be read (v0.2): the scalar resource objective, the stated horizon, the model-conditional probability of a positive net value and the net interval over that horizon, the decision threshold and its provenance, the basis of the one-time cost, the kind of evidence and every qualification of the forecast. A forecast is never a measurement.",
+      "properties": {
+        "objective": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metric": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Metric"
+            },
+            "unit": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Unit"
+            }
+          },
+          "required": [
+            "metric",
+            "unit"
+          ]
+        },
+        "horizon_tasks": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "threshold": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Probability"
+        },
+        "threshold_basis": {
+          "type": "string",
+          "enum": [
+            "heuristic_default",
+            "configured_policy"
+          ]
+        },
+        "p_net_gain_positive": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Probability"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Model-conditional P(net value over the horizon > 0); null when unknown."
+        },
+        "net_gain_interval": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Interval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Net value over the horizon in the objective unit (total, not per task); negative values are valid; null when unknown."
+        },
+        "cost_basis": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "observed_comparable_work",
+                "assumption_scenario"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "observed_comparable_work: an estimate from observed comparable refactoring work, not a measured cost of this change; assumption_scenario: a stated scenario; null: unknown."
+        },
+        "evidence": {
+          "type": "string",
+          "enum": [
+            "synthetic_fixture",
+            "project_history"
+          ]
+        },
+        "conditional_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "behavior_transport",
+              "unseen_transformation",
+              "feature_extrapolation",
+              "unseen_task_mix",
+              "unseen_configuration",
+              "coordination_unmodeled"
+            ]
+          }
+        }
+      },
+      "required": [
+        "objective",
+        "horizon_tasks",
+        "threshold",
+        "threshold_basis",
+        "p_net_gain_positive",
+        "net_gain_interval",
+        "cost_basis",
+        "evidence",
+        "conditional_on"
       ]
     }
   }

@@ -55,12 +55,16 @@ func contextDoc(act M) M {
 	return reseal(d)
 }
 
-// contextPolicy is the v0.2 export policy: the v0.1 fields plus the context measurement.
+// contextPolicy is the v0.2 export policy: the v0.1 fields plus the context measurement and the
+// forecast basis of a plan.
 func contextPolicy(pol M) M {
 	p := clone(pol)
 	p["hint_version"] = "0.2.0"
 	f := obj(p, "payload", "fields")
 	f["Observation"] = append(f["Observation"].([]any), "context")
+	if plan, ok := f["Plan"].([]any); ok {
+		f["Plan"] = append(plan, "forecast_basis")
+	}
 	return reseal(p)
 }
 
@@ -73,6 +77,16 @@ func findingsDoc(rec, act, ctx M) M {
 	for _, p := range obj(d, "payload")["plans"].([]any) {
 		p.(map[string]any)["plan_schema"] = "0.2.0" // a plan names the version of its document
 	}
+	// how to read the split plan's forecast: tokens over 120 future tasks, the cost estimated
+	// from observed comparable refactoring work, the behavior transport stated
+	obj(d, "payload", "plans", 0)["forecast_basis"] = M{"objective": M{"metric": "model_tokens", "unit": "tokens"}, "horizon_tasks": 120,
+		"threshold": 0.9, "threshold_basis": "heuristic_default", "p_net_gain_positive": 0.93,
+		"net_gain_interval": M{"lower": 50000, "upper": 200000, "level": 0.9}, "cost_basis": "observed_comparable_work",
+		"evidence": "project_history", "conditional_on": A{"behavior_transport"}}
+	// the refused context plan: no one-time cost, so no net value
+	obj(d, "payload", "plans", 1)["forecast_basis"] = M{"objective": M{"metric": "model_tokens", "unit": "tokens"}, "horizon_tasks": 50,
+		"threshold": 0.8, "threshold_basis": "configured_policy", "p_net_gain_positive": nil, "net_gain_interval": nil, "cost_basis": nil,
+		"evidence": "project_history", "conditional_on": A{"behavior_transport"}}
 	plan := obj(d, "payload", "plans", 0)
 	snap := plan["snapshots"].([]any)[0].(map[string]any)["snapshot_id"]
 	targets := plan["targets"].([]any)
@@ -207,8 +221,41 @@ func v02Invalid() []invalidCase {
 		{"feedback-free-text", "recommendation-findings.json", "schema", "content", func(d M) {
 			obj(d, "payload", "context_feedback", 0)["note"] = forbidden["prompt"]
 		}, nil},
+		{"forecast-without-horizon", "recommendation-findings.json", "schema", "finding", func(d M) {
+			delete(obj(d, "payload", "plans", 0, "forecast_basis"), "horizon_tasks")
+		}, nil},
+		{"forecast-probability-out-of-range", "recommendation-findings.json", "schema", "finding", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis")["p_net_gain_positive"] = 1.5
+		}, nil},
+		{"forecast-net-without-level", "recommendation-findings.json", "schema", "finding", func(d M) {
+			delete(obj(d, "payload", "plans", 0, "forecast_basis", "net_gain_interval"), "level")
+		}, nil},
 		{"finding-in-v01-document", "recommendation-findings.json", "schema", "version", func(d M) {
 			d["hint_version"] = "0.1.0"
+		}, nil},
+		{"forecast-net-interval-order", "recommendation-findings.json", "semantic", "interval_order", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis")["net_gain_interval"] = M{"lower": 200000, "upper": 50000, "level": 0.9}
+		}, nil},
+		{"forecast-mixed-units", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis", "objective")["unit"] = "seconds"
+		}, nil},
+		{"forecast-unknown-cost-numeric-net", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis")["cost_basis"] = nil
+		}, nil},
+		{"forecast-scenario-recommended", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis")["cost_basis"] = "assumption_scenario"
+		}, nil},
+		{"forecast-synthetic-recommended", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis")["evidence"] = "synthetic_fixture"
+		}, nil},
+		{"forecast-inconsistent-ood", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis")["conditional_on"] = A{"behavior_transport", "unseen_task_mix"}
+		}, nil},
+		{"forecast-custom-threshold-as-default", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis")["threshold"] = 0.8
+		}, nil},
+		{"forecast-hidden-behavior-transport", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis")["conditional_on"] = A{}
 		}, nil},
 		// a second measurement of the same call, stage and action (two stages are fine)
 		{"context-duplicate-stage", "activity-context.json", "semantic", "duplicate_measurement", func(d M) {

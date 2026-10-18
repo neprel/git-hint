@@ -193,7 +193,8 @@
                   "snapshots",
                   "steps",
                   "targets",
-                  "transformation"
+                  "transformation",
+                  "forecast_basis"
                 ]
               },
               "uniqueItems": true

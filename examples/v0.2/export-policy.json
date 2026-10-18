@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:e7f30634c7d1768d28034426674306b237fbb307a26934896812fa152a1976a7",
+  "content_digest": "sha256:591081b7dff1a21f1da745191c3b30005d49d41be45b5665beb0b94a3cfa2a90",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "1488017b9772dc4bc1d200e58bf8f4a6",
   "document_type": "export_policy",
@@ -100,7 +100,8 @@
         "snapshots",
         "steps",
         "targets",
-        "transformation"
+        "transformation",
+        "forecast_basis"
       ],
       "PolicyConstraint": [
         "blocks_destructive",

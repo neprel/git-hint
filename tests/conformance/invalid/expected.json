@@ -274,6 +274,61 @@
     "code": "evidence",
     "level": "schema"
   },
+  "forecast-custom-threshold-as-default.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-hidden-behavior-transport.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-inconsistent-ood.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-mixed-units.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-net-interval-order.json": {
+    "base": "recommendation-findings.json",
+    "code": "interval_order",
+    "level": "semantic"
+  },
+  "forecast-net-without-level.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "forecast-probability-out-of-range.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "forecast-scenario-recommended.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-synthetic-recommended.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-unknown-cost-numeric-net.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-without-horizon.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
   "free-text-allowed-claim.json": {
     "base": "single-repo.json",
     "code": "envelope",

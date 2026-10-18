@@ -1067,6 +1067,12 @@ func TestReportFromFileEqualsAPI(t *testing.T) {
 		for _, k := range []string{"findings", "abstentions", "project_comparisons", "context_feedback"} {
 			p[k] = ex["payload"].(map[string]any)[k]
 		}
+		// the forecast fields of the example's split plan, with its forecast basis
+		src := ex["payload"].(map[string]any)["plans"].([]any)[0].(map[string]any)
+		dst := p["plans"].([]any)[0].(map[string]any)
+		for _, k := range []string{"predictions", "simulation", "refactoring_cost_estimate", "break_even_horizon", "forecast_basis"} {
+			dst[k] = src[k]
+		}
 	}
 	must(t, run(t, shop, "", "recommend", "--yes", "--server", srv.URL))
 	api := filepath.Join(t.TempDir(), "api.md")
@@ -1097,6 +1103,7 @@ func TestReportFromFileEqualsAPI(t *testing.T) {
 	}
 	md := string(a)
 	for _, want := range []string{"Document check: **accepted**", "## Summary", "## Findings", "## Project eval comparisons", "## Context policy feedback",
+		"Forecast basis (a model-conditional forecast, not a measurement): objective model_tokens in tokens over 120 future tasks.",
 		"Next step: **refresh_index_and_recheck** on shop: "} {
 		if !strings.Contains(md, want) {
 			t.Errorf("missing %q in\n%s", want, md)

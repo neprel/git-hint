@@ -181,6 +181,8 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			delete(defs, "Decision")
 			delete(defs, "ContextFeedback")
 			delete(defs, "ProjectComparison")
+			delete(defs, "ForecastBasis")
+			delete(defs["Plan"].(map[string]any)["properties"].(map[string]any), "forecast_basis")
 			props := defs["RecommendationPayload"].(map[string]any)["properties"].(map[string]any)
 			delete(props, "findings")
 			delete(props, "abstentions")
@@ -191,6 +193,16 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			strip = func(v any) {
 				switch n := v.(type) {
 				case map[string]any:
+					if pl, ok := n["Plan"].(map[string]any); ok && pl["type"] == "array" {
+						items := pl["items"].(map[string]any)
+						var keep []any
+						for _, x := range items["enum"].([]any) {
+							if x != "forecast_basis" {
+								keep = append(keep, x)
+							}
+						}
+						items["enum"] = keep
+					}
 					if obs, ok := n["Observation"].(map[string]any); ok && obs["type"] == "array" {
 						items := obs["items"].(map[string]any)
 						var keep []any

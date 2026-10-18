@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:4b0b70fc7ef7f013e6baa5f728db90acbd01183fc514d4896eebaa3fe1b274e0",
+  "content_digest": "sha256:3f3a24754a6789bebf3b607e6b598522d79ce93ef6d3f3df6acde27634457d71",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
   "document_type": "recommendation_set",
@@ -321,6 +321,26 @@
         "created_at": "2026-10-11T12:00:00Z",
         "decision": "recommend",
         "expires_at": "2026-10-18T12:00:00Z",
+        "forecast_basis": {
+          "conditional_on": [
+            "behavior_transport"
+          ],
+          "cost_basis": "observed_comparable_work",
+          "evidence": "project_history",
+          "horizon_tasks": 120,
+          "net_gain_interval": {
+            "level": 0.9,
+            "lower": 50000,
+            "upper": 200000
+          },
+          "objective": {
+            "metric": "model_tokens",
+            "unit": "tokens"
+          },
+          "p_net_gain_positive": 0.93,
+          "threshold": 0.9,
+          "threshold_basis": "heuristic_default"
+        },
         "intervention_class": "REFACTOR_CODE",
         "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
         "plan_schema": "0.2.0",
@@ -469,6 +489,22 @@
         "created_at": "2026-10-11T12:00:00Z",
         "decision": "refuse_uncertain",
         "expires_at": "2026-10-18T12:00:00Z",
+        "forecast_basis": {
+          "conditional_on": [
+            "behavior_transport"
+          ],
+          "cost_basis": null,
+          "evidence": "project_history",
+          "horizon_tasks": 50,
+          "net_gain_interval": null,
+          "objective": {
+            "metric": "model_tokens",
+            "unit": "tokens"
+          },
+          "p_net_gain_positive": null,
+          "threshold": 0.8,
+          "threshold_basis": "configured_policy"
+        },
         "intervention_class": "CONTEXT_ONLY",
         "plan_id": "3a4890f785021a7c5734f35e83e0626d",
         "plan_schema": "0.2.0",

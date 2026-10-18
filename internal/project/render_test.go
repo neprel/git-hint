@@ -35,6 +35,11 @@ func TestRenderFindings(t *testing.T) {
 		"Intervention comparison (heuristic; cost model unavailable, so no net value or break-even): **COLLECT_MORE_EVIDENCE**.",
 		"| CONTEXT_ONLY | unbound | unknown | unknown | none |", "No eval comparison is bound to this finding's objectives",
 		"## Project eval comparisons", "| context_only | held_out | 6 | -120.5 (-400 to 300; 6 of 6) | 0.1 (0 to 0.2; 6 of 6) |",
+		"Forecast basis (a model-conditional forecast, not a measurement): objective model_tokens in tokens over 120 future tasks.",
+		"- P(net value over the horizon > 0) under the model: 0.93; decision threshold 0.9 (heuristic default).",
+		"- Net value over 120 tasks: 50000 to 200000 tokens (0.9 interval).",
+		"- One-time cost: an estimate from observed comparable refactoring work, not a measured cost of this change.",
+		"- Conditional on: behavior_transport.", "- Net value over the horizon: unknown.", "decision threshold 0.8 (configured policy)",
 		"## Context policy feedback", "**keep** (expansion_is_normal, less_total_navigation, no_worse_outcome_with_delivery)",
 		"  - total_navigation_per_task: 4.5 operations_per_task"} {
 		if !strings.Contains(md, want) {

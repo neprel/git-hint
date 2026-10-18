@@ -56,6 +56,23 @@ A recommendation set can carry up to 20 findings. A finding states what costs ef
 
 `abstentions` lists the problem classes that the server did not diagnose and why (`no_confirmed_tasks`, `insufficient_coverage`). A plan in a v0.2 set names `plan_schema` 0.2.x. The client shows at most five findings.
 
+## Forecast basis of a plan (`Plan.forecast_basis`)
+
+Optional. It tells how to read a plan's forecast; a forecast is never a measurement, and it never enters the observed `decision` of a finding.
+
+| Field | Meaning |
+|---|---|
+| `objective` | the one scalar resource objective: `metric` and `unit` (never tokens and seconds together) |
+| `horizon_tasks` | the stated number of future comparable tasks behind any net value (integer ≥ 1) |
+| `threshold`, `threshold_basis` | the decision threshold on the model-conditional probability; `heuristic_default` (the unchanged default, 0.9) or `configured_policy` |
+| `p_net_gain_positive` | model-conditional P(net value over the horizon > 0); null when unknown |
+| `net_gain_interval` | the net value over the horizon (a total, not per task) in the objective unit, as an interval with its level; negative values are valid; null when unknown |
+| `cost_basis` | `observed_comparable_work` (an estimate from observed comparable refactoring work, not a measured cost of this change), `assumption_scenario`, or null (unknown) |
+| `evidence` | `synthetic_fixture` or `project_history` (baseline evidence; it does not validate an effect) |
+| `conditional_on` | every stated qualification: `behavior_transport`, `unseen_transformation`, `feature_extrapolation`, `unseen_task_mix`, `unseen_configuration`, `coordination_unmodeled` |
+
+**Semantic rule `forecast_inconsistent`:** the plan has `simulation`; a per-task prediction exists for the objective metric and unit, and the one-time cost uses the same unit; a probability, net interval or break-even needs a known one-time cost (`cost_basis` and `refactoring_cost_estimate`); `heuristic_default` means the default threshold; a scenario cost or synthetic evidence never gives `recommend`; an unseen transformation, configuration or task mix, an extrapolation or unmodeled coordination needs `out_of_distribution: true` and no `recommend`; an L2 or L3 forecast states `behavior_transport`. The interval rule (`interval_order`) also applies to `net_gain_interval`. The break-even keeps its `unbounded` flag; no infinite number is sent.
+
 ## Versions
 
 - The CLI and the server accept `0.1` and `0.2`. A v0.1 document cannot carry a context measurement or findings.

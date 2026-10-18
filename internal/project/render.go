@@ -136,6 +136,9 @@ func Render(im *Imported, cur *Current, source string) string {
 			}
 			w("\n")
 		}
+		if fb, ok := m["forecast_basis"].(map[string]any); ok {
+			renderForecastBasis(w, fb)
+		}
 		if c, ok := m["refactoring_cost_estimate"].(map[string]any); ok {
 			iv, _ := c["interval"].(map[string]any)
 			w("Estimated refactoring cost: %v to %v %s (level %v).\n\n", iv["lower"], iv["upper"], str(c["unit"]), iv["level"])
@@ -278,6 +281,37 @@ func renderFindings(w func(string, ...any), payload map[string]any, name func(st
 		}
 		w("\n")
 	}
+}
+
+// renderForecastBasis writes how to read a plan's forecast: the objective and unit, the
+// horizon, the model-conditional probability and net value with their threshold and level, the
+// basis of the one-time cost, the evidence and every stated condition. Unknown stays unknown.
+func renderForecastBasis(w func(string, ...any), fb map[string]any) {
+	obj, _ := fb["objective"].(map[string]any)
+	w("Forecast basis (a model-conditional forecast, not a measurement): objective %s in %s over %v future tasks.\n\n", str(obj["metric"]), str(obj["unit"]), fb["horizon_tasks"])
+	basis := map[string]string{"heuristic_default": "heuristic default", "configured_policy": "configured policy"}[str(fb["threshold_basis"])]
+	p := "unknown"
+	if v, ok := fb["p_net_gain_positive"].(float64); ok {
+		p = fmt.Sprint(v)
+	}
+	w("- P(net value over the horizon > 0) under the model: %s; decision threshold %v (%s).\n", p, fb["threshold"], basis)
+	if iv, ok := fb["net_gain_interval"].(map[string]any); ok {
+		w("- Net value over %v tasks: %v to %v %s (%v interval).\n", fb["horizon_tasks"], iv["lower"], iv["upper"], str(obj["unit"]), iv["level"])
+	} else {
+		w("- Net value over the horizon: unknown.\n")
+	}
+	cost := map[string]string{"observed_comparable_work": "an estimate from observed comparable refactoring work, not a measured cost of this change",
+		"assumption_scenario": "a stated scenario, not an estimate from this project"}[str(fb["cost_basis"])]
+	if cost == "" {
+		cost = "unknown (so no net value or break-even)"
+	}
+	w("- One-time cost: %s.\n", cost)
+	ev := map[string]string{"synthetic_fixture": "a synthetic fixture (not project validation)", "project_history": "this project's history (baseline evidence; it does not validate the effect)"}[str(fb["evidence"])]
+	w("- Evidence: %s.\n", ev)
+	if c := list(fb["conditional_on"]); len(c) > 0 {
+		w("- Conditional on: %s.\n", joinAny(c))
+	}
+	w("\n")
 }
 
 // renderComparisons writes the project-level eval variant comparisons: observations that no

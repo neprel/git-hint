@@ -35,6 +35,7 @@ const (
 	CodeNamespace            = "namespace_mismatch"
 	CodeStepGraph            = "step_graph"
 	CodeInterval             = "interval_order"
+	CodeForecast             = "forecast_inconsistent"
 	CodeCoverage             = "coverage_inconsistent"
 	CodeSnapshotSet          = "plan_snapshot_set"
 )
@@ -410,8 +411,66 @@ func (c *checker) plans(payload map[string]any, repos map[string]bool) {
 				}
 			}
 		}
+		if fb, ok := m["forecast_basis"].(map[string]any); ok {
+			c.forecast(m, fb, at)
+		}
 	}
 }
+
+// forecast checks a plan's forecast_basis (v0.2) against its predictions, cost, break-even and
+// simulation labels: one unit per objective, no numeric net value without a known one-time
+// cost, the threshold provenance, and no production recommendation from a scenario, synthetic
+// evidence or an out-of-distribution qualification.
+func (c *checker) forecast(m, fb map[string]any, at string) {
+	bad := func(field string) { c.add(CodeForecast, "%s.forecast_basis.%s", at, field) }
+	obj, _ := fb["objective"].(map[string]any)
+	unit, metric := str(obj["unit"]), str(obj["metric"])
+	sim, _ := m["simulation"].(map[string]any)
+	if sim == nil {
+		bad("objective")
+		return
+	}
+	found := false
+	for _, p := range list(m["predictions"]) {
+		pm, _ := p.(map[string]any)
+		if str(pm["metric"]) == metric && str(pm["unit"]) == unit && str(pm["per"]) == "task" {
+			found = true
+		}
+	}
+	if !found {
+		bad("objective")
+	}
+	cost, _ := m["refactoring_cost_estimate"].(map[string]any)
+	if cost != nil && str(cost["unit"]) != unit {
+		bad("objective")
+	}
+	_, hasBreakEven := m["break_even_horizon"]
+	if (fb["p_net_gain_positive"] != nil || fb["net_gain_interval"] != nil || hasBreakEven) && (fb["cost_basis"] == nil || cost == nil) {
+		bad("cost_basis")
+	}
+	if fb["threshold_basis"] == "heuristic_default" && fb["threshold"] != DefaultForecastThreshold {
+		bad("threshold_basis")
+	}
+	recommend := m["decision"] == "recommend"
+	if recommend && (fb["cost_basis"] == "assumption_scenario" || fb["evidence"] == "synthetic_fixture") {
+		bad("evidence")
+	}
+	conds := set(list(fb["conditional_on"]))
+	ood := false
+	for _, k := range []string{"unseen_transformation", "feature_extrapolation", "unseen_task_mix", "unseen_configuration", "coordination_unmodeled"} {
+		ood = ood || conds[k]
+	}
+	if ood && (sim["out_of_distribution"] != true || recommend) {
+		bad("conditional_on")
+	}
+	if (sim["level"] == "L2" || sim["level"] == "L3") && !conds["behavior_transport"] {
+		bad("conditional_on")
+	}
+}
+
+// DefaultForecastThreshold is the heuristic default decision threshold (a versioned example
+// value, not a policy).
+const DefaultForecastThreshold = 0.9
 
 func before(a, b string) bool {
 	ta, e1 := time.Parse(time.RFC3339Nano, a)
