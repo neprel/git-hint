@@ -2,14 +2,14 @@
 
 **Version:** 0.2.0 (draft) | **Status:** draft; not final | **Date:** 2026-10-18
 
-v0.2 is v0.1 plus one optional field: the **context measurement** of an observation. All other rules of [hint-data v0.1](hint-data-v0.1.md), [privacy](privacy-v0.1.md), [recommendation](recommendation-v0.1.md) and [exchange](exchange-v0.1.md) stay the same:
+v0.2 is v0.1 plus two optional additions: the **context measurement** of an observation and the **effort findings** of a recommendation set. All other rules of [hint-data v0.1](hint-data-v0.1.md), [privacy](privacy-v0.1.md), [recommendation](recommendation-v0.1.md) and [exchange](exchange-v0.1.md) stay the same:
 
 - identifiers and their derivation;
 - digests and the canonical form;
 - envelope and document types;
 - every other field.
 
-Schemas: [`schemas/v0.2/`](../../schemas/v0.2/), entry point `urn:hint:schema:v0.2:envelope`. Example: [`examples/v0.2/`](../../examples/v0.2/).
+Schemas: [`schemas/v0.2/`](../../schemas/v0.2/), entry point `urn:hint:schema:v0.2:envelope`. Examples: [`examples/v0.2/`](../../examples/v0.2/).
 
 ## Context measurement (`Observation.context`)
 
@@ -33,8 +33,26 @@ A context measurement records context that HINT delivered to an agent: a bounded
 
 **Semantic rule `duplicate_measurement`:** two context measurements of one tool call with the same stage, action and reference are invalid. Counters (deliveries, expansions, repeated retrievals, bytes) are derived from these records; there is no second counter system. An expansion does not mean that the earlier answer failed, nor that the model used the content.
 
+## Effort findings (`RecommendationPayload.findings`, `abstentions`)
+
+A recommendation set can carry up to 20 findings. A finding states what costs effort, with its evidence. It holds only enumerations, numbers and opaque IDs; the client composes all text with local names.
+
+| Field | Meaning |
+|---|---|
+| `problem` | `repeated_navigation`, `repeated_delivery`, `large_low_selectivity_read`, `recovery_after_lost_context`, `repeated_validation`, `coordination_wait` |
+| `evidence_state` | `supported`, or `limited` when coverage or the number of tasks is too low to separate the causes |
+| `quantities` | up to 10 observed quantities: `metric`, `unit`, `value` (null when `state` is `unknown`), `coverage` `[known, total]` |
+| `scope` | the confirmed task IDs (at most 50), their count and the snapshot IDs |
+| `targets`, `observation_ids` | opaque entity and observation IDs that support the finding |
+| `causes` | hypotheses: `cause`, `state` (`supported`, `not_excluded`, `not_supported`) and the evidence codes (`basis`) that decide the state |
+| `interventions` | candidate intervention classes (the plan classes) |
+| `next_step` | a checkable step: `refresh_index_and_recheck`, `compare_context_variant`, `inspect_coupling`, `review_validation_loop`, `review_ownership`, `collect_more_tasks`, with targets |
+| `priority` | always `heuristic`: the array order is a heuristic priority, not a calibrated ranking |
+
+`abstentions` lists the problem classes that the server did not diagnose and why (`no_confirmed_tasks`, `insufficient_coverage`). A plan in a v0.2 set names `plan_schema` 0.2.x. The client shows at most five findings.
+
 ## Versions
 
-- The CLI and the server accept `0.1` and `0.2`. A v0.1 document cannot carry a context measurement.
-- A producer writes v0.2 only when a document holds a context measurement; otherwise it writes v0.1.
+- The CLI and the server accept `0.1` and `0.2`. A v0.1 document cannot carry a context measurement or findings.
+- A producer writes v0.2 only when a document holds a context measurement or findings; otherwise it writes v0.1.
 - `0.3` is unsupported (`unsupported_version`).

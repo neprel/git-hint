@@ -39,7 +39,8 @@ These notes describe changes that are not released yet. They name no version, an
 ## HINT data standard v0.2
 
 - The client reads v0.1 and v0.2 and still writes v0.1.
-- v0.2 adds one optional field, the context measurement of an observation, for the coming context delivery. See [v0.2 changes](../standard/hint-data-v0.2.md).
+- v0.2 adds two optional parts: the context measurement of an observation, and effort findings in a recommendation set. See [v0.2 changes](../standard/hint-data-v0.2.md).
+- The local plan (`git hint plan`, MCP `hint_plan`) shows at most five findings with local names: the problem, observed quantities with coverage, cause hypotheses and their state, candidate interventions and a next step. The order is a heuristic priority.
 
 ## Known limits
 

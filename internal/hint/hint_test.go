@@ -147,9 +147,10 @@ func TestIDVectors(t *testing.T) {
 	}
 }
 
-// v0.2 is v0.1 plus the context measurement of an observation: with the version strings
-// replaced and the context additions removed, every v0.2 schema equals its v0.1 schema.
-func TestV02IsV01PlusContext(t *testing.T) {
+// v0.2 is v0.1 plus the context measurement of an observation and the effort findings of a
+// recommendation set: with the version strings replaced and these additions removed, every
+// v0.2 schema equals its v0.1 schema.
+func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join("..", "..", "schemas", "v0.1", "*.schema.json"))
 	if len(files) == 0 {
 		t.Fatal("no v0.1 schemas")
@@ -171,6 +172,13 @@ func TestV02IsV01PlusContext(t *testing.T) {
 			delete(o["properties"].(map[string]any), "context")
 			all := o["allOf"].([]any)
 			o["allOf"] = all[:len(all)-1] // the context condition is the last entry
+		case "recommendation.schema.json":
+			defs := v2["$defs"].(map[string]any)
+			delete(defs, "Finding")
+			delete(defs, "Abstention")
+			props := defs["RecommendationPayload"].(map[string]any)["properties"].(map[string]any)
+			delete(props, "findings")
+			delete(props, "abstentions")
 		case "policy.schema.json":
 			var strip func(v any)
 			strip = func(v any) {

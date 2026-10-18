@@ -219,6 +219,36 @@
     "code": "time_order",
     "level": "semantic"
   },
+  "finding-calibrated-priority.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "finding-cause-free-text.json": {
+    "base": "recommendation-findings.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "finding-free-text.json": {
+    "base": "recommendation-findings.json",
+    "code": "content",
+    "level": "schema"
+  },
+  "finding-in-v01-document.json": {
+    "base": "recommendation-findings.json",
+    "code": "version",
+    "level": "schema"
+  },
+  "finding-unknown-with-value.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "finding-without-cause.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
   "forecast-claims-l4.json": {
     "base": "recommendation.json",
     "code": "evidence",

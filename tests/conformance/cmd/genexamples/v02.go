@@ -64,15 +64,64 @@ func contextPolicy(pol M) M {
 	return reseal(p)
 }
 
-func writeV02(root string, act, pol M) M {
-	ex := func(n string) string { return filepath.Join(root, "examples", "v0.2", n) }
-	doc := contextDoc(act)
-	write(ex("activity-context.json"), doc)
-	write(ex("export-policy.json"), contextPolicy(pol))
-	return doc
+// findingsDoc is a v0.2 recommendation set with effort findings: a supported repeated
+// navigation whose stale-index cause is supported by a stale context measurement, a limited
+// large-read finding, and one abstention.
+func findingsDoc(rec, act, ctx M) M {
+	d := clone(rec)
+	d["hint_version"] = "0.2.0"
+	for _, p := range obj(d, "payload")["plans"].([]any) {
+		p.(map[string]any)["plan_schema"] = "0.2.0" // a plan names the version of its document
+	}
+	plan := obj(d, "payload", "plans", 0)
+	snap := plan["snapshots"].([]any)[0].(map[string]any)["snapshot_id"]
+	targets := plan["targets"].([]any)
+	obs := obj(act, "payload")["observations"].([]any)
+	cobs := obj(ctx, "payload")["observations"].([]any)
+	oid := func(o any) any { return o.(map[string]any)["observation_id"] }
+	task := id("task", "shopkit", "1")
+	q := func(metric, unit string, v any, known, total int) M {
+		st := "observed"
+		if v == nil {
+			st = "unknown"
+		}
+		return M{"metric": metric, "unit": unit, "value": v, "state": st, "coverage": A{known, total}}
+	}
+	nav := M{"finding_id": id("finding", "repeated-navigation"), "problem": "repeated_navigation", "evidence_state": "supported",
+		"quantities": A{q("avoidable_repeats", "operations", 4, 6, 6), q("repeats_after_edit", "operations", 1, 6, 6), q("tasks", "tasks", 3, 3, 3)},
+		"scope":   M{"task_ids": A{task, id("task", "shopkit", "2"), id("task", "shopkit", "3")}, "task_count": 3, "snapshot_ids": A{snap}},
+		"targets": A{targets[0]}, "observation_ids": A{oid(obs[2]), oid(cobs[len(cobs)-2])},
+		"causes": A{
+			M{"cause": "stale_index", "state": "supported", "basis": A{"stale_context_measurement", "repeat_without_edit"}},
+			M{"cause": "architectural_coupling", "state": "not_supported", "basis": A{"single_component"}},
+			M{"cause": "intentional_repeat", "state": "not_excluded", "basis": A{"repeat_after_own_edit"}}},
+		"interventions": A{"CONTEXT_ONLY", "COLLECT_MORE_EVIDENCE"},
+		"next_step":     M{"check": "refresh_index_and_recheck", "targets": A{targets[0]}}, "priority": "heuristic"}
+	read := M{"finding_id": id("finding", "large-read"), "problem": "large_low_selectivity_read", "evidence_state": "limited",
+		"quantities": A{q("large_reads", "operations", 2, 2, 5), q("large_read_bytes", "bytes", nil, 2, 5)},
+		"scope":   M{"task_ids": A{task}, "task_count": 1, "snapshot_ids": A{snap}},
+		"targets": A{}, "observation_ids": A{oid(obs[2])},
+		"causes": A{M{"cause": "insufficient_context", "state": "not_excluded", "basis": A{"large_read_without_edit", "low_coverage"}},
+			M{"cause": "necessary_exploration", "state": "not_excluded", "basis": A{}}},
+		"interventions": A{"CONTEXT_ONLY", "COLLECT_MORE_EVIDENCE"},
+		"next_step":     M{"check": "collect_more_tasks", "targets": A{}}, "priority": "heuristic"}
+	p := obj(d, "payload")
+	p["findings"] = A{nav, read}
+	p["abstentions"] = A{M{"problem": "coordination_wait", "reason": "insufficient_coverage"}}
+	return reseal(d)
 }
 
-// v02Invalid are the negative cases of the context measurement.
+func writeV02(root string, act, pol, rec M) (ctx, findings M) {
+	ex := func(n string) string { return filepath.Join(root, "examples", "v0.2", n) }
+	ctx = contextDoc(act)
+	findings = findingsDoc(rec, act, ctx)
+	write(ex("activity-context.json"), ctx)
+	write(ex("export-policy.json"), contextPolicy(pol))
+	write(ex("recommendation-findings.json"), findings)
+	return ctx, findings
+}
+
+// v02Invalid are the negative cases of the context measurement and of the findings.
 func v02Invalid() []invalidCase {
 	first := func(d M) int { // index of the first context measurement
 		for i, o := range obj(d, "payload")["observations"].([]any) {
@@ -113,6 +162,24 @@ func v02Invalid() []invalidCase {
 			ctx(d, 1)["text"] = forbidden["prompt"]
 		}, nil},
 		{"context-in-v01-document", "activity-context.json", "schema", "version", func(d M) {
+			d["hint_version"] = "0.1.0"
+		}, nil},
+		{"finding-free-text", "recommendation-findings.json", "schema", "content", func(d M) {
+			obj(d, "payload", "findings", 0)["summary"] = forbidden["prompt"]
+		}, nil},
+		{"finding-cause-free-text", "recommendation-findings.json", "schema", "content", func(d M) {
+			obj(d, "payload", "findings", 0, "causes", 0)["cause"] = forbidden["identifier"]
+		}, nil},
+		{"finding-unknown-with-value", "recommendation-findings.json", "schema", "finding", func(d M) {
+			obj(d, "payload", "findings", 1, "quantities", 1)["value"] = 70000
+		}, nil},
+		{"finding-calibrated-priority", "recommendation-findings.json", "schema", "finding", func(d M) {
+			obj(d, "payload", "findings", 0)["priority"] = "calibrated"
+		}, nil},
+		{"finding-without-cause", "recommendation-findings.json", "schema", "finding", func(d M) {
+			obj(d, "payload", "findings", 0)["causes"] = A{}
+		}, nil},
+		{"finding-in-v01-document", "recommendation-findings.json", "schema", "version", func(d M) {
 			d["hint_version"] = "0.1.0"
 		}, nil},
 		// a second measurement of the same call, stage and action (two stages are fine)

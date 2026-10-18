@@ -589,6 +589,21 @@
           "items": {
             "$ref": "#/$defs/Plan"
           }
+        },
+        "findings": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "description": "Effort findings in heuristic priority order (v0.2)."
+        },
+        "abstentions": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/Abstention"
+          }
         }
       },
       "required": [
@@ -713,6 +728,344 @@
       },
       "required": [
         "effects"
+      ]
+    },
+    "Finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "An evidence-backed effort finding (v0.2): observed quantities, scope, references, coverage, cause hypotheses and a checkable next step. Causes are hypotheses; the array order is a heuristic priority, not a calibrated ranking.",
+      "properties": {
+        "finding_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "problem": {
+          "type": "string",
+          "enum": [
+            "repeated_navigation",
+            "repeated_delivery",
+            "large_low_selectivity_read",
+            "recovery_after_lost_context",
+            "repeated_validation",
+            "coordination_wait"
+          ]
+        },
+        "evidence_state": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "limited"
+          ],
+          "description": "limited: the facts hold, but coverage or the number of tasks is too low to separate the causes."
+        },
+        "quantities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "metric": {
+                "type": "string",
+                "enum": [
+                  "avoidable_repeats",
+                  "repeats_after_edit",
+                  "navigation_ops",
+                  "repeated_deliveries",
+                  "large_reads",
+                  "large_read_bytes",
+                  "read_bytes",
+                  "rereads_after_compaction",
+                  "reread_bytes",
+                  "compactions",
+                  "failing_cycles",
+                  "diagnostic_failures",
+                  "repeated_passes",
+                  "validation_runs",
+                  "blocking_waits",
+                  "wait_seconds",
+                  "tasks"
+                ]
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "operations",
+                  "bytes",
+                  "seconds",
+                  "tasks",
+                  "cycles"
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "observed",
+                  "unknown"
+                ]
+              },
+              "coverage": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[known, total] of the counted operations."
+              }
+            },
+            "required": [
+              "metric",
+              "unit",
+              "value",
+              "state",
+              "coverage"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "const": "unknown"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "value": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "task_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true,
+              "maxItems": 50
+            },
+            "task_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "snapshot_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true,
+              "maxItems": 20
+            }
+          },
+          "required": [
+            "task_ids",
+            "task_count",
+            "snapshot_ids"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 20
+        },
+        "observation_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "causes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "cause": {
+                "type": "string",
+                "enum": [
+                  "stale_index",
+                  "architectural_coupling",
+                  "insufficient_context",
+                  "poor_navigation",
+                  "intentional_repeat",
+                  "lost_context",
+                  "rework",
+                  "necessary_validation",
+                  "flaky_or_environment",
+                  "external_wait",
+                  "necessary_exploration"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "supported",
+                  "not_excluded",
+                  "not_supported"
+                ]
+              },
+              "basis": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "stale_context_measurement",
+                    "refused_stale_reference",
+                    "repeat_after_own_edit",
+                    "repeat_without_edit",
+                    "cross_component_repeat",
+                    "co_edited_dependency",
+                    "single_component",
+                    "compaction_observed",
+                    "reread_after_compaction",
+                    "large_read_without_edit",
+                    "delivered_context_observed",
+                    "no_context_measurement",
+                    "failure_then_edit_then_pass",
+                    "repeated_failure_same_targets",
+                    "failure_then_pass_without_edit",
+                    "pass_repeated_without_change",
+                    "blocking_wait_observed",
+                    "no_blocking_evidence",
+                    "low_coverage"
+                  ]
+                },
+                "uniqueItems": true,
+                "maxItems": 6
+              }
+            },
+            "required": [
+              "cause",
+              "state",
+              "basis"
+            ]
+          }
+        },
+        "interventions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "NO_CHANGE",
+              "CONTEXT_ONLY",
+              "REFACTOR_CODE",
+              "REPARTITION",
+              "REASSIGN_OWNER",
+              "COLLECT_MORE_EVIDENCE"
+            ]
+          }
+        },
+        "next_step": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "refresh_index_and_recheck",
+                "compare_context_variant",
+                "inspect_coupling",
+                "review_validation_loop",
+                "review_ownership",
+                "collect_more_tasks"
+              ]
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true,
+              "maxItems": 20
+            }
+          },
+          "required": [
+            "check",
+            "targets"
+          ]
+        },
+        "priority": {
+          "const": "heuristic"
+        }
+      },
+      "required": [
+        "finding_id",
+        "problem",
+        "evidence_state",
+        "quantities",
+        "scope",
+        "targets",
+        "observation_ids",
+        "causes",
+        "interventions",
+        "next_step",
+        "priority"
+      ]
+    },
+    "Abstention": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A problem class that the server did not diagnose, and why (v0.2).",
+      "properties": {
+        "problem": {
+          "type": "string",
+          "enum": [
+            "repeated_navigation",
+            "repeated_delivery",
+            "large_low_selectivity_read",
+            "recovery_after_lost_context",
+            "repeated_validation",
+            "coordination_wait"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "no_confirmed_tasks",
+            "insufficient_coverage"
+          ]
+        }
+      },
+      "required": [
+        "problem",
+        "reason"
       ]
     }
   }

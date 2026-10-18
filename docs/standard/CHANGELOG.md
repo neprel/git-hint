@@ -3,6 +3,7 @@
 ## 0.2.0 (draft, 2026-10-18)
 
 - Optional `Observation.context`: a measurement of delivered context (action, stage, artifact, reference, snapshot, policy state and reference, freshness, result, UTF-8 bytes, omitted details, a labeled token estimate, `repeat_of`). It is allowed only on `DISCOVER`/`READ` observations with a tool call ID. See [hint-data v0.2](hint-data-v0.2.md).
+- Optional `RecommendationPayload.findings` and `abstentions`: typed effort findings (problem, evidence state, observed quantities with coverage, scope, references, cause hypotheses, candidate interventions, next step, heuristic priority). See [hint-data v0.2](hint-data-v0.2.md).
 - Semantic rule `duplicate_measurement`.
 - The export policy lists `context` as an observation field.
 - Everything else is unchanged; v0.1 documents stay valid v0.1 documents.

@@ -35,6 +35,7 @@ func Render(im *Imported, cur *Current, source string) string {
 		}
 		return fmt.Sprintf("unresolved `%s`", id)
 	}
+	renderFindings(w, im.Doc["payload"].(map[string]any), name)
 	for i, p := range plans {
 		m := p.(map[string]any)
 		id := str(m["plan_id"])
@@ -155,6 +156,76 @@ func Render(im *Imported, cur *Current, source string) string {
 		}
 	}
 	return b.String()
+}
+
+// MaxShownFindings is the number of findings that the ordinary report shows.
+const MaxShownFindings = 5
+
+// renderFindings writes the effort findings of a v0.2 recommendation set (at most
+// MaxShownFindings, in the server's heuristic order) and the abstentions. Every value is an
+// enumeration, a number or a resolved local name.
+func renderFindings(w func(string, ...any), payload map[string]any, name func(string) string) {
+	fs, abst := list(payload["findings"]), list(payload["abstentions"])
+	if len(fs) == 0 && len(abst) == 0 {
+		return
+	}
+	w("## Findings\n\n")
+	w("The order is a heuristic priority, not a calibrated ranking. A cause is a hypothesis unless its state is `supported`.\n\n")
+	for i, x := range fs {
+		if i == MaxShownFindings {
+			w("%d more findings are not shown.\n\n", len(fs)-MaxShownFindings)
+			break
+		}
+		f := x.(map[string]any)
+		sc, _ := f["scope"].(map[string]any)
+		w("### Finding %d: %s (%s)\n\n", i+1, str(f["problem"]), str(f["evidence_state"]))
+		w("Scope: %v tasks, %d observations as evidence.\n\n", sc["task_count"], len(list(f["observation_ids"])))
+		w("| Quantity | Unit | Value | Coverage |\n|---|---|---|---|\n")
+		for _, y := range list(f["quantities"]) {
+			q := y.(map[string]any)
+			cov := list(q["coverage"])
+			v := "unknown"
+			if q["state"] == "observed" {
+				v = fmt.Sprint(q["value"])
+			}
+			w("| %s | %s | %s | %v of %v |\n", str(q["metric"]), str(q["unit"]), v, cov[0], cov[1])
+		}
+		w("\nCauses:\n\n")
+		for _, y := range list(f["causes"]) {
+			c := y.(map[string]any)
+			w("- %s: **%s**", str(c["cause"]), str(c["state"]))
+			if b := list(c["basis"]); len(b) > 0 {
+				w(" (%s)", joinAny(b))
+			}
+			w("\n")
+		}
+		w("\nCandidate interventions: %s.\n\n", joinAny(f["interventions"]))
+		if t := list(f["targets"]); len(t) > 0 {
+			w("Targets:\n\n")
+			for _, y := range t {
+				w("- %s\n", name(str(y)))
+			}
+			w("\n")
+		}
+		ns, _ := f["next_step"].(map[string]any)
+		w("Next step: **%s**", str(ns["check"]))
+		var tn []string
+		for _, y := range list(ns["targets"]) {
+			tn = append(tn, name(str(y)))
+		}
+		if len(tn) > 0 {
+			w(" on %s", strings.Join(tn, "; "))
+		}
+		w(".\n\n")
+	}
+	if len(abst) > 0 {
+		w("Not diagnosed:\n\n")
+		for _, y := range abst {
+			a := y.(map[string]any)
+			w("- %s: %s\n", str(a["problem"]), str(a["reason"]))
+		}
+		w("\n")
+	}
 }
 
 func title(m map[string]any) string {
