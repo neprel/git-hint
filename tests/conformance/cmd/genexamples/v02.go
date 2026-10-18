@@ -88,11 +88,11 @@ func findingsDoc(rec, act, ctx M) M {
 		return M{"metric": metric, "unit": unit, "value": v, "state": st, "coverage": A{known, total}}
 	}
 	nav := M{"finding_id": id("finding", "repeated-navigation"), "problem": "repeated_navigation", "evidence_state": "supported",
-		"quantities": A{q("avoidable_repeats", "operations", 4, 6, 6), q("repeats_after_edit", "operations", 1, 6, 6), q("tasks", "tasks", 3, 3, 3)},
+		"quantities": A{q("repeats_without_observed_edit", "operations", 4, 6, 6), q("repeats_after_edit", "operations", 1, 6, 6), q("tasks", "tasks", 3, 3, 3)},
 		"scope":   M{"task_ids": A{task, id("task", "shopkit", "2"), id("task", "shopkit", "3")}, "task_count": 3, "snapshot_ids": A{snap}},
 		"targets": A{targets[0]}, "observation_ids": A{oid(obs[2]), oid(cobs[len(cobs)-2])},
 		"causes": A{
-			M{"cause": "stale_index", "state": "supported", "basis": A{"stale_context_measurement", "repeat_without_edit"}},
+			M{"cause": "stale_index", "state": "supported", "basis": A{"stale_context_measurement", "repeat_without_observed_edit"}},
 			M{"cause": "architectural_coupling", "state": "not_supported", "basis": A{"single_component"}},
 			M{"cause": "intentional_repeat", "state": "not_excluded", "basis": A{"repeat_after_own_edit"}}},
 		"interventions": A{"CONTEXT_ONLY", "COLLECT_MORE_EVIDENCE"},

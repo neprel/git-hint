@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:f819b9173d21c9a358b82809bcb23001e2befcb8bd679886bfec55875c719fbb",
+  "content_digest": "sha256:90bca1c67e09dc0115a57f2ef377ca65f1fa44e035a5c6ee2c521f5e78e1c244",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
   "document_type": "recommendation_set",
@@ -17,7 +17,7 @@
           {
             "basis": [
               "stale_context_measurement",
-              "repeat_without_edit"
+              "repeat_without_observed_edit"
             ],
             "cause": "canarySymbolQ7",
             "state": "supported"
@@ -61,7 +61,7 @@
               6,
               6
             ],
-            "metric": "avoidable_repeats",
+            "metric": "repeats_without_observed_edit",
             "state": "observed",
             "unit": "operations",
             "value": 4

@@ -28,7 +28,7 @@ func TestRenderFindings(t *testing.T) {
 	im := &Imported{Result: hint.ImportResult{Document: "accepted"}, Doc: doc}
 	md := Render(im, cur, "x.json")
 	for _, want := range []string{"## Findings", "heuristic priority, not a calibrated ranking", "### Finding 1: repeated_navigation (supported)",
-		"- stale_index: **supported** (stale_context_measurement, repeat_without_edit)", "| large_read_bytes | bytes | unknown | 2 of 5 |",
+		"- stale_index: **supported** (stale_context_measurement, repeat_without_observed_edit)", "| large_read_bytes | bytes | unknown | 2 of 5 |",
 		"Next step: **refresh_index_and_recheck** on billing/ledger.go", "- coordination_wait: insufficient_coverage", "### Finding 2: large_low_selectivity_read (limited)"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("missing %q in\n%s", want, md)

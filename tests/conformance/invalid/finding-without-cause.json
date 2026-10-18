@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:7076c0975cc1e41aab890f2670a896cd1ed5e1bf9e33cb312cdb0ccbc0e8cf63",
+  "content_digest": "sha256:eb42f58a574165552b0481696153ef48423a053046a141fd39eb3d0a737b5648",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
   "document_type": "recommendation_set",
@@ -38,7 +38,7 @@
               6,
               6
             ],
-            "metric": "avoidable_repeats",
+            "metric": "repeats_without_observed_edit",
             "state": "observed",
             "unit": "operations",
             "value": 4

@@ -768,7 +768,7 @@
               "metric": {
                 "type": "string",
                 "enum": [
-                  "avoidable_repeats",
+                  "repeats_without_observed_edit",
                   "repeats_after_edit",
                   "navigation_ops",
                   "repeated_deliveries",
@@ -946,8 +946,10 @@
                   "enum": [
                     "stale_context_measurement",
                     "refused_stale_reference",
+                    "current_context_measurement",
+                    "partial_context_coverage",
                     "repeat_after_own_edit",
-                    "repeat_without_edit",
+                    "repeat_without_observed_edit",
                     "cross_component_repeat",
                     "co_edited_dependency",
                     "single_component",

@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:7866fc08c01db09f53ae9c31aa06cf9d2828127e6025bc7e1e79e6ecf8a198d1",
+  "content_digest": "sha256:791c5254cda3044a6970a5f10254283fd936d9b83538e43b54cf179cea697d7e",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
   "document_type": "recommendation_set",
@@ -17,7 +17,7 @@
           {
             "basis": [
               "stale_context_measurement",
-              "repeat_without_edit"
+              "repeat_without_observed_edit"
             ],
             "cause": "stale_index",
             "state": "supported"
@@ -61,7 +61,7 @@
               6,
               6
             ],
-            "metric": "avoidable_repeats",
+            "metric": "repeats_without_observed_edit",
             "state": "observed",
             "unit": "operations",
             "value": 4

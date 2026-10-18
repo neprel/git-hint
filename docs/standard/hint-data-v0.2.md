@@ -41,10 +41,10 @@ A recommendation set can carry up to 20 findings. A finding states what costs ef
 |---|---|
 | `problem` | `repeated_navigation`, `repeated_delivery`, `large_low_selectivity_read`, `recovery_after_lost_context`, `repeated_validation`, `coordination_wait` |
 | `evidence_state` | `supported`, or `limited` when coverage or the number of tasks is too low to separate the causes |
-| `quantities` | up to 10 observed quantities: `metric`, `unit`, `value` (null when `state` is `unknown`), `coverage` `[known, total]` |
+| `quantities` | up to 10 observed quantities: `metric`, `unit`, `value` (null when `state` is `unknown`), `coverage` `[known, total]`. They are counts of what was observed, never avoidable work or a saving. Example: `repeats_without_observed_edit` counts reads of a target with no observed edit since the last read; edit coverage can be incomplete (an edit outside the observed tools is not seen) |
 | `scope` | the confirmed task IDs (at most 50), their count and the snapshot IDs |
 | `targets`, `observation_ids` | opaque entity and observation IDs that support the finding |
-| `causes` | hypotheses: `cause`, `state` (`supported`, `not_excluded`, `not_supported`) and the evidence codes (`basis`) that decide the state |
+| `causes` | hypotheses: `cause`, `state` (`supported`, `not_excluded`, `not_supported`) and the evidence codes (`basis`) that decide the state. Evidence counts only for the same task and target (for example a context measurement); unrelated evidence never excludes a cause |
 | `interventions` | candidate intervention classes (the plan classes) |
 | `next_step` | a checkable step: `refresh_index_and_recheck`, `compare_context_variant`, `inspect_coupling`, `review_validation_loop`, `review_ownership`, `collect_more_tasks`, with targets |
 | `priority` | always `heuristic`: the array order is a heuristic priority, not a calibrated ranking |

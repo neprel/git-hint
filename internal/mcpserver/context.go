@@ -35,12 +35,13 @@ import (
 const (
 	ctxDefaultDepth, ctxMaxDepth       = 1, 2
 	ctxDefaultEntities, ctxMaxEntities = 20, 100
+	ctxMinBytes                        = 2048 // room for the metadata of an answer
 	ctxDefaultBytes, ctxMaxBytes       = 16 << 10, 64 << 10
 	ctxDefaultMillis, ctxMaxMillis     = 1000, 5000
 	ctxMaxFileBytes                    = 4 << 20 // a larger file gives no source
 	ctxMaxHashBytes                    = 8 << 20 // freshness checks read at most this much
 	ctxRefPrefix                       = "hc1."
-	ctxCoverage                        = "Go declarations, file imports of repository packages and test files of the last collected snapshot (syntax level, no call graph); other languages give files only; source is read from the work tree only when its content hash equals the snapshot"
+	ctxCoverage                        = "Go declarations, imports and test files of the snapshot (syntax level, no call graph); source only when the file hash equals the snapshot"
 )
 
 var ctxRefPattern = regexp.MustCompile(`^hc1\.[0-9a-f]{32}\.[0-9a-f]{32}$`)
@@ -51,7 +52,7 @@ type ContextIn struct {
 	Repo        string `json:"repository,omitempty" jsonschema:"local repository name; default all"`
 	Depth       int    `json:"depth,omitempty" jsonschema:"graph hops from the start (1 or 2; default 1)"`
 	MaxEntities int    `json:"max_entities,omitempty" jsonschema:"at most this many items (1-100; default 20)"`
-	MaxBytes    int    `json:"max_bytes,omitempty" jsonschema:"at most this many UTF-8 bytes of items (1024-65536; default 16384)"`
+	MaxBytes    int    `json:"max_bytes,omitempty" jsonschema:"at most this many UTF-8 bytes of the whole answer (2048-65536; default 16384)"`
 	MaxMillis   int    `json:"max_ms,omitempty" jsonschema:"time limit in milliseconds (100-5000; default 1000)"`
 }
 
@@ -84,7 +85,8 @@ type ContextLimits struct {
 
 type ContextUsed struct {
 	Entities  int `json:"entities"`
-	Bytes     int `json:"bytes" jsonschema:"UTF-8 bytes of the items as returned"`
+	Bytes     int `json:"bytes" jsonschema:"UTF-8 bytes of the whole answer as returned: the structured result and the text summary, before the transport envelope"`
+	ItemBytes int `json:"item_bytes" jsonschema:"UTF-8 bytes of the items alone (part of bytes)"`
 	ElapsedMS int `json:"elapsed_ms"`
 }
 
@@ -139,7 +141,7 @@ func (o *ContextIn) limits() (ContextLimits, bool) {
 		return *v >= lo && *v <= hi
 	}
 	ok := def(&l.Depth, ctxDefaultDepth, 1, ctxMaxDepth) && def(&l.Entities, ctxDefaultEntities, 1, ctxMaxEntities) &&
-		def(&l.Bytes, ctxDefaultBytes, 1024, ctxMaxBytes) && def(&l.MaxMillis, ctxDefaultMillis, 100, ctxMaxMillis)
+		def(&l.Bytes, ctxDefaultBytes, ctxMinBytes, ctxMaxBytes) && def(&l.MaxMillis, ctxDefaultMillis, 100, ctxMaxMillis)
 	return l, ok
 }
 
@@ -355,25 +357,14 @@ func excerpt(b []byte, line, n int) string {
 	return strings.Join(ls[line-1:end], "")
 }
 
-// truncLines keeps whole lines of s within max bytes.
-func truncLines(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	cut := strings.LastIndexByte(s[:max], '\n')
-	if cut < 0 {
-		return ""
-	}
-	return s[:cut+1]
-}
-
 func (h *handlers) contextTool(ctx context.Context, _ *mcp.CallToolRequest, in ContextIn) (*mcp.CallToolResult, ContextOut, error) {
 	lim, ok := in.limits()
 	if !ok || (in.Seed == "") == (in.Ref == "") || len(in.Repo) > 200 || (in.Ref != "" && !ctxRefPattern.MatchString(in.Ref)) ||
 		(in.Seed != "" && !validQuery(in.Seed)) {
 		return nil, ContextOut{}, h.fail("hint_context", toolErr("invalid_argument"))
 	}
-	start := time.Now()
+	now := h.o.Now
+	start := now()
 	deadline := start.Add(time.Duration(lim.MaxMillis) * time.Millisecond)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
@@ -445,13 +436,16 @@ func (h *handlers) contextTool(ctx context.Context, _ *mcp.CallToolRequest, in C
 				out.Snapshot = &ContextSnapshot{SnapshotRef: SnapshotRef{Repo: c.repo.Name, SnapshotID: c.l.Record.SnapshotID, CapturedAt: c.l.Record.CapturedAt},
 					Digest: c.l.Record.Digest, Latest: c.latest}
 			}
+			add := newCtxAdder(&out, lim, now, deadline)
 			for i, x := range hits {
-				if i >= lim.Entities {
-					out.Omitted.Entities = len(hits) - lim.Entities
-					out.Omitted.Reasons = append(out.Omitted.Reasons, "entities")
+				if add.late() {
+					add.omit("time", len(hits)-i)
 					break
 				}
-				out.Items = append(out.Items, x.c.item(x.id, "candidate", 0))
+				if !add.item(x.c.item(x.id, "candidate", 0)) {
+					out.Omitted.Entities += len(hits) - i
+					break
+				}
 			}
 			return h.ctxFinish(s, &out, in, start, "%d entities match; call again with one candidate ref.", len(hits))
 		}
@@ -469,7 +463,7 @@ func (h *handlers) contextTool(ctx context.Context, _ *mcp.CallToolRequest, in C
 			}
 		}
 	}
-	h.ctxWalk(snap, seed, lim, deadline, rd, &out)
+	h.ctxWalk(snap, seed, lim, newCtxAdder(&out, lim, now, deadline), rd, &out)
 	out.Result = "delivered"
 	out.Freshness = "current"
 	files := map[string]bool{}
@@ -519,64 +513,122 @@ func (c *ctxSnap) item(id, rel string, hops int) ContextItem {
 	return it
 }
 
+// ctxAdder adds items within the limits: entities, the time limit, and the bytes left for
+// items after a reserve for the metadata of the answer. ctxFinish then measures the whole
+// answer and drops items until it fits.
+type ctxAdder struct {
+	out      *ContextOut
+	lim      ContextLimits
+	now      func() time.Time
+	deadline time.Time
+	room     int // bytes for items
+	used     int
+}
+
+func newCtxAdder(out *ContextOut, lim ContextLimits, now func() time.Time, deadline time.Time) *ctxAdder {
+	return &ctxAdder{out: out, lim: lim, now: now, deadline: deadline, room: lim.Bytes - metaReserve(out)}
+}
+
+// metaReserve is the size of the answer without items, with the longest values that
+// ctxFinish fills in (artifact and ref IDs, numbers, every omission reason, the summary).
+func metaReserve(out *ContextOut) int {
+	m := *out
+	m.Items = []ContextItem{}
+	m.Omitted = ContextOmitted{Entities: 1 << 30, SourceBytes: 1 << 30, Reasons: []string{"entities", "bytes", "time", "depth"}}
+	m.Used = ContextUsed{Entities: 1 << 30, Bytes: 1 << 30, ItemBytes: 1 << 30, ElapsedMS: 1 << 30}
+	m.ArtifactID = strings.Repeat("0", 32)
+	m.Measurement = ContextMeasurement{Action: "retrieve_original", Stage: "delivered_context", ArtifactID: m.ArtifactID, RefID: m.ArtifactID,
+		SnapshotID: m.ArtifactID, PolicyState: "not_applicable", Freshness: "unknown", Result: "refused_stale", Bytes: 1 << 30, Omitted: 1 << 30,
+		Tokens: map[string]any{"value": 1 << 30, "estimator": "bytes-div-4", "estimator_version": "1", "label": "estimate"}}
+	if m.Snapshot == nil {
+		m.Snapshot = &ContextSnapshot{SnapshotRef: SnapshotRef{SnapshotID: m.ArtifactID, CapturedAt: "2006-01-02T15:04:05Z"}, Digest: "sha256:" + strings.Repeat("0", 64)}
+	}
+	b, _ := json.Marshal(m)
+	return len(b) + ctxMaxSummary
+}
+
+const ctxMaxSummary = 160 // the text summary of an answer is shorter
+
+func (a *ctxAdder) omit(reason string, n int) {
+	a.out.Omitted.Entities += n
+	if !slices.Contains(a.out.Omitted.Reasons, reason) {
+		a.out.Omitted.Reasons = append(a.out.Omitted.Reasons, reason)
+	}
+}
+
+// late reports whether the time limit has passed.
+func (a *ctxAdder) late() bool { return a.now().After(a.deadline) }
+
+// item adds one item within the entity and byte limits, or records why not (the caller counts
+// the items left out; it checks the time limit).
+func (a *ctxAdder) item(it ContextItem) bool {
+	if len(a.out.Items) >= a.lim.Entities {
+		a.omit("entities", 0)
+		return false
+	}
+	b, _ := json.Marshal(it)
+	if a.used+len(b)+1 > a.room {
+		a.omit("bytes", 0)
+		return false
+	}
+	a.used += len(b) + 1
+	a.out.Items = append(a.out.Items, it)
+	return true
+}
+
+// withSource fills the item's source from the snapshot's file, cut at whole lines so that the
+// item fits the bytes left.
+func (a *ctxAdder) withSource(it ContextItem, c *ctxSnap, rd *sourceReader) ContextItem {
+	if it.Line <= 0 {
+		return it
+	}
+	st := rd.file(c, c.fileOf(it.idOf()))
+	it.SourceState = st.state
+	if st.state == "unknown" {
+		it.SourceState = "not_returned"
+	}
+	if st.state != "returned" {
+		return it
+	}
+	src := excerpt(st.b, it.Line, it.Lines)
+	lines := strings.SplitAfter(src, "\n")
+	fits := func(k int) bool { // the item with the first k lines fits, as JSON with its escaping
+		it.Source = strings.Join(lines[:k], "")
+		b, _ := json.Marshal(it)
+		return a.used+len(b)+1 <= a.room
+	}
+	k := sort.Search(len(lines)+1, func(k int) bool { return !fits(k) }) - 1 // the most lines that fit
+	if k < 0 {
+		k = 0
+	}
+	it.Source = strings.Join(lines[:k], "")
+	switch {
+	case it.Source == "" && src != "":
+		it.SourceState = "omitted_budget"
+	case len(it.Source) < len(src):
+		it.SourceState = "truncated"
+	}
+	if len(it.Source) < len(src) {
+		a.out.Omitted.SourceBytes += len(src) - len(it.Source)
+		a.omit("bytes", 0)
+	}
+	return it
+}
+
 // ctxWalk adds the start and its neighborhood breadth-first, within the limits. Only the
 // start declaration and the tests that name it carry source.
-func (h *handlers) ctxWalk(c *ctxSnap, seed string, lim ContextLimits, deadline time.Time, rd *sourceReader, out *ContextOut) {
-	used := 0
+func (h *handlers) ctxWalk(c *ctxSnap, seed string, lim ContextLimits, add *ctxAdder, rd *sourceReader, out *ContextOut) {
 	seen := map[string]bool{seed: true}
-	stop := func(reason string, left int) {
-		out.Omitted.Entities += left
-		if !slices.Contains(out.Omitted.Reasons, reason) {
-			out.Omitted.Reasons = append(out.Omitted.Reasons, reason)
-		}
-	}
-	addItem := func(it ContextItem, withSource bool) bool {
-		if withSource && it.Line > 0 {
-			st := rd.file(c, c.fileOf(it.idOf()))
-			it.SourceState = st.state
-			if st.state == "unknown" {
-				it.SourceState = "not_returned"
-			}
-			if st.state == "returned" {
-				src := excerpt(st.b, it.Line, it.Lines)
-				meta, _ := json.Marshal(it)
-				room := lim.Bytes - used - len(meta) - 2
-				it.Source = truncLines(src, max(room-len(src)/8-16, 0)) // JSON escaping can grow the text
-				for it.Source != "" {
-					b, _ := json.Marshal(it)
-					if used+len(b)+1 <= lim.Bytes {
-						break
-					}
-					it.Source = truncLines(it.Source, len(it.Source)-1)
-				}
-				switch {
-				case it.Source == "" && src != "":
-					it.SourceState = "omitted_budget"
-				case len(it.Source) < len(src):
-					it.SourceState = "truncated"
-				}
-				if len(it.Source) < len(src) {
-					out.Omitted.SourceBytes += len(src) - len(it.Source)
-					if !slices.Contains(out.Omitted.Reasons, "bytes") {
-						out.Omitted.Reasons = append(out.Omitted.Reasons, "bytes")
-					}
-				}
-			}
-		}
-		b, _ := json.Marshal(it)
-		if used+len(b)+1 > lim.Bytes {
-			return false
-		}
-		used += len(b) + 1
-		out.Items = append(out.Items, it)
-		return true
-	}
 	rel := "start"
 	if e := c.ents[seed]; e.Kind != "file" && e.Kind != "directory" && e.Kind != "repository" {
 		rel = "definition"
 	}
-	if !addItem(c.item(seed, rel, 0), rel == "definition") {
-		stop("bytes", 1)
+	it := c.item(seed, rel, 0)
+	if rel == "definition" {
+		it = add.withSource(it, c, rd)
+	}
+	if !add.item(it) {
+		out.Omitted.Entities++
 		return
 	}
 	frontier := []string{seed}
@@ -588,21 +640,20 @@ func (h *handlers) ctxWalk(c *ctxSnap, seed string, lim ContextLimits, deadline 
 				if seen[e.id] {
 					continue
 				}
-				if time.Now().After(deadline) {
-					stop("time", len(nb)-k)
+				if add.late() {
+					add.omit("time", len(nb)-k)
 					for _, rest := range frontier[fi+1:] {
 						out.Omitted.Entities += len(c.neighbors(rest))
 					}
 					return
 				}
-				if len(out.Items) >= lim.Entities {
-					stop("entities", 1)
-					seen[e.id] = true
-					continue
-				}
 				seen[e.id] = true
-				if !addItem(c.item(e.id, e.rel, hop), e.rel == "test") {
-					stop("bytes", 1)
+				it := c.item(e.id, e.rel, hop)
+				if e.rel == "test" {
+					it = add.withSource(it, c, rd)
+				}
+				if !add.item(it) {
+					out.Omitted.Entities++
 					continue
 				}
 				next = append(next, e.id)
@@ -615,7 +666,7 @@ func (h *handlers) ctxWalk(c *ctxSnap, seed string, lim ContextLimits, deadline 
 		for _, e := range c.neighbors(id) {
 			if !seen[e.id] {
 				seen[e.id] = true
-				stop("depth", 1)
+				add.omit("depth", 1)
 			}
 		}
 	}
@@ -649,35 +700,65 @@ func (h *handlers) refSnapshot(s *store.Store, repo, snapID string) (*ctxSnap, e
 	return nil, nil
 }
 
-// ctxFinish measures the answer and builds its v0.2 context measurement.
+// ctxFinish measures the answer and builds its v0.2 context measurement. The measured bytes
+// are the whole answer as returned (structured result and text summary). When the answer is
+// larger than max_bytes, items are dropped from the end and counted as omitted.
 func (h *handlers) ctxFinish(s *store.Store, out *ContextOut, in ContextIn, start time.Time, format string, a ...any) (*mcp.CallToolResult, ContextOut, error) {
-	b, _ := json.Marshal(out.Items)
-	out.Used = ContextUsed{Entities: len(out.Items), Bytes: len(b), ElapsedMS: int(time.Since(start).Milliseconds())}
-	m := ContextMeasurement{Action: out.Action, Stage: "delivered_context", PolicyState: "not_applicable", Freshness: out.Freshness,
-		Result: out.Result, Bytes: len(b), Omitted: out.Omitted.Entities,
-		Tokens: map[string]any{"value": len(b) / 4, "estimator": "bytes-div-4", "estimator_version": "1", "label": "estimate"}}
-	if m.Result == "ambiguous" {
-		// candidates were delivered; candidates of several snapshots have no single snapshot
-		m.Result = "delivered"
-		if out.Snapshot == nil {
-			m.Result = "missing"
+	res := text(format, a...)
+	summary := len(res.Content[0].(*mcp.TextContent).Text)
+	for {
+		items, _ := json.Marshal(out.Items)
+		m := ContextMeasurement{Action: out.Action, Stage: "delivered_context", PolicyState: "not_applicable", Freshness: out.Freshness,
+			Result: out.Result, Omitted: out.Omitted.Entities}
+		if m.Result == "ambiguous" {
+			// candidates were delivered; candidates of several snapshots have no single snapshot
+			m.Result = "delivered"
+			if out.Snapshot == nil {
+				m.Result = "missing"
+			}
 		}
-	}
-	if out.Snapshot != nil {
-		m.SnapshotID = out.Snapshot.SnapshotID
-	}
-	if in.Ref != "" {
-		m.RefID = hint.DeriveID(s.Key(), "context-ref", in.Ref)
-	}
-	if m.Result == "delivered" {
-		sum := sha256.Sum256(b)
-		snapID := ""
 		if out.Snapshot != nil {
-			snapID = out.Snapshot.SnapshotID + "\x00" + out.Snapshot.Digest
+			m.SnapshotID = out.Snapshot.SnapshotID
 		}
-		out.ArtifactID = hint.DeriveID(s.Key(), "context-artifact", snapID, hex.EncodeToString(sum[:]))
-		m.ArtifactID = out.ArtifactID
+		if in.Ref != "" {
+			m.RefID = hint.DeriveID(s.Key(), "context-ref", in.Ref)
+		}
+		out.ArtifactID = ""
+		if m.Result == "delivered" {
+			sum := sha256.Sum256(items)
+			snapID := ""
+			if out.Snapshot != nil {
+				snapID = out.Snapshot.SnapshotID + "\x00" + out.Snapshot.Digest
+			}
+			out.ArtifactID = hint.DeriveID(s.Key(), "context-artifact", snapID, hex.EncodeToString(sum[:]))
+			m.ArtifactID = out.ArtifactID
+		}
+		out.Used = ContextUsed{Entities: len(out.Items), ItemBytes: len(items), ElapsedMS: int(h.o.Now().Sub(start).Milliseconds())}
+		// the size names itself: repeat until the number of digits is stable
+		total := 0
+		for range 6 {
+			out.Used.Bytes, m.Bytes = total, total
+			m.Tokens = map[string]any{"value": total / 4, "estimator": "bytes-div-4", "estimator_version": "1", "label": "estimate"}
+			out.Measurement = m
+			b, _ := json.Marshal(out)
+			if len(b)+summary == total {
+				break
+			}
+			total = len(b) + summary
+		}
+		if total <= in.limitsOrZero() || len(out.Items) == 0 {
+			return res, *out, nil
+		}
+		out.Items = out.Items[:len(out.Items)-1]
+		out.Omitted.Entities++
+		if !slices.Contains(out.Omitted.Reasons, "bytes") {
+			out.Omitted.Reasons = append(out.Omitted.Reasons, "bytes")
+		}
 	}
-	out.Measurement = m
-	return text(format, a...), *out, nil
+}
+
+// limitsOrZero is the effective byte limit of a valid input.
+func (o ContextIn) limitsOrZero() int {
+	l, _ := o.limits()
+	return l.Bytes
 }

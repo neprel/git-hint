@@ -35,10 +35,10 @@ func TestContextWalkStaysBoundedOnALargeCycle(t *testing.T) {
 	c := bigSnap(2000)
 	seed := fmt.Sprintf("d%031x", 7)
 	rd := &sourceReader{cache: map[string]fileState{}}
-	for _, lim := range []ContextLimits{{Depth: 2, Entities: 100, Bytes: 64 << 10, MaxMillis: 5000}, {Depth: 2, Entities: 100, Bytes: 2048, MaxMillis: 5000}} {
+	for _, lim := range []ContextLimits{{Depth: 2, Entities: 100, Bytes: 64 << 10, MaxMillis: 5000}, {Depth: 2, Entities: 100, Bytes: 4096, MaxMillis: 5000}} {
 		out := &ContextOut{Omitted: ContextOmitted{Reasons: []string{}}}
 		t0 := time.Now()
-		(&handlers{}).ctxWalk(c, seed, lim, time.Now().Add(time.Hour), rd, out)
+		(&handlers{}).ctxWalk(c, seed, lim, newCtxAdder(out, lim, time.Now, time.Now().Add(time.Hour)), rd, out)
 		if len(out.Items) > lim.Entities || out.Omitted.Entities == 0 || time.Since(t0) > 2*time.Second {
 			t.Fatalf("limits %v: %d items, omitted %v, %v", lim, len(out.Items), out.Omitted, time.Since(t0))
 		}
@@ -52,7 +52,8 @@ func TestContextWalkStaysBoundedOnALargeCycle(t *testing.T) {
 	}
 	// a passed deadline stops the walk after the start and says so
 	out := &ContextOut{Omitted: ContextOmitted{Reasons: []string{}}}
-	(&handlers{}).ctxWalk(c, seed, ContextLimits{Depth: 2, Entities: 100, Bytes: 64 << 10}, time.Now().Add(-time.Second), rd, out)
+	lim := ContextLimits{Depth: 2, Entities: 100, Bytes: 64 << 10}
+	(&handlers{}).ctxWalk(c, seed, lim, newCtxAdder(out, lim, time.Now, time.Now().Add(-time.Second)), rd, out)
 	if len(out.Items) != 1 || out.Omitted.Reasons[0] != "time" || out.Omitted.Entities == 0 {
 		t.Fatalf("deadline: %d items, %v", len(out.Items), out.Omitted)
 	}

@@ -1,11 +1,17 @@
 package mcpserver_test
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/neprel/git-hint/internal/hint"
 	"github.com/neprel/git-hint/internal/mcpserver"
@@ -68,9 +74,10 @@ func TestContextAroundADeclarationAndExpansion(t *testing.T) {
 	}
 	used := m["used"].(map[string]any)
 	raw, _ := json.Marshal(m["items"])
-	if int(used["bytes"].(float64)) != len(raw) || used["bytes"].(float64) > 16384 {
-		t.Fatalf("bytes: %v, payload %d", used, len(raw))
+	if int(used["item_bytes"].(float64)) != len(raw) || used["bytes"].(float64) > 16384 {
+		t.Fatalf("bytes: %v, items %d", used, len(raw))
 	}
+	ctxExact(t, cs, map[string]any{"seed": "Rate"}, 16384)
 	ms := m["measurement"].(map[string]any)
 	if ms["action"] != "deliver" || ms["stage"] != "delivered_context" || ms["result"] != "delivered" || ms["artifact_id"] != m["artifact_id"] ||
 		ms["snapshot_id"] != snap["snapshot_id"] || ms["policy_state"] != "not_applicable" || ms["bytes"] != used["bytes"] ||
@@ -133,9 +140,9 @@ func TestContextLimitsAndCycles(t *testing.T) {
 	if len(ctxItems(m)) != 2 || om["entities"].(float64) < 1 || !strings.Contains(strings.Join(anyStrings(om["reasons"]), ","), "entities") {
 		t.Fatalf("entity limit: %v", m)
 	}
-	m = mustCall(t, cs, "hint_context", map[string]any{"seed": "Rate", "max_bytes": 1024})
+	m = ctxExact(t, cs, map[string]any{"seed": "Rate", "max_bytes": 2048}, 2048)
 	used := m["used"].(map[string]any)
-	if used["bytes"].(float64) > 1024 {
+	if used["bytes"].(float64) > 2048 {
 		t.Fatalf("byte limit: %v", used)
 	}
 	if len(ctxItems(m)) == 0 || !strings.Contains(strings.Join(anyStrings(m["omitted"].(map[string]any)["reasons"]), ","), "bytes") {
@@ -147,7 +154,7 @@ func TestContextLimitsAndCycles(t *testing.T) {
 	}
 	for _, args := range []map[string]any{
 		{}, {"seed": "Rate", "ref": "hc1." + strings.Repeat("a", 32) + "." + strings.Repeat("b", 32)}, {"ref": "hc1.x.y"},
-		{"seed": "Rate", "depth": 3}, {"seed": "Rate", "max_entities": 101}, {"seed": "Rate", "max_bytes": 100}, {"seed": "Rate", "max_ms": 99999},
+		{"seed": "Rate", "depth": 3}, {"seed": "Rate", "max_entities": 101}, {"seed": "Rate", "max_bytes": 2047}, {"seed": "Rate", "max_ms": 99999},
 		{"seed": "../etc/passwd; x"},
 	} {
 		if _, errText := call(t, cs, "hint_context", args); !strings.Contains(errText, "invalid_argument") {
@@ -186,7 +193,8 @@ func TestContextStaleReferences(t *testing.T) {
 	if r["result"] != "refused_stale" || r["freshness"] != "stale" || len(ctxItems(r)) != 0 || r["artifact_id"] != nil {
 		t.Fatalf("stale ref: %v", r)
 	}
-	if ms := r["measurement"].(map[string]any); ms["result"] != "refused_stale" || ms["freshness"] != "stale" || ms["bytes"].(float64) != 2 {
+	ctxExact(t, cs, map[string]any{"ref": rateRef}, 16384)
+	if ms := r["measurement"].(map[string]any); ms["result"] != "refused_stale" || ms["freshness"] != "stale" || ms["bytes"] != r["used"].(map[string]any)["bytes"] {
 		t.Fatalf("stale measurement: %v", ms)
 	}
 	gh(t, shop, "collect")
@@ -299,5 +307,89 @@ func TestContextMeasurementsAreValidV02(t *testing.T) {
 		if err := sch.Validate(d); err != nil {
 			t.Errorf("%s: measurement %v is not valid v0.2: %v", name, m["measurement"], err)
 		}
+	}
+}
+
+// ctxExact calls hint_context and checks that used.bytes and measurement.bytes equal the
+// whole answer as returned (structured result plus text summary) and stay within limit.
+func ctxExact(t *testing.T, cs *mcp.ClientSession, args map[string]any, limit int) map[string]any {
+	t.Helper()
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "hint_context", Arguments: args})
+	if err != nil || res.IsError {
+		t.Fatalf("hint_context %v: %v %v", args, err, res)
+	}
+	sc, _ := json.Marshal(res.StructuredContent)
+	n := len(sc)
+	for _, c := range res.Content {
+		n += len(c.(*mcp.TextContent).Text)
+	}
+	var m map[string]any
+	_ = json.Unmarshal(sc, &m)
+	used := int(m["used"].(map[string]any)["bytes"].(float64))
+	if used != n || int(m["measurement"].(map[string]any)["bytes"].(float64)) != n || n > limit {
+		t.Fatalf("%v: used %d, measured %v, returned %d, limit %d", args, used, m["measurement"].(map[string]any)["bytes"], n, limit)
+	}
+	return m
+}
+
+// C11B-1: every branch keeps the whole answer within max_bytes and measures it exactly:
+// many candidates, long names, escaped source, missing and stale answers.
+func TestContextByteLimitOnEveryBranch(t *testing.T) {
+	shop, _ := project_(t)
+	var b strings.Builder
+	b.WriteString("package many\n\ntype T struct{}\n\n")
+	long := strings.Repeat("L", 150)
+	for i := range 30 {
+		fmt.Fprintf(&b, "func (T%02d) RepeatName() {}\n\ntype T%02d struct{}\n\nfunc (T%02d) %s%02d() {}\n\n", i, i, i, long, i)
+	}
+	b.WriteString("func Escaped() string {\n")
+	for range 400 {
+		b.WriteString("\treturn \"<&>\\\"\\\\\" + `\u2028`\n")
+	}
+	b.WriteString("}\n")
+	testkit.WriteFile(t, shop, "canary_dir_e1d2/many/many.go", b.String())
+	gh(t, shop, "collect", "--full")
+	cs := session(t, mcpserver.Options{Dir: shop})
+	for _, lim := range []int{2048, 4096} {
+		m := ctxExact(t, cs, map[string]any{"seed": "RepeatName", "max_entities": 100, "max_bytes": lim}, lim)
+		om := m["omitted"].(map[string]any)
+		if m["result"] != "ambiguous" || len(ctxItems(m))+int(om["entities"].(float64)) != 30 || !strings.Contains(fmt.Sprint(om["reasons"]), "bytes") {
+			t.Fatalf("ambiguous %d: %d items, omitted %v", lim, len(ctxItems(m)), om)
+		}
+		m = ctxExact(t, cs, map[string]any{"seed": "many.T03", "max_bytes": lim}, lim) // long sibling names
+		if m["result"] != "delivered" || len(ctxItems(m)) == 0 {
+			t.Fatalf("long names: %v", m)
+		}
+		m = ctxExact(t, cs, map[string]any{"seed": "Escaped", "max_bytes": lim}, lim)
+		if def := ctxItems(m)[0]; def["source_state"] != "truncated" || !strings.HasPrefix(str(def["source"]), "func Escaped() string {") {
+			t.Fatalf("escaped source: %v", def)
+		}
+	}
+	ctxExact(t, cs, map[string]any{"seed": "NoSuchName", "max_bytes": 2048}, 2048)
+	ctxExact(t, cs, map[string]any{"ref": "hc1." + strings.Repeat("a", 32) + "." + strings.Repeat("b", 32), "max_bytes": 2048}, 2048)
+}
+
+// C11B-1: the time limit on the full tool path: a clock that jumps past the limit stops the
+// walk after the start item and says so.
+func TestContextTimeLimitOnTheToolPath(t *testing.T) {
+	shop, _ := project_(t)
+	gh(t, shop, "collect", "--full")
+	var mu sync.Mutex
+	clock := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	tick := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		clock = clock.Add(time.Second)
+		return clock
+	}
+	cs := session(t, mcpserver.Options{Dir: shop, Now: tick})
+	m := ctxExact(t, cs, map[string]any{"seed": "Rate", "max_ms": 100}, 16384)
+	om := m["omitted"].(map[string]any)
+	if len(ctxItems(m)) != 1 || !strings.Contains(fmt.Sprint(om["reasons"]), "time") || om["entities"].(float64) == 0 {
+		t.Fatalf("time limit: %d items, %v", len(ctxItems(m)), om)
+	}
+	m = ctxExact(t, cs, map[string]any{"seed": "canary_dir_e1d2/billing", "max_ms": 100}, 16384)
+	if len(ctxItems(m)) != 1 || !strings.Contains(fmt.Sprint(m["omitted"].(map[string]any)["reasons"]), "time") {
+		t.Fatalf("time limit on a package: %v", m["omitted"])
 	}
 }
