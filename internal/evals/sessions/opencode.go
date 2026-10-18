@@ -17,6 +17,8 @@ var openCodeTools = map[string]string{
 	"read": ToolRead, "glob": ToolSearch, "grep": ToolSearch, "list": ToolSearch, "codesearch": ToolSearch,
 	"edit": ToolEdit, "write": ToolEdit, "patch": ToolEdit, "multiedit": ToolEdit, "apply_patch": ToolEdit,
 	"bash": ToolShell, "task": ToolChild,
+	// OpenCode 2.0.22 (recorded export): shell commands and child agents
+	"shell": ToolShell, "subagent": ToolChild,
 }
 
 // ParseOpenCode normalizes one `opencode session export` document (OpenCode 2.0).

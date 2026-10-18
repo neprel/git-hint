@@ -1,6 +1,10 @@
 package episodes
 
 import (
+	"github.com/neprel/git-hint/internal/evals/sessions"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -49,4 +53,29 @@ func make64(c byte) []byte {
 		b[i] = c
 	}
 	return b
+}
+
+// The recorded OpenCode 2.0.22 export: the shell tool's passing go test is the episode's
+// outcome (the live prospective check lost it before "shell" was read as a command).
+func TestOpenCode2022CheckIsTheOutcome(t *testing.T) {
+	l := lib(t)
+	src, err := os.ReadFile(filepath.Join("..", "..", "..", "tests", "evals", "sessions", "opencode-2.0.22-tools.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := sessions.ParseOpenCode(src, sessions.OpenCodeOptions{Version: "2.0.22"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sessions.Import(l, src, r); err != nil {
+		t.Fatal(err)
+	}
+	props, err := Discover(l, time.UnixMilli(r.Session.Items[len(r.Session.Items)-1].Time).Add(time.Hour),
+		func(_, _ string) string { return "" }, func(string) string { return "shop" })
+	if err != nil || len(props) != 1 {
+		t.Fatalf("%d proposals %v", len(props), err)
+	}
+	if props[0].Outcome != "test_passed" || strings.Join(props[0].Paths, ",") != "discount_test.go" {
+		t.Fatalf("outcome %s paths %v reasons %v", props[0].Outcome, props[0].Paths, props[0].Record["reasons"])
+	}
 }

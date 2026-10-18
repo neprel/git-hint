@@ -257,3 +257,31 @@ func contains(xs []string, x string) bool {
 	}
 	return false
 }
+
+// A recorded OpenCode 2.0.22 export (fake local model, synthetic content): the tools are
+// named write and shell. The live prospective check found that "shell" was not read as a
+// command, so the session's passing check was lost (no_checkable_outcome).
+func TestOpenCode2022ToolNames(t *testing.T) {
+	r, err := ParseOpenCode(fixture(t, "opencode-2.0.22-tools.json"), OpenCodeOptions{Version: "2.0.22"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var shell, edit *Item
+	for i, it := range r.Session.Items {
+		if it.Kind != KindTool {
+			continue
+		}
+		switch it.ToolName {
+		case "shell":
+			shell = &r.Session.Items[i]
+		case "write":
+			edit = &r.Session.Items[i]
+		}
+	}
+	if shell == nil || shell.Tool != ToolShell || shell.Command == "" || shell.Status != "completed" {
+		t.Fatalf("shell %+v", shell)
+	}
+	if edit == nil || edit.Tool != ToolEdit || len(edit.Paths) != 1 || !strings.HasSuffix(edit.Paths[0], "discount_test.go") {
+		t.Fatalf("write %+v", edit)
+	}
+}

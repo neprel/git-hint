@@ -221,6 +221,21 @@ func TestLiveProspectiveCapture(t *testing.T) {
 		return nil
 	})
 	summary["opencode_log_fetch_lines"] = fetchLines
+	// keep the session for offline replay: the export and OpenCode's data directory
+	// (database and snapshots; the provider key in it is the proxy's dummy)
+	oc := openCodeCmd{bin: bin, env: env}
+	if list, err := oc.Output(context.Background(), dir, "opencode", "session", "list", "--standalone", "--format", "json", "-n", "5"); err == nil {
+		save("session-list.json", list)
+		var ss []struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(list, &ss) == nil && len(ss) > 0 {
+			if exp, err := oc.Output(context.Background(), dir, "opencode", "session", "export", "--standalone", ss[0].ID); err == nil {
+				save("session-export.json", exp)
+			}
+		}
+	}
+	exec.Command("cp", "-R", filepath.Join(home, "data"), filepath.Join(out, "opencode-data")).Run()
 	if counter.Requests() == 0 {
 		t.Fatalf("the session made no model request: %v", runErr)
 	}
