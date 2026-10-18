@@ -26,6 +26,11 @@ func TestExportLayoutAndIsolation(t *testing.T) {
 		return string(b)
 	}
 	toml := read("task.toml")
+	// the verifier runs the agent's code: no network (found on the Linux run: it had the
+	// compose default network)
+	if v, _, _ := strings.Cut(strings.SplitN(toml, "[verifier]", 2)[1], "[agent]"); !strings.Contains(v, `network_mode = "no-network"`) {
+		t.Errorf("the verifier has network: %s", v)
+	}
 	for _, want := range []string{`environment_mode = "separate"`, `artifacts = ["/app"]`, `network_mode = "public"`} {
 		if !strings.Contains(toml, want) {
 			t.Errorf("task.toml lacks %s", want)

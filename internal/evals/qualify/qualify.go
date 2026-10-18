@@ -21,7 +21,9 @@
 //     test fails on the base. Per-test results come from the verifier's TEST lines;
 //   - forgery_probe and isolation: a solution that tries the network, writes reward
 //     files (also from code under test) and adds test harness code that exits early
-//     with success (TestMain, conftest.py) must get reward 0 and must see no network.
+//     with success (TestMain, conftest.py) must get reward 0 and must see no network;
+//     the verifier container, which runs the agent's code with the hidden tests, must
+//     record no network either.
 //
 // State: validated when every required check passes; needs_review when a requirement
 // lacks coverage; reproducible when base and reference checks pass but other evidence is
@@ -273,10 +275,16 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 		default:
 			add(Check{Name: "forgery_probe", Status: "pass", Runs: 1})
 		}
-		net := netSeen(filepath.Join(jobs, "probe"))
-		add(Check{Name: "isolation", Status: status(net == "blocked"), Runs: 1})
-		if net != "blocked" {
+		// the agent container and the verifier container must both have no network
+		net, vnet := netSeen(filepath.Join(jobs, "probe")), verifierNetSeen(filepath.Join(jobs, "probe"))
+		switch {
+		case net != "blocked" || vnet == "reachable":
+			add(Check{Name: "isolation", Status: "fail", Runs: 1})
 			reason("isolation_failed")
+		case vnet == "":
+			add(Check{Name: "isolation", Status: "missing", Runs: 1}) // a verifier without the network record
+		default:
+			add(Check{Name: "isolation", Status: "pass", Runs: 1})
 		}
 	}
 	res.State = decide(res)

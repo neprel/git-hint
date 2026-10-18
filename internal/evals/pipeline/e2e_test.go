@@ -118,7 +118,7 @@ func (r *e2eRunner) Run(_ context.Context, task string, o runner.RunOptions) ([]
 		// the files a Harbor trial leaves (results, verifier output, agent log, artifact)
 		dir := filepath.Join(o.JobsDir, o.JobName, tr.Name)
 		for rel, body := range map[string]string{"result.json": `{"trial_name":"` + tr.Name + `"}`, "verifier/test-stdout.txt": "CHECK C1 " + strings.ToUpper(c1) + "\n",
-			"verifier/c1.txt": "ok\n", "agent/trajectory.json": strings.Repeat("x", r.agentLog), "artifacts/app/cart.go": "package shop\n"} {
+			"verifier/c1.txt": "ok\n", "verifier/network.txt": "HINT_VERIFIER_NET=blocked\n", "agent/trajectory.json": strings.Repeat("x", r.agentLog), "artifacts/app/cart.go": "package shop\n"} {
 			os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755)
 			os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o644)
 		}

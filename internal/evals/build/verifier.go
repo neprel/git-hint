@@ -255,9 +255,20 @@ killnobody() {
 		sleep 0.2
 	done
 }
+# the verifier must have no network: record whether a TCP connection leaves this
+# container (DNS answers alone do not count; written at the end, after the code under
+# test stopped)
+net=blocked
+for target in 1.1.1.1 example.com; do
+	if command -v curl >/dev/null 2>&1; then
+		curl -s -o /dev/null --connect-timeout 5 "https://$target" && net=reachable
+	elif command -v python3 >/dev/null 2>&1; then
+		python3 -c "import socket,sys; socket.create_connection((sys.argv[1], 443), 5)" "$target" 2>/dev/null && net=reachable
+	fi
+done
 # at the end stop every other process and write both reward files (Harbor reads
 # reward.json before reward.txt)
-finish() { killnobody; echo "$reward" > /logs/verifier/reward.txt; echo "{\"reward\": $reward}" > /logs/verifier/reward.json; }
+finish() { killnobody; echo "$reward" > /logs/verifier/reward.txt; echo "{\"reward\": $reward}" > /logs/verifier/reward.json; echo "HINT_VERIFIER_NET=$net" > /logs/verifier/network.txt; }
 trap finish EXIT
 # the checks run as the unprivileged user nobody; this script (root) writes the results
 run_as() { setpriv --reuid=65534 --regid=65534 --clear-groups env HOME=/tmp/hint-home GOCACHE=/tmp/hint-gocache GOFLAGS=-mod=mod PYTHONDONTWRITEBYTECODE=1 sh -c "$1"; }

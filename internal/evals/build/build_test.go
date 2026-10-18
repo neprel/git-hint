@@ -147,7 +147,8 @@ func TestSessionCommandNeverRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := untar(t, l, b.Record["verifier"].(map[string]any)["archive"].(string))
-	if strings.Contains(v["test.sh"], "curl") || strings.Contains(v["test.sh"], "evil") {
+	// the verifier's own network record uses curl; the session command must not appear
+	if strings.Contains(v["test.sh"], "curl http://evil") || strings.Contains(v["test.sh"], "evil") {
 		t.Fatal("session command text reached the verifier")
 	}
 	in.CheckHint = "make build"

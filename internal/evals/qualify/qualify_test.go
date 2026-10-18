@@ -21,6 +21,7 @@ type fakeRunner struct {
 	brokenC2   string // a line whose presence breaks the existing tests
 	forgeable  bool   // simulate a shared verifier that trusts agent-written rewards
 	netOpen    bool   // simulate a container with network
+	vnet       string // the verifier's network record: "" blocked, "reachable", "none" (no record)
 	infraFails map[string]bool
 	tests      map[string]string // per-test results: test ID -> the line it needs (default: the hidden test needs fixed)
 	unmapped   bool              // keep the request unmapped
@@ -76,6 +77,15 @@ func (f *fakeRunner) Run(_ context.Context, task string, o runner.RunOptions) ([
 			reward = 1
 		}
 		tr := runner.Trial{Name: fmt.Sprintf("%s-%d", o.JobName, k), Reward: &reward, Checks: map[string]string{"C1": pf(c1), "C2": pf(c2)}, Tests: per}
+		if f.vnet != "none" {
+			v := "blocked"
+			if f.vnet != "" {
+				v = f.vnet
+			}
+			p := filepath.Join(o.JobsDir, o.JobName, tr.Name, "verifier", "network.txt")
+			os.MkdirAll(filepath.Dir(p), 0o755)
+			os.WriteFile(p, []byte("HINT_VERIFIER_NET="+v+"\n"), 0o644)
+		}
 		if o.Agent == "oracle" {
 			net := "blocked"
 			if f.netOpen {
@@ -370,5 +380,18 @@ func TestAlternativeTask(t *testing.T) {
 	del, _ := os.ReadFile(filepath.Join(dir, "solution", "deleted.txt"))
 	if strings.Join(files, ",") != "cart.go,extra.go" || string(del) != "cart_test.go" {
 		t.Fatalf("files %v deleted %q", files, del)
+	}
+}
+
+// The verifier runs the agent's code: a verifier with network fails isolation, and a
+// verifier without the network record (built before the record existed) cannot pass it.
+func TestVerifierNetwork(t *testing.T) {
+	r := qualify(t, &fakeRunner{fixed: "price - discount", vnet: "reachable"})
+	if r.State != "quarantined" || check(r, "isolation").Status != "fail" || !has(r.Reasons, "isolation_failed") {
+		t.Fatalf("reachable: %+v", r)
+	}
+	r = qualify(t, &fakeRunner{fixed: "price - discount", vnet: "none"})
+	if r.State == "validated" || check(r, "isolation").Status != "missing" {
+		t.Fatalf("no record: %s %+v", r.State, check(r, "isolation"))
 	}
 }

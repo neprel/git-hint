@@ -150,12 +150,12 @@ func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Ta
 }
 
 func taskTOML(name string, version int, evalID string, s Settings) string {
-	agentNet, verifierNet := "", ""
+	// the verifier runs the agent's code with the hidden tests: it gets no network in every
+	// mode (its image build keeps network for dependency setup)
+	agentNet, verifierNet := "", "network_mode = \"no-network\"\n"
 	if s.Mode == LANModel {
-		// setup (agent install) keeps the baseline; the agent reaches only the proxy host;
-		// the verifier gets no network
+		// setup (agent install) keeps the baseline; the agent reaches only the proxy host
 		agentNet = fmt.Sprintf("network_mode = \"allowlist\"\nallowed_hosts = [%q]\n", s.LANHost)
-		verifierNet = "network_mode = \"no-network\"\n"
 	}
 	return fmt.Sprintf(`schema_version = "1.4"
 artifacts = ["/app"]

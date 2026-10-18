@@ -266,6 +266,22 @@ func netSeen(jobDir string) string {
 	return ""
 }
 
+// verifierNetSeen reads the verifier's network record of the probe job: "blocked",
+// "reachable" or "" (no record).
+func verifierNetSeen(jobDir string) string {
+	ms, _ := filepath.Glob(filepath.Join(jobDir, "*", "verifier", "network.txt"))
+	for _, m := range ms {
+		b, _ := os.ReadFile(m)
+		switch strings.TrimSpace(string(b)) {
+		case "HINT_VERIFIER_NET=reachable":
+			return "reachable"
+		case "HINT_VERIFIER_NET=blocked":
+			return "blocked"
+		}
+	}
+	return ""
+}
+
 var packageClause = regexp.MustCompile(`(?m)^package ([A-Za-z_][A-Za-z0-9_]*)\s*$`)
 
 // rootPackage returns the Go package name of the repository root ("" for other projects).
