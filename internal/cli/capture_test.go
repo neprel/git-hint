@@ -148,3 +148,16 @@ func TestVariantPlanIsUnavailableForAHistoricalAfter(t *testing.T) {
 		t.Fatalf("historical: %v", err)
 	}
 }
+
+func TestOneWorkAttemptHasOneDeclaredAfterState(t *testing.T) {
+	shop, planID := closedUnit(t)
+	must(t, run(t, shop, "", "changes", "--declare-plan", planID, "--work-unit", "split", "--after", "latest"))
+	change(t, shop, "func Second() int { return 5 }\n") // a later state for the same closed attempt
+	r := run(t, shop, "", "changes", "--declare-plan", planID, "--work-unit", "split", "--after", "latest")
+	if r.code == 0 || !strings.Contains(r.stderr, "different declaration") {
+		t.Fatalf("a second after state for one work attempt: %+v", r)
+	}
+	if d := declaration(t, shop); d.AfterTree == "" {
+		t.Fatal("the first declaration was changed")
+	}
+}

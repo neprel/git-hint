@@ -260,6 +260,16 @@ func DeclareWork(s *store.Store, raw []byte, planID, label, after string, now ti
 			return d, false, err
 		}
 	}
+	// one work attempt has one declared change: another after state for it is a conflict
+	others, err := Declarations(s, d.RepoID)
+	if err != nil {
+		return d, false, err
+	}
+	for _, o := range others {
+		if o.Work == d.Work && o.AfterSnapshotID != d.AfterSnapshotID {
+			return o, false, ErrDeclarationConflict
+		}
+	}
 	// idempotent: the same association with the same captured tree keeps the stored declaration
 	var old Declaration
 	if err := s.ReadJSON(&old, "state", "declarations", declarationFile(d.RepoID, d.AfterSnapshotID)); err == nil {
