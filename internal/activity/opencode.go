@@ -40,9 +40,9 @@ type Normalizer struct {
 // carries it; it is another source (another identity and capability list), never a model fact.
 func OpenCodeSource(key []byte, agentVersion string, taskDeclared bool) Source {
 	// the adapter version is part of the identity: another version can have other capabilities
-	mode := "task-undeclared"
+	mode := "undeclared-task"
 	if taskDeclared {
-		mode = "task-declared"
+		mode = "declared-task"
 	}
 	s := Source{SourceID: hint.DeriveID(key, "source", "opencode-plugin", agentVersion, Version, mode), Agent: "opencode",
 		Adapter: Adapter{Name: "opencode-plugin", Version: Version},
