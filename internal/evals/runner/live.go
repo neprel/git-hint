@@ -233,16 +233,52 @@ func (lv *Live) checkModel(c *Counter, r *http.Request) {
 		c.unverified.Add(1)
 		return
 	}
-	var m struct {
-		Model *string `json:"model"`
-	}
-	if json.Unmarshal(b, &m) != nil || m.Model == nil {
+	model, ok := requestModel(b)
+	if !ok {
 		c.unverified.Add(1)
 		return
 	}
-	if *m.Model == lv.model {
+	if model == lv.model {
 		c.matched.Add(1)
 	} else {
 		c.mismatched.Add(1)
 	}
+}
+
+// requestModel returns the model of a request body only when it is unambiguous: the body is
+// one JSON object whose top level holds exactly one key "model" (exact, lowercase) with a
+// string value, and no other key that equals "model" ignoring case (Go would match such an
+// alias, the upstream would not). Anything else is not a verifiable selection.
+func requestModel(b []byte) (string, bool) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return "", false
+	}
+	var model string
+	found := 0
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return "", false
+		}
+		key, _ := t.(string)
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return "", false
+		}
+		if !strings.EqualFold(key, "model") {
+			continue
+		}
+		found++
+		if key != "model" || json.Unmarshal(v, &model) != nil {
+			return "", false // a case alias or a non-string value
+		}
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') || found != 1 {
+		return "", false
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return "", false // trailing data after the object
+	}
+	return model, true
 }

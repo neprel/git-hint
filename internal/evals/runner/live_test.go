@@ -9,6 +9,10 @@ import (
 	"testing"
 )
 
+// testClient opens one connection per request: pooled keep-alive connections can leave an
+// accepted connection without a request, which a server shutdown waits for up to 5 s.
+var testClient = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
 func TestModelProxy(t *testing.T) {
 	var upstream atomic.Int64
 	var gotAuth atomic.Value
@@ -28,7 +32,7 @@ func TestModelProxy(t *testing.T) {
 	c := lv.NewTrial(2)
 	base := lv.BaseURL(c)
 	post := func(u string) int {
-		resp, err := http.Post(u, "application/json", strings.NewReader(`{}`))
+		resp, err := testClient.Post(u, "application/json", strings.NewReader(`{}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -48,7 +52,7 @@ func TestModelProxy(t *testing.T) {
 	if c.Requests() != 2 || !c.LimitHit() || c.Retries() != 1 || upstream.Load() != 2 {
 		t.Fatalf("counter %d hit %v retries %d upstream %d", c.Requests(), c.LimitHit(), c.Retries(), upstream.Load())
 	}
-	resp, _ := http.Get(base + "/models")
+	resp, _ := testClient.Get(base + "/models")
 	b, _ := io.ReadAll(resp.Body)
 	if !strings.Contains(string(b), "local-coder") || upstream.Load() != 2 {
 		t.Fatalf("model list %s (upstream %d)", b, upstream.Load())
@@ -82,7 +86,7 @@ func TestProxyChecksTheModelOfEveryRequest(t *testing.T) {
 	defer lv.Close()
 	lv.ContainerHost = "127.0.0.1"
 	post := func(c *Counter, body string) {
-		resp, err := http.Post(lv.BaseURL(c)+"/chat/completions", "application/json", strings.NewReader(body))
+		resp, err := testClient.Post(lv.BaseURL(c)+"/chat/completions", "application/json", strings.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -123,5 +127,58 @@ func TestLaunchDigestIgnoresPerTrialValues(t *testing.T) {
 	c.Model = "openai/other"
 	if LaunchDigest(a) != LaunchDigest(b) || LaunchDigest(a) == LaunchDigest(c) || !strings.HasPrefix(LaunchDigest(a), "sha256:") {
 		t.Fatal("the launch digest depends on per-trial values or ignores the model")
+	}
+}
+
+
+func TestProxyRefusesAmbiguousModelFields(t *testing.T) {
+	var bodies []string
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		io.WriteString(w, `{"ok":true}`)
+	}))
+	defer up.Close()
+	t.Setenv("HINT_TEST_LAN_KEY", "lan-secret-word")
+	lv, err := StartLive(LiveConfig{BaseURL: up.URL + "/v1", Model: "expected", KeyEnv: "HINT_TEST_LAN_KEY", AgentVersion: "2.0.26"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lv.Close()
+	lv.ContainerHost = "127.0.0.1"
+	post := func(c *Counter, body string) {
+		resp, err := testClient.Post(lv.BaseURL(c)+"/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+	}
+	ok := `{"model":"expected","messages":[]}`
+	for _, tc := range []struct {
+		bodies []string
+		want   string
+	}{
+		{[]string{`{"model":"other","Model":"expected"}`}, "unverified"}, // C7BE-3: Go alias, upstream sees "other"
+		{[]string{`{"Model":"expected","model":"other"}`}, "unverified"},
+		{[]string{`{"MODEL":"expected"}`}, "unverified"},
+		{[]string{`{"model":"expected","model":"expected"}`}, "unverified"}, // a duplicate key
+		{[]string{`{"model":"expected","model":"other"}`}, "unverified"},
+		{[]string{`{"model":7}`}, "unverified"},
+		{[]string{`[{"model":"expected"}]`}, "unverified"},
+		{[]string{`{"model":"expected"} {"model":"other"}`}, "unverified"}, // trailing data
+		{[]string{`{"messages":[{"model":"other"}],"model":"expected"}`}, "verified"}, // nested keys are not the selection
+		{[]string{ok, `{"model":"other","Model":"expected"}`, ok}, "unverified"}, // mixed: never verified
+		{[]string{ok, `{"model":"other"}`, `{"Model":"expected"}`}, "mismatch"},
+	} {
+		c := lv.NewTrial(20)
+		for _, b := range tc.bodies {
+			post(c, b)
+		}
+		if got := c.ModelCheck(); got != tc.want {
+			t.Fatalf("%v: %s, want %s", tc.bodies, got, tc.want)
+		}
+	}
+	if bodies[0] != `{"model":"other","Model":"expected"}` {
+		t.Fatalf("the forwarded body changed: %q", bodies[0])
 	}
 }
