@@ -19,7 +19,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -27,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/safefs"
 )
 
 // Limits of one tree.
@@ -314,8 +314,8 @@ func FromGitTree(ctx context.Context, l *library.Library, gitDirs []string, id s
 	return putTree(l, files)
 }
 
-// Materialize writes a tree into an empty directory. Paths are checked; a symbolic link
-// is created only when its target stays inside the directory.
+// Materialize writes a tree into an empty directory. Paths are checked, no write passes
+// through a link, and every symbolic link must resolve inside the directory.
 func Materialize(l *library.Library, digest, dir string) error {
 	t, err := Load(l, digest)
 	if err != nil {
@@ -328,6 +328,11 @@ func Materialize(l *library.Library, digest, dir string) error {
 	if len(ents) != 0 {
 		return fmt.Errorf("materialize needs an empty directory")
 	}
+	d, err := safefs.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
 	for _, f := range t.Files {
 		if !validPath(f.Path) {
 			return fmt.Errorf("unsafe path in tree")
@@ -336,49 +341,23 @@ func Materialize(l *library.Library, digest, dir string) error {
 		if err != nil {
 			return err
 		}
-		full := filepath.Join(dir, filepath.FromSlash(f.Path))
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			return err
-		}
-		if err := insideReal(dir, filepath.Dir(full)); err != nil {
-			return err
-		}
 		switch f.Mode {
 		case "120000":
-			target := string(data)
-			resolved := path.Clean(path.Join(path.Dir(f.Path), filepath.ToSlash(target)))
-			if filepath.IsAbs(target) || resolved == ".." || strings.HasPrefix(resolved, "../") {
+			if err := d.Symlink(f.Path, string(data)); err != nil {
 				return unsupported("baseline_missing", "a symbolic link points outside the repository")
-			}
-			if err := os.Symlink(target, full); err != nil {
-				return err
 			}
 		default:
 			perm := fs.FileMode(0o644)
 			if f.Mode == "100755" {
 				perm = 0o755
 			}
-			if err := os.WriteFile(full, data, perm); err != nil {
-				return err
+			if err := d.WriteFile(f.Path, data, perm); err != nil {
+				return fmt.Errorf("unsafe path in tree: %w", err)
 			}
 		}
 	}
-	return nil
-}
-
-// insideReal checks that p, with links resolved, stays inside root.
-func insideReal(root, p string) error {
-	r, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return err
-	}
-	q, err := filepath.EvalSymlinks(p)
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(r, q)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("unsafe path in tree")
+	if err := d.Check(); err != nil {
+		return unsupported("baseline_missing", "a symbolic link points outside the repository")
 	}
 	return nil
 }

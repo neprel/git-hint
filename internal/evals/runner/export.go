@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/safefs"
 )
 
 // Settings are the limits and the network mode written into a task.
@@ -226,48 +227,39 @@ RUN if [ -f /tests/deps/requirements.txt ]; then python -m pip install -q -r /te
 }
 
 // untar extracts a HINT archive (regular files, directories and links whose targets stay
-// inside) into dir.
+// inside) into dir. No write passes through a link, and every link must resolve inside.
 func untar(data []byte, dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	d, err := safefs.Open(dir)
+	if err != nil {
 		return err
 	}
+	defer d.Close()
 	tr := tar.NewReader(bytes.NewReader(data))
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
-			return nil
+			return d.Check()
 		}
 		if err != nil {
 			return err
 		}
-		name := filepath.Clean(filepath.FromSlash(h.Name))
-		if filepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("unsafe archive entry")
-		}
-		p := filepath.Join(dir, name)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			return err
-		}
+		name := strings.TrimSuffix(h.Name, "/")
 		switch h.Typeflag {
 		case tar.TypeReg:
 			b, err := io.ReadAll(io.LimitReader(tr, 1<<30))
 			if err != nil {
 				return err
 			}
-			if err := os.WriteFile(p, b, os.FileMode(h.Mode&0o777)); err != nil {
-				return err
+			if err := d.WriteFile(name, b, os.FileMode(h.Mode&0o777)); err != nil {
+				return fmt.Errorf("unsafe archive entry: %w", err)
 			}
 		case tar.TypeSymlink:
-			target := filepath.Join(filepath.Dir(name), filepath.FromSlash(h.Linkname))
-			if filepath.IsAbs(h.Linkname) || strings.HasPrefix(filepath.Clean(target), "..") {
-				return fmt.Errorf("unsafe link in archive")
-			}
-			if err := os.Symlink(h.Linkname, p); err != nil {
-				return err
+			if err := d.Symlink(name, h.Linkname); err != nil {
+				return fmt.Errorf("unsafe link in archive: %w", err)
 			}
 		case tar.TypeDir:
-			if err := os.MkdirAll(p, 0o755); err != nil {
-				return err
+			if err := d.Mkdir(name); err != nil {
+				return fmt.Errorf("unsafe archive entry: %w", err)
 			}
 		default:
 			return fmt.Errorf("unsupported archive entry type")

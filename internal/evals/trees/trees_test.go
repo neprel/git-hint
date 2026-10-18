@@ -204,3 +204,33 @@ func isCode(err error, code string) bool {
 	var u *Unsupported
 	return errors.As(err, &u) && u.Code == code
 }
+
+// G10-1: a stored tree with the link chain d -> ., x -> d/.. and a file under x must not
+// write outside the target directory.
+func TestMaterializeLinkChain(t *testing.T) {
+	l := lib(t)
+	put := func(s string) string { d, _ := l.PutObject([]byte(s)); return d }
+	for name, files := range map[string][]File{
+		"write-through-chain": {
+			{Path: "d", Mode: "120000", Digest: put("."), Size: 1},
+			{Path: "x", Mode: "120000", Digest: put("d/.."), Size: 4},
+			{Path: "x/file", Mode: "100644", Digest: put("escaped"), Size: 7},
+		},
+		"chain-only": {
+			{Path: "d", Mode: "120000", Digest: put("."), Size: 1},
+			{Path: "x", Mode: "120000", Digest: put("d/.."), Size: 4},
+		},
+	} {
+		outer := t.TempDir()
+		dir := filepath.Join(outer, "in")
+		os.Mkdir(dir, 0o755)
+		b, _ := json.Marshal(Tree{TreeVersion: 1, Files: files})
+		td, _ := l.PutObject(b)
+		if err := Materialize(l, td, dir); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+		if _, err := os.Lstat(filepath.Join(outer, "file")); err == nil {
+			t.Errorf("%s: wrote outside", name)
+		}
+	}
+}
