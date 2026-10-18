@@ -70,6 +70,10 @@ func (o openCodeCmd) Output(ctx context.Context, dir, name string, args ...strin
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	c := exec.CommandContext(ctx, o.bin, args...)
+	if uid := os.Getenv("HINT_SESSION_UID"); runtime.GOOS == "linux" && uid != "" {
+		// the user who ran OpenCode imports its sessions (as collect would)
+		c = exec.CommandContext(ctx, "setpriv", append([]string{"--reuid=" + uid, "--regid=" + uid, "--clear-groups", o.bin}, args...)...)
+	}
 	c.Dir, c.Env = dir, o.env
 	return c.Output()
 }
@@ -192,7 +196,13 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		// the session user owns the project and its home
 		for _, d := range []string{dir, home, tools, os.Getenv("HINT_KEY_DIR")} {
-			exec.Command("chown", "-R", os.Getenv("HINT_SESSION_UID")+":"+os.Getenv("HINT_SESSION_UID"), d).Run()
+			if out, err := exec.Command("chown", "-R", os.Getenv("HINT_SESSION_UID")+":"+os.Getenv("HINT_SESSION_UID"), d).CombinedOutput(); err != nil {
+				t.Fatalf("chown %s: %s", d, out)
+			}
+			// the test's temporary root is 0700 (root): the session user must pass it
+			if err := os.Chmod(filepath.Dir(d), 0o711); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	cmd.Dir, cmd.Env = dir, env
