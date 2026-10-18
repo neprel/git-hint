@@ -90,6 +90,7 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	if os.Getenv("HINT_LIVE_PROSPECTIVE") == "" {
 		t.Skip("set HINT_LIVE_PROSPECTIVE=1 (live, bounded)")
 	}
+	testStart := time.Now()
 	out := os.Getenv("HINT_LIVE_OUT")
 	os.MkdirAll(out, 0o700)
 	save := func(name string, data []byte) { os.WriteFile(filepath.Join(out, name), data, 0o600) }
@@ -207,6 +208,7 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	}
 	cmd.Dir, cmd.Env = dir, env
 	start := time.Now()
+	summary["setup_seconds"] = start.Sub(testStart).Round(time.Second).Seconds() // build, init, adapter, proxy: no model request
 	events, runErr := cmd.CombinedOutput()
 	wall := time.Since(start)
 	save("opencode-events.jsonl", events)
@@ -253,11 +255,13 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	}
 
 	// the HINT pipeline, as after collect (the episode closes after the idle time)
+	pipelineStart := time.Now()
 	idle := time.Now().Add(IdleCloseForCheck)
 	r := Run(context.Background(), s, Env{Home: home, DataHome: filepath.Join(home, "data"), Cmd: openCodeCmd{bin: bin, env: env}, Now: func() time.Time { return idle }})
 	l := library.Open(s, 0)
 	evalsAfter, _ := l.Manifests("eval")
 	episodesAfter, _ := l.Manifests("episode")
+	summary["pipeline_seconds"] = time.Since(pipelineStart).Round(time.Second).Seconds()
 	summary["pipeline"] = map[string]any{"imports": r.Imports, "episodes": r.Episodes, "packages": r.Packages, "evals": evalsAfter, "episode_records": episodesAfter}
 	for _, n := range episodesAfter {
 		var ep map[string]any
@@ -293,7 +297,9 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	qStart := time.Now()
 	q := Qualify(context.Background(), s, h, idle)
+	summary["qualification_seconds"] = time.Since(qStart).Round(time.Second).Seconds()
 	names, _ := l.Manifests("eval")
 	final := mustRec(t, l, names[len(names)-1])
 	checks := map[string]any{}
