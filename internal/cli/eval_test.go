@@ -297,6 +297,15 @@ func TestEvalMapPrintAndApply(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "map.json")
 	b, _ := json.Marshal(f)
 	os.WriteFile(file, b, 0o600)
+	// G10-6: another positional eval is refused before anything is written
+	for _, wrong := range []string{"NONEXISTENT-WRONG-TARGET", id + "@7"} {
+		if r := runEval(t, shop, &spawned, "eval", "map", wrong, "--apply", file); r.code == 0 || !strings.Contains(r.stderr, "another eval") {
+			t.Fatalf("%s: %+v", wrong, r)
+		}
+	}
+	if names, _ := l.Manifests("eval"); len(names) != 1 || len(spawned) != 0 {
+		t.Fatalf("a refused apply changed state: %v %v", names, spawned)
+	}
 	r := must(t, runEval(t, shop, &spawned, "eval", "map", id, "--apply", file))
 	if !strings.Contains(r.stdout, id+"@2 (packaged)") || !strings.Contains(r.stdout, "Container runs are off") || len(spawned) != 0 {
 		t.Fatalf("apply: %s %v", r.stdout, spawned)

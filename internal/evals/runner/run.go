@@ -31,7 +31,8 @@ type Harbor struct {
 
 var versionRe = regexp.MustCompile(`([0-9]+\.[0-9]+\.[0-9]+)`)
 
-// FindHarbor locates Harbor (HINT_HARBOR, else PATH) and checks its version and Docker.
+// FindHarbor locates Harbor (HINT_HARBOR, else PATH) and checks its version, Docker and
+// Docker buildx.
 func FindHarbor(ctx context.Context) (*Harbor, error) {
 	bin := os.Getenv("HINT_HARBOR")
 	if bin == "" {
@@ -51,6 +52,10 @@ func FindHarbor(ctx context.Context) (*Harbor, error) {
 	}
 	if exec.CommandContext(ctx, "docker", "info", "--format", "{{.ServerVersion}}").Run() != nil {
 		return nil, fmt.Errorf("%w: Docker is not running", ErrUnavailable)
+	}
+	// Harbor builds its network-control sidecar (the verifier has no network) with buildx
+	if exec.CommandContext(ctx, "docker", "buildx", "version").Run() != nil {
+		return nil, fmt.Errorf("%w: Docker buildx is not installed (Harbor needs it to cut the verifier's network)", ErrUnavailable)
 	}
 	return &Harbor{Bin: bin, Version: v}, nil
 }

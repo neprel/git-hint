@@ -88,7 +88,7 @@ records the claim and does not check it. Qualification runs each alternative; on
 fails sends the eval to `needs_review`. Without alternatives the check stays `missing`;
 HINT never generates one.
 
-Qualification needs Docker and Harbor 0.23 (`uv tool install harbor==0.23.0`); HINT
+Qualification needs Docker with buildx and Harbor 0.23 (`uv tool install harbor==0.23.0`); HINT
 turns Harbor's telemetry off for its runs. Without them, evals stay `packaged`.
 
 ## Measuring agents

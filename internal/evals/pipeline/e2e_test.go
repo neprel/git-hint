@@ -195,7 +195,7 @@ func TestUserMappingFileToValidated(t *testing.T) {
 	f.Requirements = []build.Link{{Source: "R1", Quote: "Fix Total so it subtracts the discount from the price", Tests: []string{"discount_test.go::TestDiscount"}}}
 	f.Context = []string{"Total ignores the discount."}
 	b, _ := json.Marshal(f)
-	next, unmapped, err := ApplyMapFile(context.Background(), l, b, "", env.Now())
+	next, unmapped, err := ApplyMapFile(context.Background(), l, f.Eval, b, "", env.Now())
 	if err != nil || len(unmapped) != 0 {
 		t.Fatalf("apply %v %v", err, unmapped)
 	}

@@ -808,7 +808,7 @@ func evalMap(e *Env, args []string) int {
 	if err != nil {
 		return fail(e, err)
 	}
-	name, unmapped, err := pipeline.ApplyMapFile(context.Background(), l, data, filepath.Dir(*apply), e.Now())
+	name, unmapped, err := pipeline.ApplyMapFile(context.Background(), l, fs.Arg(0), data, filepath.Dir(*apply), e.Now())
 	lock.Unlock()
 	if err != nil {
 		return fail(e, err)

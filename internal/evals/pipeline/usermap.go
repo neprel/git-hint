@@ -130,11 +130,16 @@ func linkTests(m map[string]any) []string {
 	return out
 }
 
-// ApplyMapFile checks a mapping file against the latest version of its eval and stores a
-// new packaged version with the user's links. It never sets validated: qualification
-// does that. base is the directory of the file (relative work tree paths start there).
-// It returns the new version and its unmapped requirements.
-func ApplyMapFile(ctx context.Context, l *library.Library, data []byte, base string, now time.Time) (string, []string, error) {
+// ErrTarget marks a mapping file that names another eval than the one the user named.
+var ErrTarget = errors.New("the mapping file belongs to another eval")
+
+// ApplyMapFile checks a mapping file against the eval the user named (want: an eval ID,
+// or ID@version, which must match exactly) and the latest version of that eval, and
+// stores a new packaged version with the user's links. It never sets validated:
+// qualification does that. base is the directory of the file (relative work tree paths
+// start there). It returns the new version and its unmapped requirements. Nothing is
+// written when a check fails.
+func ApplyMapFile(ctx context.Context, l *library.Library, want string, data []byte, base string, now time.Time) (string, []string, error) {
 	var f MapFile
 	dec := json.NewDecoder(strings.NewReader(string(data)))
 	dec.DisallowUnknownFields()
@@ -145,6 +150,9 @@ func ApplyMapFile(ctx context.Context, l *library.Library, data []byte, base str
 		return "", nil, fmt.Errorf("unsupported map_version %d", f.MapVersion)
 	}
 	id, _, _ := strings.Cut(f.Eval, "@")
+	if wantID, _, exact := strings.Cut(want, "@"); want == "" || wantID != id || exact && want != f.Eval {
+		return "", nil, fmt.Errorf("%w: you named %s, the file names %s", ErrTarget, want, f.Eval)
+	}
 	latest := ""
 	names, _ := l.Manifests("eval")
 	for _, n := range names {

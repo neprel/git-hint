@@ -53,7 +53,7 @@ func TestMapFileWithoutModel(t *testing.T) {
 	}
 	f.Requirements = []build.Link{{Source: "R1", Quote: "Fix Total so it subtracts the discount from the price", Tests: []string{evaltest.GoBugFixTest}}}
 	f.Context = []string{"Total ignores the discount."}
-	next, unmapped, err := ApplyMapFile(context.Background(), l, encode(t, f), t.TempDir(), mapNow)
+	next, unmapped, err := ApplyMapFile(context.Background(), l, f.Eval, encode(t, f), t.TempDir(), mapNow)
 	if err != nil || len(unmapped) != 0 {
 		t.Fatalf("apply: %v %v", err, unmapped)
 	}
@@ -76,7 +76,7 @@ func TestMapFileWithoutModel(t *testing.T) {
 		t.Fatalf("pending %v", p)
 	}
 	// the same file again is stale: the eval has a newer version now
-	if _, _, err := ApplyMapFile(context.Background(), l, encode(t, f), t.TempDir(), mapNow); !errors.Is(err, ErrStale) {
+	if _, _, err := ApplyMapFile(context.Background(), l, f.Eval, encode(t, f), t.TempDir(), mapNow); !errors.Is(err, ErrStale) {
 		t.Fatalf("stale file: %v", err)
 	}
 	// the next file starts from the originals again, with the user's links as draft
@@ -103,11 +103,11 @@ func TestMapFileRefusals(t *testing.T) {
 		g := f
 		g.Requirements = append([]build.Link{}, f.Requirements...)
 		change(&g)
-		if _, _, err := ApplyMapFile(context.Background(), l, encode(t, g), t.TempDir(), mapNow); err == nil {
+		if _, _, err := ApplyMapFile(context.Background(), l, name, encode(t, g), t.TempDir(), mapNow); err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
 	}
-	if _, _, err := ApplyMapFile(context.Background(), l, []byte(`{"map_version":1,"eval":"x","digest":"y","requirements":[],"context":[],"alternatives":[],"extra":1}`), "", mapNow); err == nil {
+	if _, _, err := ApplyMapFile(context.Background(), l, "x", []byte(`{"map_version":1,"eval":"x","digest":"y","requirements":[],"context":[],"alternatives":[],"extra":1}`), "", mapNow); err == nil {
 		t.Fatal("an unknown field was accepted")
 	}
 	if names, _ := l.Manifests("eval"); len(names) != 1 {
@@ -141,7 +141,7 @@ func TestMapFileFromModelDraft(t *testing.T) {
 	}
 	// the user confirms the background sentence as context
 	f.Context, f.Requirements = []string{f.Requirements[1].Quote}, f.Requirements[:1]
-	next, unmapped, err := ApplyMapFile(context.Background(), l, encode(t, f), "", mapNow)
+	next, unmapped, err := ApplyMapFile(context.Background(), l, f.Eval, encode(t, f), "", mapNow)
 	if err != nil || len(unmapped) != 0 {
 		t.Fatalf("apply %v %v", err, unmapped)
 	}
@@ -168,7 +168,7 @@ func TestMapFileAlternatives(t *testing.T) {
 	f, _ := MapDraft(l, name)
 	f.Requirements = []build.Link{{Source: "R1", Quote: f.Sources["R1"], Tests: []string{evaltest.GoBugFixTest}}}
 	f.Alternatives = []MapAlternative{{Worktree: filepath.Base(alt), ClaimedBy: "user"}, {Worktree: alt}}
-	next, _, err := ApplyMapFile(context.Background(), l, encode(t, f), filepath.Dir(alt), mapNow)
+	next, _, err := ApplyMapFile(context.Background(), l, f.Eval, encode(t, f), filepath.Dir(alt), mapNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,5 +180,41 @@ func TestMapFileAlternatives(t *testing.T) {
 	}
 	if err := evals.ValidateValue("eval", rec); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// G10-6: the eval that the user names must be the eval of the file. Another ID, an unknown
+// ID or another explicit version is refused, and nothing is stored.
+func TestMapFileTarget(t *testing.T) {
+	l, name := storedBugFix(t)
+	b, err := evaltest.Package(t, l, evaltest.Families()[1], "go test ./...")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := l.PutManifest("eval", b.Record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, _ := MapDraft(l, name)
+	f.Requirements = []build.Link{{Source: "R1", Quote: f.Sources["R1"], Tests: []string{evaltest.GoBugFixTest}}}
+	id, _, _ := strings.Cut(name, "@")
+	otherID, _, _ := strings.Cut(other, "@")
+	for _, want := range []string{otherID, other, "ev-0000000000000000", "NONEXISTENT-WRONG-TARGET", id + "@2", ""} {
+		if _, _, err := ApplyMapFile(context.Background(), l, want, encode(t, f), "", mapNow); !errors.Is(err, ErrTarget) {
+			t.Fatalf("%q: %v", want, err)
+		}
+	}
+	if names, _ := l.Manifests("eval"); len(names) != 2 || len(Pending(l)) != 2 {
+		t.Fatalf("a refused file changed the library: %v", names)
+	}
+	for _, want := range []string{id, name} {
+		next, _, err := ApplyMapFile(context.Background(), l, want, encode(t, f), "", mapNow)
+		if err != nil || next != id+"@2" {
+			t.Fatalf("%q: %v %s", want, err, next)
+		}
+		l2, n2 := storedBugFix(t)
+		l, name = l2, n2
+		f, _ = MapDraft(l, name)
+		f.Requirements = []build.Link{{Source: "R1", Quote: f.Sources["R1"], Tests: []string{evaltest.GoBugFixTest}}}
 	}
 }
