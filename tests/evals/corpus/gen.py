@@ -206,8 +206,48 @@ case("heldout", "edits-without-request", {"s0": tree(), "s1": tree(cart_go=FIX)}
      [], note="a child session alone has no user request: no episode")
 
 
+# ---------------------------------------------------------------- held-out split for the optional
+# local-model segmentation (E06). Written and frozen on 2026-10-18 before the segmentation code
+# and before any model run. "model_segmented" marks an episode whose boundary or family the local
+# model proposed (provenance, not a task fact).
+case("heldout-seg", "two-tasks-no-check-between", {"s0": tree(), "s1": tree(cart_go=FIX), "s2": tree(cart_go=FIX, user_go=NAME)},
+     [S("ses_r").user("u1", "Fix the discount bug in Total.", 0)
+      .step("a1", 1, "s0", "s1", [edit("cart.go")], finish="stop")
+      .user("u2", "Next task: give Name a default guest value.", 10)
+      .step("a2", 11, "s1", "s2", [edit("user.go"), test(True)], finish="stop")],
+     [{"session": "ses_r", "requests": ["u1"], "corrections": [], "base": "s0", "result": "s1", "paths": ["cart.go"],
+       "attribution": "exclusive", "outcome": "none", "family": "bug_fix", "links": [], "reasons": ["model_segmented", "no_checkable_outcome"]},
+      {"session": "ses_r", "requests": ["u2"], "corrections": [], "base": "s1", "result": "s2", "paths": ["user.go"],
+       "attribution": "exclusive", "outcome": "test_passed", "family": "feature", "links": [], "reasons": ["model_segmented"]}],
+     note="two unrelated tasks without a passing check between them: the session's last passing check belongs to the second task only")
+case("heldout-seg", "unclassified-request", {"s0": tree(), "s1": tree(cart_go=FIX)},
+     [S("ses_s").user("u1", "The total shows 10 for a discount of 3 on a price of 10; it should show 7.", 0)
+      .step("a1", 1, "s0", "s1", [edit("cart.go"), test(True)], finish="stop")],
+     [{"session": "ses_s", "requests": ["u1"], "corrections": [], "base": "s0", "result": "s1", "paths": ["cart.go"],
+       "attribution": "exclusive", "outcome": "test_passed", "family": "bug_fix", "links": [], "reasons": ["model_segmented"]}],
+     note="no family keyword; the family is the model's proposal")
+case("heldout-seg", "correction-without-check", {"s0": tree(), "s1": tree(cart_go=FIX), "s2": tree(cart_go=FIXR)},
+     [S("ses_t").user("u1", "Fix the discount bug in Total.", 0)
+      .step("a1", 1, "s0", "s1", [edit("cart.go")], finish="stop")
+      .user("u2", "Round the result as well, please.", 3)
+      .step("a2", 4, "s1", "s2", [edit("cart.go"), test(True)], finish="stop")],
+     [{"session": "ses_t", "requests": ["u1"], "corrections": ["u2"], "base": "s0", "result": "s2", "paths": ["cart.go"],
+       "attribution": "exclusive", "outcome": "test_passed", "family": "bug_fix", "links": [], "reasons": []}],
+     note="a correction of the same task: the model must not split it")
+case("heldout-seg", "interleaved-tasks", {"s0": tree(), "s1": tree(cart_go=FIX), "s2": tree(cart_go=FIX, user_go=NAME), "s3": tree(cart_go=FIXR, user_go=NAME)},
+     [S("ses_u").user("u1", "Fix the discount bug in Total.", 0)
+      .step("a1", 1, "s0", "s1", [edit("cart.go")], finish="stop")
+      .user("u2", "Separately, give Name a default guest value.", 3)
+      .step("a2", 4, "s1", "s2", [edit("user.go")], finish="stop")
+      .user("u3", "Back to Total: round the result too.", 6)
+      .step("a3", 7, "s2", "s3", [edit("cart.go"), test(True)], finish="stop")],
+     [{"session": "ses_u", "requests": ["u1"], "corrections": ["u2", "u3"], "base": "s0", "result": "s3", "paths": ["cart.go", "user.go"],
+       "attribution": "ambiguous", "outcome": "test_passed", "family": "bug_fix", "links": [], "reasons": ["attribution_ambiguous", "model_segmented"]}],
+     note="interleaved tasks cannot be split at request boundaries: one episode, attribution ambiguous")
+
+
 def write():
-    for split in ("dev", "heldout"):
+    for split in ("dev", "heldout", "heldout-seg"):
         shutil.rmtree(split, ignore_errors=True)
     for (split, name), c in sorted(CASES.items()):
         d = os.path.join(split, name)

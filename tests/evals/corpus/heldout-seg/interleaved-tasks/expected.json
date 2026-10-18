@@ -1,0 +1,28 @@
+{
+ "episodes": [
+  {
+   "attribution": "ambiguous",
+   "base": "s0",
+   "corrections": [
+    "u2",
+    "u3"
+   ],
+   "family": "bug_fix",
+   "links": [],
+   "outcome": "test_passed",
+   "paths": [
+    "cart.go",
+    "user.go"
+   ],
+   "reasons": [
+    "attribution_ambiguous",
+    "model_segmented"
+   ],
+   "requests": [
+    "u1"
+   ],
+   "result": "s3",
+   "session": "ses_u"
+  }
+ ]
+}

@@ -1,0 +1,43 @@
+{
+ "episodes": [
+  {
+   "attribution": "exclusive",
+   "base": "s0",
+   "corrections": [],
+   "family": "bug_fix",
+   "links": [],
+   "outcome": "none",
+   "paths": [
+    "cart.go"
+   ],
+   "reasons": [
+    "model_segmented",
+    "no_checkable_outcome"
+   ],
+   "requests": [
+    "u1"
+   ],
+   "result": "s1",
+   "session": "ses_r"
+  },
+  {
+   "attribution": "exclusive",
+   "base": "s1",
+   "corrections": [],
+   "family": "feature",
+   "links": [],
+   "outcome": "test_passed",
+   "paths": [
+    "user.go"
+   ],
+   "reasons": [
+    "model_segmented"
+   ],
+   "requests": [
+    "u2"
+   ],
+   "result": "s2",
+   "session": "ses_r"
+  }
+ ]
+}
