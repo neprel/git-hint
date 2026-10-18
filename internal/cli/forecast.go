@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -68,21 +67,12 @@ func forecastPolicy(fs *flag.FlagSet, horizon, threshold, cost string) (url.Valu
 
 // declarePlan records a declared plan application (git hint changes --declare-plan). It reads
 // local state and writes one declaration file below .hint/state/declarations/; no network.
-func declarePlan(e *Env, s *store.Store, planID, from string) int {
+func declarePlan(e *Env, s *store.Store, planID, from, work, after string) int {
 	if !hexID.MatchString(planID) {
 		fmt.Fprintln(e.Stderr, "git hint changes: --declare-plan needs a plan ID (32 hexadecimal characters)")
 		return 2
 	}
-	src := from
-	var err error
-	if src == "" {
-		if src, err = project.LatestRecommendation(s); err != nil {
-			return fail(e, err)
-		}
-	} else if !filepath.IsAbs(src) {
-		src = filepath.Join(e.Dir, src)
-	}
-	raw, err := readLimited(src, project.MaxDocumentBytes)
+	raw, err := readSet(e, s, from)
 	if err != nil {
 		return fail(e, err)
 	}
@@ -91,7 +81,13 @@ func declarePlan(e *Env, s *store.Store, planID, from string) int {
 		return fail(e, err)
 	}
 	defer lock.Unlock()
-	d, created, err := project.Declare(s, raw, planID, e.Now())
+	var d project.Declaration
+	var created bool
+	if work != "" {
+		d, created, err = project.DeclareWork(s, raw, planID, work, after, e.Now())
+	} else {
+		d, created, err = project.Declare(s, raw, planID, e.Now())
+	}
 	if errors.Is(err, project.ErrDeclarationConflict) {
 		return fail(e, fmt.Errorf("%w: plan %s of set %s is already declared for this change", err, d.PlanID, d.SetID))
 	}

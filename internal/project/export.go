@@ -167,9 +167,21 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 			}
 			var latestDecl *Declaration
 			for i := range decls {
-				if decls[i].AfterSnapshotID == l.Record.SnapshotID {
-					latestDecl = &decls[i]
+				d := &decls[i]
+				if d.AfterSnapshotID != l.Record.SnapshotID {
+					continue
 				}
+				if len(l.Record.ParentSnapshotIDs) > 0 && d.BeforeSnapshotID == l.Record.ParentSnapshotIDs[0] {
+					latestDecl = d
+					continue
+				}
+				// a work unit change from its frozen base to the latest snapshot (several
+				// snapshots in between): its own pair; the plain latest change stays too
+				prev, err := LoadSnapshot(s, d.RepoID, d.BeforeSnapshotID)
+				if err != nil {
+					return nil, fmt.Errorf("declared change %s: %w", d.AfterSnapshotID, err)
+				}
+				pairs = append(pairs, pair{prev, l, d})
 			}
 			if len(l.Record.ParentSnapshotIDs) > 0 {
 				prev, err := LoadSnapshot(s, l.Record.RepoID, l.Record.ParentSnapshotIDs[0])

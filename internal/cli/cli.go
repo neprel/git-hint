@@ -307,11 +307,17 @@ func cmdChanges(e *Env, args []string) int {
 	format := fs.String("format", "text", "text (local names) or canonical (HINT change_set payload, no names)")
 	declare := fs.String("declare-plan", "", "declare the latest change of the plan's repository as the application of PLAN (an association only; sent with the next export)")
 	from := fs.String("from", "", "recommendation_set file for --declare-plan (default: the last one fetched by `git hint recommend`)")
+	work := fs.String("work-unit", "", "with --declare-plan: the closed successful work unit attempt whose change this is (needs --after)")
+	after := fs.String("after", "", "with --work-unit: the after snapshot, an exact stored snapshot ID or latest (resolved once now)")
 	if fs.Parse(args) != nil {
 		return 2
 	}
-	if *from != "" && *declare == "" {
-		fmt.Fprintln(e.Stderr, "git hint changes: --from needs --declare-plan")
+	if (*from != "" || *work != "") && *declare == "" {
+		fmt.Fprintln(e.Stderr, "git hint changes: --from and --work-unit need --declare-plan")
+		return 2
+	}
+	if (*work == "") != (*after == "") {
+		fmt.Fprintln(e.Stderr, "git hint changes: --work-unit and --after go together")
 		return 2
 	}
 	s, err := open(e)
@@ -319,7 +325,7 @@ func cmdChanges(e *Env, args []string) int {
 		return fail(e, err)
 	}
 	if *declare != "" {
-		return declarePlan(e, s, *declare, *from)
+		return declarePlan(e, s, *declare, *from, *work, *after)
 	}
 	for _, r := range s.Cfg.Repos {
 		cur, err := project.LoadLatest(s, s.RepoID(r))

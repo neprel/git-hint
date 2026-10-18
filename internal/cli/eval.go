@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -53,6 +54,10 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
   git hint eval report [-o FILE] [--send] [--yes]
                                      minimized results of new trials (no task content);
                                      --send uploads them when the policy allows result export
+  git hint eval work start LABEL [--plan PLAN [--from SETFILE]] [--family LABEL]
+  git hint eval work close LABEL --outcome completed|failed|abandoned
+                                     optional: declare a piece of work (agent runs with
+                                     HINT_WORK_UNIT=LABEL and HINT_TASK_ID); eval report sends it
   git hint eval pack ID... -o FILE   write evals to a private bundle for your other machines
   git hint eval unpack FILE          read a bundle (every object is checked; never sent anywhere)
 `)
@@ -81,6 +86,8 @@ func cmdEval(e *Env, args []string) int {
 		return evalCompare(e, args[1:])
 	case "report":
 		return evalReport(e, args[1:])
+	case "work":
+		return evalWork(e, args[1:])
 	case "pack":
 		return evalPack(e, args[1:])
 	case "unpack":
@@ -282,7 +289,7 @@ func state(p *evals.Policy) string {
 }
 
 // valueFlags take a separate value token (`-o FILE`).
-var valueFlags = map[string]bool{"-with": true, "--with": true, "-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
+var valueFlags = map[string]bool{"-plan": true, "--plan": true, "-from": true, "--from": true, "-family": true, "--family": true, "-outcome": true, "--outcome": true, "-with": true, "--with": true, "-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
 
 // flagsFirst moves flag tokens (with their values) before positional ones, so
 // `eval show ID --text` and `eval pack ID -o FILE` work.
@@ -701,15 +708,31 @@ func evalReport(e *Env, args []string) int {
 	if err != nil {
 		return fail(e, err)
 	}
-	if len(names) == 0 {
-		fmt.Fprintln(e.Stdout, "No new trial results to report.")
+	// declared work units: late activity is recorded first; unreported revisions go along
+	units, err := project.WorkUnits(s)
+	if err != nil {
+		return fail(e, err)
+	}
+	var work []any
+	for _, u := range units {
+		if err := u.Revise(s, e.Now()); err != nil {
+			return fail(e, err)
+		}
+		for _, r := range u.Revisions {
+			if d, _ := r["revision_digest"].(string); !slices.Contains(u.Reported, d) {
+				work = append(work, r)
+			}
+		}
+	}
+	if len(names) == 0 && len(work) == 0 {
+		fmt.Fprintln(e.Stdout, "No new trial results or work unit revisions to report.")
 		return 0
 	}
 	sessions, agents, err := project.SessionTasks(s)
 	if err != nil {
 		return fail(e, err)
 	}
-	data, used, err := report.Builder{Key: s.Key(), Namespace: s.Cfg.ProjectNamespace, Sessions: sessions, AgentSources: agents}.Build(l, names, e.Now())
+	data, used, err := report.Builder{Key: s.Key(), Namespace: s.Cfg.ProjectNamespace, Sessions: sessions, AgentSources: agents, WorkUnits: work}.Build(l, names, e.Now())
 	if err != nil {
 		return fail(e, err)
 	}
@@ -729,7 +752,7 @@ func evalReport(e *Env, args []string) int {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fail(e, err)
 	}
-	fmt.Fprintf(e.Stdout, "Report %s: %d trial results in %s.\n", meta.ReportID, len(used), path)
+	fmt.Fprintf(e.Stdout, "Report %s: %d trial results and %d work unit revisions in %s.\n", meta.ReportID, len(used), len(work), path)
 	fmt.Fprintln(e.Stdout, "It holds outcomes, counters and opaque references only: no task text, code, path, command, log or local ID.")
 	if !*send {
 		return 0
@@ -758,6 +781,9 @@ func evalReport(e *Env, args []string) int {
 		return fail(e, err)
 	}
 	if err := report.MarkReported(l, used); err != nil {
+		return fail(e, err)
+	}
+	if err := project.MarkWorkReported(s, work); err != nil {
 		return fail(e, err)
 	}
 	fmt.Fprintf(e.Stdout, "Sent: the server answered %s.\n", rc.Status)

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/neprel/git-hint/internal/snapshot"
 	"github.com/neprel/git-hint/internal/store"
 )
 
@@ -25,6 +26,17 @@ type Declaration struct {
 	SetDigest          string `json:"recommendation_set_digest"`
 	PlanID             string `json:"plan_id"`
 	PlanSnapshotDigest string `json:"plan_snapshot_digest"`
+	// Work is the closed successful attempt of a declared work unit (empty for a plain
+	// declaration); AfterDigest is the local digest of the after snapshot, frozen at declaration.
+	Work        WorkRef `json:"work,omitempty"`
+	AfterDigest string  `json:"after_digest,omitempty"`
+}
+
+// WorkRef names the exact closed successful attempt of a work unit.
+type WorkRef struct {
+	UnitRef    string `json:"unit_ref,omitempty"`
+	Revision   int    `json:"revision,omitempty"`
+	AttemptRef string `json:"attempt_ref,omitempty"`
 }
 
 // ErrDeclarationConflict means another declaration exists for the same change.
@@ -37,76 +49,31 @@ func declarationFile(repoID, afterID string) string { return repoID + "-" + afte
 // network). A repeat of the same declaration is accepted unchanged (created = false); a
 // different declaration for the same change is ErrDeclarationConflict.
 func Declare(s *store.Store, raw []byte, planID string, now time.Time) (d Declaration, created bool, err error) {
-	cur, err := CurrentState(s, now)
+	pr, err := resolvePlan(s, raw, planID, now)
 	if err != nil {
 		return d, false, err
 	}
-	im, err := Import(raw, cur)
-	if err != nil {
-		return d, false, err
-	}
-	if im.Result.Document != "accepted" {
-		return d, false, fmt.Errorf("the recommendation set is not accepted: %s", im.Result.Document)
-	}
-	doc := im.Doc
-	var plan map[string]any
-	for _, p := range list(obj(doc, "payload")["plans"]) {
-		if pm, _ := p.(map[string]any); pm != nil && pm["plan_id"] == planID {
-			plan = pm
-		}
-	}
-	if plan == nil {
-		return d, false, fmt.Errorf("plan %s is not in the recommendation set", planID)
-	}
-	repos := list(plan["repo_ids"])
-	if len(repos) != 1 {
-		// one change set per repository with a complete group would be needed; the client
-		// does not build cross-repository declarations yet
-		return d, false, fmt.Errorf("plan %s spans %d repositories: a cross-repository declaration is not supported", planID, len(repos))
-	}
-	repoID, _ := repos[0].(string)
-	var r *store.Repo
-	for i := range s.Cfg.Repos {
-		if s.RepoID(s.Cfg.Repos[i]) == repoID {
-			r = &s.Cfg.Repos[i]
-		}
-	}
-	if r == nil {
-		return d, false, fmt.Errorf("plan %s is for a repository that is not configured here", planID)
-	}
-	latest, err := LoadLatest(s, repoID)
+	latest, err := LoadLatest(s, pr.RepoID)
 	if err != nil {
 		return d, false, err
 	}
 	if latest == nil || len(latest.Record.ParentSnapshotIDs) == 0 {
-		return d, false, fmt.Errorf("%s: no completed change (no snapshot after an earlier one)", r.Name)
+		return d, false, fmt.Errorf("%s: no completed change (no snapshot after an earlier one)", pr.RepoName)
 	}
 	parent := latest.Record.ParentSnapshotIDs[0]
-	var planSnap map[string]any
-	for _, x := range list(plan["snapshots"]) {
-		if xm, _ := x.(map[string]any); xm != nil && xm["repo_id"] == repoID {
-			planSnap = xm
-		}
+	if pr.SnapshotID != parent {
+		return d, false, fmt.Errorf("%s: the plan was made for another snapshot than the parent of the latest snapshot", pr.RepoName)
 	}
-	if planSnap == nil || planSnap["snapshot_id"] != parent {
-		return d, false, fmt.Errorf("%s: the plan was made for another snapshot than the parent of the latest snapshot", r.Name)
-	}
-	st, err := loadExportState(s)
-	if err != nil {
-		return d, false, err
-	}
-	digest, _ := planSnap["digest"].(string)
-	known := false
-	for _, x := range st.SnapshotDigests[parent] {
-		known = known || x == digest
-	}
-	if !known {
-		return d, false, fmt.Errorf("%s: the plan's snapshot digest was never exported for the parent snapshot", r.Name)
-	}
-	d = Declaration{RepoID: repoID, BeforeSnapshotID: parent, AfterSnapshotID: latest.Record.SnapshotID,
-		SetID: str(doc["document_id"]), SetDigest: str(doc["content_digest"]), PlanID: planID, PlanSnapshotDigest: digest}
+	d = Declaration{RepoID: pr.RepoID, BeforeSnapshotID: parent, AfterSnapshotID: latest.Record.SnapshotID,
+		SetID: pr.SetID, SetDigest: pr.SetDigest, PlanID: planID, PlanSnapshotDigest: pr.SnapshotDigest}
+	return record(s, d)
+}
+
+// record stores a declaration once: a repeat is unchanged, another one for the same change is
+// ErrDeclarationConflict (never overwritten).
+func record(s *store.Store, d Declaration) (Declaration, bool, error) {
 	var old Declaration
-	name := declarationFile(repoID, d.AfterSnapshotID)
+	name := declarationFile(d.RepoID, d.AfterSnapshotID)
 	switch err := s.ReadJSON(&old, "state", "declarations", name); {
 	case err == nil:
 		if old != d {
@@ -120,6 +87,70 @@ func Declare(s *store.Store, raw []byte, planID string, now time.Time) (d Declar
 		return d, false, err
 	}
 	return d, true, nil
+}
+
+// planRef is a plan of a saved recommendation set, checked by the existing importer: one
+// configured repository and a snapshot digest that was exported.
+type planRef struct {
+	SetID, SetDigest, PlanID, RepoID, RepoName, SnapshotID, SnapshotDigest string
+}
+
+func resolvePlan(s *store.Store, raw []byte, planID string, now time.Time) (planRef, error) {
+	var pr planRef
+	cur, err := CurrentState(s, now)
+	if err != nil {
+		return pr, err
+	}
+	im, err := Import(raw, cur)
+	if err != nil {
+		return pr, err
+	}
+	if im.Result.Document != "accepted" {
+		return pr, fmt.Errorf("the recommendation set is not accepted: %s", im.Result.Document)
+	}
+	doc := im.Doc
+	var plan map[string]any
+	for _, p := range list(obj(doc, "payload")["plans"]) {
+		if pm, _ := p.(map[string]any); pm != nil && pm["plan_id"] == planID {
+			plan = pm
+		}
+	}
+	if plan == nil {
+		return pr, fmt.Errorf("plan %s is not in the recommendation set", planID)
+	}
+	repos := list(plan["repo_ids"])
+	if len(repos) != 1 {
+		// one change set per repository with a complete group would be needed; the client
+		// does not build cross-repository declarations yet
+		return pr, fmt.Errorf("plan %s spans %d repositories: a cross-repository declaration is not supported", planID, len(repos))
+	}
+	pr.RepoID, _ = repos[0].(string)
+	for _, r := range s.Cfg.Repos {
+		if s.RepoID(r) == pr.RepoID {
+			pr.RepoName = r.Name
+		}
+	}
+	if pr.RepoName == "" {
+		return pr, fmt.Errorf("plan %s is for a repository that is not configured here", planID)
+	}
+	for _, x := range list(plan["snapshots"]) {
+		if xm, _ := x.(map[string]any); xm != nil && xm["repo_id"] == pr.RepoID {
+			pr.SnapshotID, pr.SnapshotDigest = str(xm["snapshot_id"]), str(xm["digest"])
+		}
+	}
+	st, err := loadExportState(s)
+	if err != nil {
+		return pr, err
+	}
+	known := false
+	for _, x := range st.SnapshotDigests[pr.SnapshotID] {
+		known = known || x == pr.SnapshotDigest
+	}
+	if pr.SnapshotID == "" || !known {
+		return pr, fmt.Errorf("%s: the plan's snapshot digest was never exported for that snapshot", pr.RepoName)
+	}
+	pr.SetID, pr.SetDigest, pr.PlanID = str(doc["document_id"]), str(doc["content_digest"]), planID
+	return pr, nil
 }
 
 // Declarations returns the recorded declarations of a repository, sorted by after snapshot.
@@ -146,11 +177,72 @@ func Declarations(s *store.Store, repoID string) ([]Declaration, error) {
 
 // planApplication is the canonical payload field of a declared change set.
 func (d Declaration) planApplication() map[string]any {
-	return map[string]any{
+	pa := map[string]any{
 		"recommendation_set": map[string]any{"document_id": d.SetID, "content_digest": d.SetDigest},
 		"plan_id":            d.PlanID,
 		"declaration":        "client_declared_association",
 	}
+	if d.Work.UnitRef != "" {
+		pa["work"] = map[string]any{"unit_ref": d.Work.UnitRef, "revision": d.Work.Revision, "attempt_ref": d.Work.AttemptRef}
+	}
+	return pa
 }
 
 func obj(m map[string]any, k string) map[string]any { o, _ := m[k].(map[string]any); return o }
+
+// DeclareWork declares the change of a closed successful work unit attempt as the application
+// of the unit's plan. before = the unit's frozen base snapshot of the plan's repository (the
+// plan snapshot); after = an exact stored snapshot ID or "latest", resolved once now and saved;
+// after must descend from before through stored single-parent links (a merge parent, a missing
+// snapshot or a broken chain is refused). Nothing is written on a refusal.
+func DeclareWork(s *store.Store, raw []byte, planID, label, after string, now time.Time) (Declaration, bool, error) {
+	var d Declaration
+	if after == "" {
+		return d, false, errors.New("--after is required with --work-unit: a snapshot ID or latest")
+	}
+	u, err := LoadWork(s, label)
+	if err != nil {
+		return d, false, err
+	}
+	if u.PlanID == "" || u.PlanID != planID {
+		return d, false, errors.New("the work unit was not started for this plan")
+	}
+	rev, attempt, ok := u.ClosedAttempt()
+	if !ok {
+		return d, false, errors.New("the work unit has no closed successful attempt (git hint eval work close --outcome completed)")
+	}
+	pr, err := resolvePlan(s, raw, planID, now)
+	if err != nil {
+		return d, false, err
+	}
+	if pr.RepoID != u.PlanRepo || pr.SnapshotID != u.PlanSnap {
+		return d, false, errors.New("the plan's snapshot is not the work unit's base")
+	}
+	var a *snapshot.Local
+	if after == "latest" {
+		a, err = LoadLatest(s, pr.RepoID)
+	} else {
+		a, err = LoadSnapshot(s, pr.RepoID, after)
+	}
+	if err != nil || a == nil {
+		return d, false, fmt.Errorf("%s: the after snapshot %q is not stored", pr.RepoName, after)
+	}
+	// lineage: single-parent links from after back to the base
+	cur, seen := a, map[string]bool{}
+	for cur.Record.SnapshotID != u.PlanSnap {
+		if seen[cur.Record.SnapshotID] || len(cur.Record.ParentSnapshotIDs) != 1 {
+			return d, false, fmt.Errorf("%s: the after snapshot does not descend from the base through single-parent links", pr.RepoName)
+		}
+		seen[cur.Record.SnapshotID] = true
+		if cur, err = LoadSnapshot(s, pr.RepoID, cur.Record.ParentSnapshotIDs[0]); err != nil {
+			return d, false, fmt.Errorf("%s: a snapshot between the base and the after snapshot is not stored", pr.RepoName)
+		}
+	}
+	if a.Record.SnapshotID == u.PlanSnap {
+		return d, false, errors.New("the after snapshot is the base: there is no change to declare")
+	}
+	d = Declaration{RepoID: pr.RepoID, BeforeSnapshotID: u.PlanSnap, AfterSnapshotID: a.Record.SnapshotID, SetID: pr.SetID, SetDigest: pr.SetDigest,
+		PlanID: planID, PlanSnapshotDigest: pr.SnapshotDigest, Work: WorkRef{UnitRef: u.UnitRef, Revision: rev, AttemptRef: attempt.Ref},
+		AfterDigest: a.Record.Digest}
+	return record(s, d)
+}

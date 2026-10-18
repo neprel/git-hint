@@ -53,3 +53,4 @@ These notes describe changes that are not released yet. They name no version, an
 - OpenCode runs in containers use a pinned npm release by default; OpenCode 2.x runs through a checked adapter with a pinned, hash-checked binary.
 - A requirement link proposed by the local model is an estimate. Qualification cannot detect a semantic mislink within one sentence.
 - The accuracy of the optional local-model task labeling is not measured.
+- **Work units and configuration (draft v0.2).** `git hint eval work start|close` declares a piece of work, its member agent runs (`HINT_WORK_UNIT`) and its attempts as immutable revisions that `eval report` sends; `changes --declare-plan --work-unit --after` binds a completed unit's change to its plan. `HINT_TASK_FAMILY`, `HINT_MODEL` and `HINT_CONFIG_REFS` add a declared family and the canonical run configuration to the activity. All optional; without them nothing changes.

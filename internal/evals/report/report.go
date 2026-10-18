@@ -154,6 +154,8 @@ type Builder struct {
 	// Without them no trial gets a source task.
 	Sessions     map[string]map[string]int
 	AgentSources []string
+	// WorkUnits are immutable work unit revisions to report (eval report v0.2 work_units).
+	WorkUnits []any
 }
 
 // sourceTask is the declared task of an eval, or "" when it is not unambiguous (G11 binding
@@ -344,8 +346,16 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 		trials = []any{}
 	}
 	created := now.UTC().Truncate(time.Hour).Format(time.RFC3339)
-	r := map[string]any{"report_version": Version, "report_id": b.ref("report", created, fmt.Sprint(used)), "project_namespace": b.Namespace,
+	var revs []string
+	for _, w := range b.WorkUnits {
+		m, _ := w.(map[string]any)
+		revs = append(revs, str(m["revision_digest"]))
+	}
+	r := map[string]any{"report_version": Version, "report_id": b.ref("report", created, fmt.Sprint(used), fmt.Sprint(revs)), "project_namespace": b.Namespace,
 		"created_at": created, "producer": map[string]any{"tool": "git-hint", "version": version.Info().Version}, "trials": trials}
+	if len(b.WorkUnits) > 0 {
+		r["work_units"] = b.WorkUnits
+	}
 	d, err := hint.Digest(r)
 	if err != nil {
 		return nil, nil, err

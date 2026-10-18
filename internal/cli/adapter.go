@@ -128,6 +128,22 @@ func adapterOpenCode(e *Env, args []string) int {
 			return fail(e, fmt.Errorf("%w; nothing was written", err))
 		}
 	}
+	// HINT_WORK_UNIT: the run is a member task of a declared work unit (git hint eval work
+	// start); recorded after every other check and before any activity write; a closed unit records late activity
+	if w := os.Getenv("HINT_WORK_UNIT"); w != "" {
+		if !declared {
+			return fail(e, errWorkWithoutTask)
+		}
+		lock, err := s.LockState(true)
+		if err != nil {
+			return fail(e, err)
+		}
+		err = project.WorkJoin(s, w, project.TaskID(s.Key(), rawTask), e.Now())
+		lock.Unlock()
+		if err != nil {
+			return fail(e, fmt.Errorf("HINT_WORK_UNIT: %w; nothing was written", err))
+		}
+	}
 	src := activity.OpenCodeSource(s.Key(), activity.SourceOptions{AgentVersion: *agentVersion, TaskDeclared: declared,
 		FamilyDeclared: rawFamily != "", Configuration: cfg})
 	if err := project.RegisterSource(s, src); err != nil {
