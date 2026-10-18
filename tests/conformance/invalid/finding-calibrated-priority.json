@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:8090a465a4b9ccbd0b1a4ff783c82cc90ab49ef4808eae4ecb262c35bf3cd117",
+  "content_digest": "sha256:7e56756ecee4766fd17949a65f7d9bf8d050e9b026eee82c09c307ff9bcde6ab",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
   "document_type": "recommendation_set",
@@ -40,33 +40,53 @@
         "decision": {
           "alternatives": [
             {
+              "effort_delta": {
+                "coverage": [
+                  6,
+                  6
+                ],
+                "interval": {
+                  "lower": -400,
+                  "upper": 300
+                },
+                "observed": -120.5,
+                "unit": "tokens_per_attempt"
+              },
               "intervention": "CONTEXT_ONLY",
-              "net": {
-                "lower": -15000,
-                "upper": 20000
-              },
-              "one_time": {
-                "lower": 0,
-                "upper": 0
-              },
               "one_time_source": "configuration",
-              "per_task": {
-                "lower": -400,
-                "upper": 300
+              "scope": {
+                "arm": "context_only",
+                "paired_objectives": 6,
+                "partition": "held_out",
+                "task_families": 3
               },
               "state": "known",
-              "success": {
-                "lower": 0,
-                "upper": 0.2
+              "success_delta": {
+                "coverage": [
+                  6,
+                  6
+                ],
+                "interval": {
+                  "lower": 0,
+                  "upper": 0.2
+                },
+                "observed": 0.1,
+                "unit": "success_fraction"
               }
+            },
+            {
+              "effort_delta": null,
+              "intervention": "REFACTOR_CODE",
+              "one_time_source": "unknown",
+              "scope": null,
+              "state": "unknown",
+              "success_delta": null
             }
           ],
           "basis": "heuristic",
-          "break_even_tasks": null,
           "chosen": "COLLECT_MORE_EVIDENCE",
-          "evidence": "project_eval_pairs",
-          "horizon_tasks": 50,
-          "unit": "tokens"
+          "cost_model": "unavailable",
+          "evidence": "project_eval_pairs"
         },
         "evidence_state": "supported",
         "finding_id": "879476c356d6315ccc75baff1a56fdb8",

@@ -231,29 +231,32 @@ func renderFindings(w func(string, ...any), payload map[string]any, name func(st
 	}
 }
 
-// renderDecision writes the intervention comparison of a finding. Unknown inputs stay
-// unknown; a break-even horizon appears only when the server gives one.
+// renderDecision writes the intervention comparison of a finding: observed differences of
+// the project's eval pairs, never a net value or a break-even (the cost model is unavailable).
 func renderDecision(w func(string, ...any), d map[string]any) {
-	w("Intervention comparison (heuristic, uncalibrated; %v future tasks, unit %s): **%s**.\n\n", d["horizon_tasks"], str(d["unit"]), str(d["chosen"]))
-	w("| Intervention | State | One-time | Per task | Success difference | Net over the horizon |\n|---|---|---|---|---|---|\n")
-	iv := func(v any) string {
+	w("Intervention comparison (heuristic; cost model unavailable, so no net value or break-even): **%s**.\n\n", str(d["chosen"]))
+	w("| Intervention | State | Tokens per attempt (variant - baseline) | Success difference | Pairs |\n|---|---|---|---|---|\n")
+	delta := func(v any) string {
 		m, ok := v.(map[string]any)
 		if !ok {
 			return "unknown"
 		}
-		return fmt.Sprintf("%v to %v", m["lower"], m["upper"])
+		iv, ok := m["interval"].(map[string]any)
+		cov := list(m["coverage"])
+		if !ok {
+			return fmt.Sprintf("%s (no interval; %v of %v)", numOr(m["observed"]), cov[0], cov[1])
+		}
+		return fmt.Sprintf("%s (%v to %v; %v of %v)", numOr(m["observed"]), iv["lower"], iv["upper"], cov[0], cov[1])
 	}
 	for _, x := range list(d["alternatives"]) {
 		a := x.(map[string]any)
-		w("| %s | %s | %s (%s) | %s | %s | %s |\n", str(a["intervention"]), str(a["state"]), iv(a["one_time"]), str(a["one_time_source"]),
-			iv(a["per_task"]), iv(a["success"]), iv(a["net"]))
+		scope := "none"
+		if sc, ok := a["scope"].(map[string]any); ok {
+			scope = fmt.Sprintf("%s, %s, %v objectives, %v families", str(sc["arm"]), str(sc["partition"]), sc["paired_objectives"], sc["task_families"])
+		}
+		w("| %s | %s | %s | %s | %s |\n", str(a["intervention"]), str(a["state"]), delta(a["effort_delta"]), delta(a["success_delta"]), scope)
 	}
-	if be, ok := d["break_even_tasks"].(map[string]any); ok {
-		w("\nBreak-even after %v to %v tasks (observed inputs, uncalibrated).\n", be["lower"], be["upper"])
-	} else {
-		w("\nNo break-even horizon: an input is unknown or not observed.\n")
-	}
-	w("\n")
+	w("\nObserved differences on the project's eval tasks, not a forecast for future work.\n\n")
 }
 
 func title(m map[string]any) string {

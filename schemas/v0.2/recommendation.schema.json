@@ -1076,7 +1076,7 @@
     "Decision": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The minimum sufficient intervention for a finding (v0.2): each alternative's inputs as intervals or null (unknown), its net value over the horizon, and the chosen class. A heuristic, uncalibrated comparison; unknown inputs are never filled.",
+      "description": "The minimum sufficient intervention for a finding (v0.2): observed differences of the project's eval variant pairs per alternative, with units, coverage and scope. No net value, horizon or break-even: the cost model (07B) is unavailable. A heuristic choice; unknown inputs are never filled.",
       "properties": {
         "chosen": {
           "type": "string",
@@ -1088,13 +1088,6 @@
             "REASSIGN_OWNER",
             "COLLECT_MORE_EVIDENCE"
           ]
-        },
-        "horizon_tasks": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "unit": {
-          "const": "tokens"
         },
         "alternatives": {
           "type": "array",
@@ -1117,25 +1110,63 @@
                   "known",
                   "unknown",
                   "excluded_correctness",
+                  "cost_unknown",
                   "not_applicable"
                 ]
               },
-              "one_time": {
+              "effort_delta": {
                 "oneOf": [
                   {
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                      "lower": {
-                        "type": "number"
+                      "observed": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
                       },
-                      "upper": {
-                        "type": "number"
+                      "interval": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "lower": {
+                                "type": "number"
+                              },
+                              "upper": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "lower",
+                              "upper"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "const": "tokens_per_attempt"
+                      },
+                      "coverage": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
                       }
                     },
                     "required": [
-                      "lower",
-                      "upper"
+                      "observed",
+                      "interval",
+                      "unit",
+                      "coverage"
                     ]
                   },
                   {
@@ -1143,68 +1174,59 @@
                   }
                 ]
               },
-              "per_task": {
+              "success_delta": {
                 "oneOf": [
                   {
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                      "lower": {
-                        "type": "number"
+                      "observed": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
                       },
-                      "upper": {
-                        "type": "number"
+                      "interval": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "lower": {
+                                "type": "number"
+                              },
+                              "upper": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "lower",
+                              "upper"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "const": "success_fraction"
+                      },
+                      "coverage": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
                       }
                     },
                     "required": [
-                      "lower",
-                      "upper"
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "success": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "lower": {
-                        "type": "number"
-                      },
-                      "upper": {
-                        "type": "number"
-                      }
-                    },
-                    "required": [
-                      "lower",
-                      "upper"
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "net": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "lower": {
-                        "type": "number"
-                      },
-                      "upper": {
-                        "type": "number"
-                      }
-                    },
-                    "required": [
-                      "lower",
-                      "upper"
+                      "observed",
+                      "interval",
+                      "unit",
+                      "coverage"
                     ]
                   },
                   {
@@ -1215,66 +1237,64 @@
               "one_time_source": {
                 "type": "string",
                 "enum": [
-                  "observed",
                   "configuration",
                   "unknown"
+                ]
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "arm": {
+                        "type": "string",
+                        "enum": [
+                          "context_only",
+                          "refactor"
+                        ]
+                      },
+                      "partition": {
+                        "type": "string",
+                        "enum": [
+                          "calibration",
+                          "held_out"
+                        ]
+                      },
+                      "paired_objectives": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "task_families": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "required": [
+                      "arm",
+                      "partition",
+                      "paired_objectives",
+                      "task_families"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               }
             },
             "required": [
               "intervention",
               "state",
-              "one_time",
-              "per_task",
-              "success",
-              "net",
-              "one_time_source"
-            ],
-            "allOf": [
-              {
-                "if": {
-                  "properties": {
-                    "state": {
-                      "enum": [
-                        "unknown",
-                        "not_applicable"
-                      ]
-                    }
-                  }
-                },
-                "then": {
-                  "properties": {
-                    "net": {
-                      "type": "null"
-                    }
-                  }
-                }
-              }
+              "effort_delta",
+              "success_delta",
+              "one_time_source",
+              "scope"
             ]
           }
         },
-        "break_even_tasks": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "lower": {
-                  "type": "number"
-                },
-                "upper": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "lower",
-                "upper"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "cost_model": {
+          "const": "unavailable"
         },
         "basis": {
           "const": "heuristic"
@@ -1289,10 +1309,8 @@
       },
       "required": [
         "chosen",
-        "horizon_tasks",
-        "unit",
         "alternatives",
-        "break_even_tasks",
+        "cost_model",
         "basis",
         "evidence"
       ]

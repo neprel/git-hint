@@ -97,10 +97,13 @@ func findingsDoc(rec, act, ctx M) M {
 			M{"cause": "intentional_repeat", "state": "not_excluded", "basis": A{"repeat_after_own_edit"}}},
 		"interventions": A{"CONTEXT_ONLY", "COLLECT_MORE_EVIDENCE"},
 		"next_step":     M{"check": "refresh_index_and_recheck", "targets": A{targets[0]}}, "priority": "heuristic",
-		"decision": M{"chosen": "COLLECT_MORE_EVIDENCE", "horizon_tasks": 50, "unit": "tokens", "basis": "heuristic", "evidence": "project_eval_pairs",
-			"break_even_tasks": nil, "alternatives": A{
-				M{"intervention": "CONTEXT_ONLY", "state": "known", "one_time": M{"lower": 0, "upper": 0}, "per_task": M{"lower": -400, "upper": 300},
-					"success": M{"lower": 0, "upper": 0.2}, "net": M{"lower": -15000, "upper": 20000}, "one_time_source": "configuration"}}}}
+		"decision": M{"chosen": "COLLECT_MORE_EVIDENCE", "cost_model": "unavailable", "basis": "heuristic", "evidence": "project_eval_pairs",
+			"alternatives": A{
+				M{"intervention": "CONTEXT_ONLY", "state": "known", "one_time_source": "configuration",
+					"effort_delta":  M{"observed": -120.5, "interval": M{"lower": -400, "upper": 300}, "unit": "tokens_per_attempt", "coverage": A{6, 6}},
+					"success_delta": M{"observed": 0.1, "interval": M{"lower": 0, "upper": 0.2}, "unit": "success_fraction", "coverage": A{6, 6}},
+					"scope":         M{"arm": "context_only", "partition": "held_out", "paired_objectives": 6, "task_families": 3}},
+				M{"intervention": "REFACTOR_CODE", "state": "unknown", "one_time_source": "unknown", "effort_delta": nil, "success_delta": nil, "scope": nil}}}}
 	read := M{"finding_id": id("finding", "large-read"), "problem": "large_low_selectivity_read", "evidence_state": "limited",
 		"quantities": A{q("large_reads", "operations", 2, 2, 5), q("large_read_bytes", "bytes", nil, 2, 5)},
 		"scope":      M{"task_ids": A{task}, "task_count": 1, "snapshot_ids": A{snap}},
@@ -183,9 +186,8 @@ func v02Invalid() []invalidCase {
 		{"finding-without-cause", "recommendation-findings.json", "schema", "finding", func(d M) {
 			obj(d, "payload", "findings", 0)["causes"] = A{}
 		}, nil},
-		{"decision-unknown-with-net", "recommendation-findings.json", "schema", "finding", func(d M) {
-			a := obj(d, "payload", "findings", 0, "decision", "alternatives", 0)
-			a["state"], a["per_task"] = "unknown", nil
+		{"decision-with-net-value", "recommendation-findings.json", "schema", "finding", func(d M) {
+			obj(d, "payload", "findings", 0, "decision")["net"] = M{"lower": 1000, "upper": 5000}
 		}, nil},
 		{"decision-calibrated-basis", "recommendation-findings.json", "schema", "finding", func(d M) {
 			obj(d, "payload", "findings", 0, "decision")["basis"] = "calibrated"
