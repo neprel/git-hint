@@ -82,7 +82,7 @@ func Run(ctx context.Context, s *store.Store, env Env) Result {
 		Home: env.Home, MaxSessions: lim.BatchEpisodes, Cmd: env.Cmd, Since: env.Now().Add(-time.Duration(lim.RetentionDays) * 24 * time.Hour)})
 	res.Snapshots = keepSnapshots(ctx, l, env.DataHome)
 	if ctx.Err() == nil {
-		res.Episodes = discover(l, s, env.Now())
+		res.Episodes = discover(ctx, l, s, env.Now())
 	}
 	if ctx.Err() == nil {
 		res.Packages = packageEpisodes(l, p, env.Now())
@@ -178,7 +178,7 @@ type EpisodeReport struct {
 }
 
 // discover proposes closed episodes from every imported session and stores them.
-func discover(l *library.Library, s *store.Store, now time.Time) EpisodeReport {
+func discover(ctx context.Context, l *library.Library, s *store.Store, now time.Time) EpisodeReport {
 	rep := EpisodeReport{Reasons: map[string]int{}}
 	maps := map[string]snapMap{}
 	snaps := func(project, id string) string {
@@ -200,7 +200,7 @@ func discover(l *library.Library, s *store.Store, now time.Time) EpisodeReport {
 		}
 		return ""
 	}
-	props, err := episodes.DiscoverWith(l, now, snaps, repos, modelSegmenter(context.Background(), l, s.Cfg.Evals))
+	props, err := episodes.DiscoverWith(l, now, snaps, repos, modelSegmenter(ctx, l, s.Cfg.Evals))
 	if err != nil {
 		rep.Error = "discovery_failed"
 		return rep
