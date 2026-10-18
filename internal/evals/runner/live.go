@@ -270,9 +270,11 @@ func requestModel(b []byte) (string, bool) {
 			continue
 		}
 		found++
-		if key != "model" || json.Unmarshal(v, &model) != nil {
-			return "", false // a case alias or a non-string value
+		var m *string
+		if key != "model" || json.Unmarshal(v, &m) != nil || m == nil {
+			return "", false // a case alias, a non-string or a null value
 		}
+		model = *m
 	}
 	if t, err := dec.Token(); err != nil || t != json.Delim('}') || found != 1 {
 		return "", false

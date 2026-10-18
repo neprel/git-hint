@@ -164,6 +164,9 @@ func TestProxyRefusesAmbiguousModelFields(t *testing.T) {
 		{[]string{`{"model":"expected","model":"expected"}`}, "unverified"}, // a duplicate key
 		{[]string{`{"model":"expected","model":"other"}`}, "unverified"},
 		{[]string{`{"model":7}`}, "unverified"},
+		{[]string{`{"model":null}`}, "unverified"},     // null is no selection (not another model)
+		{[]string{ok, `{"model":null}`}, "unverified"}, // verified + null: never verified, no mismatch
+		{[]string{ok, `{"model":null}`, `{"model":"other"}`}, "mismatch"},
 		{[]string{`[{"model":"expected"}]`}, "unverified"},
 		{[]string{`{"model":"expected"} {"model":"other"}`}, "unverified"}, // trailing data
 		{[]string{`{"messages":[{"model":"other"}],"model":"expected"}`}, "verified"}, // nested keys are not the selection
