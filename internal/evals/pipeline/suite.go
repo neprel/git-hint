@@ -100,6 +100,9 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 		if v, _ := rec["variant"].(map[string]any); v != nil {
 			arm = str(v["arm"])
 			b.Baseline, b.BaselineDigest = str(v["of"]), str(v["of_digest"])
+			if p, _ := v["plan"].(map[string]any); p != nil {
+				b.PlanBinding = p // frozen in the variant record; copied into each trial
+			}
 			b.Objective, _, _ = strings.Cut(b.Baseline, "@")
 		}
 		variantArm := o.Arm == "context_only" || o.Arm == "refactor"
@@ -132,7 +135,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			}
 			b := bind[ref]
 			m.Members = append(m.Members, workunits.Member{Eval: ref, EvalDigest: b.EvalDigest, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, Objective: b.Objective,
-				TaskFamily: str(mm.(map[string]any)["task_family"]), Eligible: str(rec["family"]) == "refactor"})
+				TaskFamily: str(mm.(map[string]any)["task_family"]), Eligible: str(rec["family"]) == "refactor", Plan: b.PlanBinding})
 		}
 		if err := workunits.Start(s, l, m, now); err != nil {
 			return rep, err
@@ -185,7 +188,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			b := bind[ref]
 			in := suites.TrialInput{RunID: job, Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
 				Started: started, MaxSeconds: lim.TrialSeconds, Objective: b.Objective, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, EvalDigest: b.EvalDigest,
-				ContextPolicy: "disabled"} // HINT delivers no managed context in eval trials yet
+				ContextPolicy: "disabled", PlanBinding: b.PlanBinding} // HINT delivers no managed context in eval trials yet
 			var reqs, retries int64
 			if counter != nil {
 				reqs, retries = counter.Requests(), counter.Retries()

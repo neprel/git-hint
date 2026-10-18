@@ -397,3 +397,36 @@ func TestLaunchProvenanceInReports(t *testing.T) {
 		t.Fatalf("report: %s", b)
 	}
 }
+
+// T1: a trial's plan binding goes out as the allowlisted opaque references only.
+func TestPlanBindingInReportsIsAllowlisted(t *testing.T) {
+	l, _ := seeded(t)
+	suite, _, _ := suites.Freeze(l, nil, time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC))
+	var evalRef string
+	names, _ := l.Manifests("eval")
+	for _, n := range names {
+		if strings.HasSuffix(n, "@2") {
+			evalRef = n
+		}
+	}
+	tree := "sha256:" + strings.Repeat("7", 64)
+	pb := map[string]any{"recommendation_set_id": strings.Repeat("1", 32), "set_digest": "sha256:" + strings.Repeat("2", 64), "plan_id": strings.Repeat("3", 32),
+		"unit_ref": strings.Repeat("4", 32), "revision": 3, "attempt_ref": strings.Repeat("5", 32), "after_snapshot_id": strings.Repeat("6", 32), "after_tree": tree}
+	one := 1.0
+	in := suites.TrialInput{Suite: suite, Eval: evalRef, Arm: "baseline", Agent: "oracle", RunnerVersion: "0.23.0", MaxSeconds: 900, Attempt: 30,
+		Started: time.Date(2026, 10, 18, 10, 30, 0, 0, time.UTC), PlanBinding: pb}
+	n, err := suites.RecordTrial(l, in, runner.Trial{Name: "pb", Reward: &one, Checks: map[string]string{"C1": "pass", "C2": "pass"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _, err := Builder{Key: fixedKey, Namespace: fixedNS}.Build(l, []string{n}, time.Date(2026, 10, 18, 11, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	json.Unmarshal(b, &m)
+	got := m["trials"].([]any)[0].(map[string]any)["plan_binding"].(map[string]any)
+	if len(got) != 6 || got["plan_id"] != strings.Repeat("3", 32) || strings.Contains(string(b), tree) || strings.Contains(string(b), strings.Repeat("2", 64)) {
+		t.Fatalf("plan binding %v", got)
+	}
+}

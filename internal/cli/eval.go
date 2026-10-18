@@ -290,7 +290,7 @@ func state(p *evals.Policy) string {
 }
 
 // valueFlags take a separate value token (`-o FILE`).
-var valueFlags = map[string]bool{"-plan": true, "--plan": true, "-from": true, "--from": true, "-family": true, "--family": true, "-outcome": true, "--outcome": true, "-with": true, "--with": true, "-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
+var valueFlags = map[string]bool{"-work-unit": true, "--work-unit": true, "-plan": true, "--plan": true, "-from": true, "--from": true, "-family": true, "--family": true, "-outcome": true, "--outcome": true, "-with": true, "--with": true, "-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
 
 // flagsFirst moves flag tokens (with their values) before positional ones, so
 // `eval show ID --text` and `eval pack ID -o FILE` work.
@@ -514,6 +514,8 @@ func evalRun(e *Env, args []string) int {
 	var with repoFlags
 	fs.Var(&with, "with", "context_only: a file to add to each task's repository (repeatable); refactor: the work tree of the refactored repository")
 	ctxPolicy := fs.String("context-policy", "", "not supported yet: a HINT context policy as the treatment of a context_only arm")
+	planID := fs.String("plan", "", "refactor: bind the variant to this plan (needs --work-unit; the --with work tree must be the captured after state)")
+	workUnit := fs.String("work-unit", "", "refactor with --plan: the work unit whose closed successful attempt made the change")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -533,7 +535,11 @@ func evalRun(e *Env, args []string) int {
 	ctx := context.Background()
 	evalsToRun := fs.Args()
 	if len(with) > 0 {
-		refs, ready, err := prepareVariants(e, s, *arm, fs.Args(), with)
+		if (*planID == "") != (*workUnit == "") || (*planID != "" && *arm != "refactor") {
+			fmt.Fprintln(e.Stderr, "git hint eval run: --plan and --work-unit go together, with --arm refactor")
+			return 2
+		}
+		refs, ready, err := prepareVariants(e, s, *arm, fs.Args(), with, *planID, *workUnit)
 		if err != nil {
 			return fail(e, err)
 		}
@@ -905,7 +911,7 @@ func evalMap(e *Env, args []string) int {
 // prepareVariants makes (or finds) the variant of each named baseline eval for a variant
 // arm. It reports ready only when every variant is validated; otherwise it lists their
 // states, starts the qualification worker when variants wait, and nothing runs.
-func prepareVariants(e *Env, s *store.Store, arm string, ids, with []string) ([]string, bool, error) {
+func prepareVariants(e *Env, s *store.Store, arm string, ids, with []string, planID, workUnit string) ([]string, bool, error) {
 	if arm != "context_only" && arm != "refactor" {
 		return nil, false, fmt.Errorf("--with is only for --arm context_only or --arm refactor")
 	}
@@ -947,6 +953,18 @@ func prepareVariants(e *Env, s *store.Store, arm string, ids, with []string) ([]
 				return nil, false, fmt.Errorf("the refactored work tree: %v", err)
 			}
 			in.Base = tree
+			if planID != "" {
+				// the variant's stored input tree must be exactly the captured after state of the
+				// declared change (both stored trees; the same object becomes the variant base)
+				plan, after, err := project.VariantPlan(s, workUnit, planID)
+				if err != nil {
+					return nil, false, err
+				}
+				if tree != after {
+					return nil, false, fmt.Errorf("the --with work tree is not the captured after state of the declared change")
+				}
+				in.Plan = plan
+			}
 		} else {
 			root := ""
 			for _, r := range s.Cfg.Repos {

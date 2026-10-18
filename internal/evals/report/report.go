@@ -331,6 +331,11 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 			}
 		}
 		tr["context_policy"] = cp
+		if pb, ok := t["plan_binding"].(map[string]any); ok {
+			// a client-declared association; only allowlisted opaque references leave the client
+			tr["plan_binding"] = map[string]any{"recommendation_set_id": pb["recommendation_set_id"], "plan_id": pb["plan_id"], "unit_ref": pb["unit_ref"],
+				"revision": pb["revision"], "attempt_ref": pb["attempt_ref"], "after_snapshot_id": pb["after_snapshot_id"]}
+		}
 		if dc, ok := t["declared_changes"].([]any); ok && len(dc) > 0 {
 			tr["declared_changes"] = dc
 		}

@@ -3,6 +3,7 @@ package pipeline
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -35,6 +36,9 @@ type VariantInput struct {
 	Arm     string
 	Context []ContextFile
 	Base    string
+	// Plan is the frozen plan binding of a refactor variant (nil: unbound); it is part of the
+	// variant identity, so a bound and an unbound variant of one tree are different evals
+	Plan map[string]any
 }
 
 // Variant is a stored variant eval and its current state.
@@ -193,12 +197,24 @@ func MakeVariant(l *library.Library, baseline string, in VariantInput, now time.
 		v["reasons"] = []any{"reference_missing"}
 	}
 	v["variant"] = map[string]any{"arm": in.Arm, "of": baseline, "of_digest": digest, "inputs": inputs, "reference": refRole}
+	planKey := ""
+	if in.Plan != nil {
+		if in.Arm != "refactor" {
+			return Variant{}, fmt.Errorf("%w: only a refactor variant can carry a plan binding", ErrVariant)
+		}
+		b, _ := json.Marshal(in.Plan) // canonical: sorted keys
+		planKey = string(b)
+		v["variant"].(map[string]any)["plan"] = in.Plan
+	}
 	// the variant's identity is the exact baseline version and digest, the arm and the
 	// intervention inputs: the same trees from another baseline version or arm are
 	// another variant (G10-9)
 	parts := []string{"variant", baseline, digest, in.Arm}
 	for _, x := range inputs {
 		parts = append(parts, x.(string))
+	}
+	if planKey != "" {
+		parts = append(parts, "plan", planKey)
 	}
 	h := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 	id := "ev-" + hex.EncodeToString(h[:8])
@@ -216,7 +232,12 @@ func MakeVariant(l *library.Library, baseline string, in VariantInput, now time.
 			return Variant{}, err
 		}
 		cv, _ := cur["variant"].(map[string]any)
-		if cv == nil || cv["of"] != baseline || cv["of_digest"] != digest || cv["arm"] != in.Arm || fmt.Sprint(cv["inputs"]) != fmt.Sprint(inputs) {
+		curPlan := ""
+		if p, ok := cv["plan"]; ok && p != nil {
+			b, _ := json.Marshal(p)
+			curPlan = string(b)
+		}
+		if cv == nil || cv["of"] != baseline || cv["of_digest"] != digest || cv["arm"] != in.Arm || fmt.Sprint(cv["inputs"]) != fmt.Sprint(inputs) || curPlan != planKey {
 			return Variant{}, fmt.Errorf("%w: %s exists with another binding", ErrVariant, latest)
 		}
 		return Variant{Ref: latest, State: str(cur["state"]), Reference: refRole}, nil

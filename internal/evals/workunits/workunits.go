@@ -31,6 +31,8 @@ type Member struct {
 	Objective      string `json:"objective"`
 	TaskFamily     string `json:"task_family"`
 	Eligible       bool   `json:"eligible"` // a refactor-family eval run by a live agent
+	// Plan is the frozen plan binding of a refactor variant member (nil: unbound)
+	Plan map[string]any `json:"plan,omitempty"`
 }
 
 // Manifest is the immutable plan of one run, written before the first attempt.
@@ -387,6 +389,7 @@ func bound(m Manifest, mb Member, t map[string]any) error {
 		// refusal, never filled in from the plan)
 		{"objective", str(t["objective"]), mb.Objective}, {"baseline", str(bind["baseline"]), mb.Baseline},
 		{"baseline digest", str(bind["baseline_digest"]), mb.BaselineDigest}, {"eval digest", str(bind["eval_digest"]), mb.EvalDigest},
+		{"plan binding", canon(t["plan_binding"]), canon(mb.Plan)},
 	}
 	for _, c := range checks {
 		if c.got != c.want || c.got == "" {
@@ -400,3 +403,12 @@ func bound(m Manifest, mb Member, t map[string]any) error {
 }
 
 func num(v any) float64 { f, _ := v.(float64); return f }
+
+// canon is the canonical JSON of a plan binding ("unbound" when absent).
+func canon(v any) string {
+	if m, _ := v.(map[string]any); len(m) == 0 {
+		return "unbound"
+	}
+	b, _ := json.Marshal(plain(v))
+	return string(b)
+}

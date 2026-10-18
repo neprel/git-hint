@@ -272,3 +272,38 @@ func DeclareWork(s *store.Store, raw []byte, planID, label, after string, now ti
 	}
 	return record(s, d)
 }
+
+// VariantPlan returns the frozen plan binding for a refactor variant of work unit `label`: the
+// declaration of the unit's closed successful attempt for plan planID, which must carry a
+// captured after tree. Ambiguous or missing declarations refuse.
+func VariantPlan(s *store.Store, label, planID string) (map[string]any, string, error) {
+	u, err := LoadWork(s, label)
+	if err != nil {
+		return nil, "", err
+	}
+	rev, attempt, ok := u.ClosedAttempt()
+	if !ok {
+		return nil, "", errors.New("the work unit has no closed successful attempt")
+	}
+	ds, err := Declarations(s, u.PlanRepo)
+	if err != nil {
+		return nil, "", err
+	}
+	var found []Declaration
+	for _, d := range ds {
+		if d.Work.UnitRef == u.UnitRef && d.Work.Revision == rev && d.Work.AttemptRef == attempt.Ref && d.PlanID == planID {
+			found = append(found, d)
+		}
+	}
+	switch {
+	case len(found) == 0:
+		return nil, "", errors.New("no declaration of this work unit's change for the plan (git hint changes --declare-plan --work-unit --after latest)")
+	case len(found) > 1:
+		return nil, "", errors.New("several declarations of this work unit's change: the binding is ambiguous")
+	case found[0].AfterTree == "":
+		return nil, "", errors.New("the declared after state has no captured tree (only --after latest captures it): a plan binding is unavailable")
+	}
+	d := found[0]
+	return map[string]any{"recommendation_set_id": d.SetID, "set_digest": d.SetDigest, "plan_id": d.PlanID, "unit_ref": d.Work.UnitRef,
+		"revision": d.Work.Revision, "attempt_ref": d.Work.AttemptRef, "after_snapshot_id": d.AfterSnapshotID, "after_tree": d.AfterTree}, d.AfterTree, nil
+}

@@ -348,6 +348,56 @@
       "pattern": "^jb-[0-9a-f]{16}$",
       "x-hint-class": "local",
       "description": "The run (job) whose manifest planned this trial; set at creation, never inferred."
+    },
+    "plan_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-hint-class": "local",
+      "description": "The plan binding of the variant that ran (copied at creation from the variant record).",
+      "properties": {
+        "recommendation_set_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "set_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "plan_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "unit_ref": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attempt_ref": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "after_snapshot_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "after_tree": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "recommendation_set_id",
+        "set_digest",
+        "plan_id",
+        "unit_ref",
+        "revision",
+        "attempt_ref",
+        "after_snapshot_id",
+        "after_tree"
+      ]
     }
   },
   "required": [

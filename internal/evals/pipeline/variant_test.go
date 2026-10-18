@@ -21,6 +21,7 @@ import (
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/report"
 	"github.com/neprel/git-hint/internal/evals/runner"
+	"github.com/neprel/git-hint/internal/evals/suites"
 	"github.com/neprel/git-hint/internal/evals/trees"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/testkit"
@@ -532,5 +533,59 @@ func TestVariantRefusesAnotherEnvironment(t *testing.T) {
 	_, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: evaltest.Tree(t, l, files)}, variantNow)
 	if !errors.Is(err, ErrVariant) || !strings.Contains(err.Error(), "environment image") {
 		t.Fatalf("%v", err)
+	}
+}
+
+// C7B-E T1: the plan binding is part of the variant identity: the same tree bound and unbound,
+// or bound to different plans, are different variants; an identical binding reuses; a trial of
+// a bound variant carries the binding and its report holds only allowlisted references.
+func TestPlanBindingIsPartOfTheVariantIdentity(t *testing.T) {
+	_, l := validatedProject(t)
+	base := baselineRef(t, l)
+	nb := evaltest.Tree(t, l, refactoredShop("// Package shop sells things.\n"+evaltest.GoBug))
+	plan := func(p string) map[string]any {
+		return map[string]any{"recommendation_set_id": strings.Repeat("1", 32), "set_digest": "sha256:" + strings.Repeat("2", 64), "plan_id": p,
+			"unit_ref": strings.Repeat("4", 32), "revision": 3, "attempt_ref": strings.Repeat("5", 32), "after_snapshot_id": strings.Repeat("6", 32), "after_tree": nb}
+	}
+	unbound, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: nb}, variantNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: nb, Plan: plan(strings.Repeat("3", 32))}, variantNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: nb, Plan: plan(strings.Repeat("7", 32))}, variantNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: nb, Plan: plan(strings.Repeat("3", 32))}, variantNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := func(ref string) string { x, _, _ := strings.Cut(ref, "@"); return x }
+	if id(unbound.Ref) == id(a.Ref) || id(a.Ref) == id(b.Ref) || again.Ref != a.Ref || again.Created {
+		t.Fatalf("identities: unbound %s, a %s, b %s, again %s", unbound.Ref, a.Ref, b.Ref, again.Ref)
+	}
+	var rec map[string]any
+	l.Manifest("eval", a.Ref, &rec)
+	if rec["variant"].(map[string]any)["plan"] == nil {
+		t.Fatal("the bound variant record has no plan block")
+	}
+	if _, err := MakeVariant(l, base, VariantInput{Arm: "context_only", Context: []ContextFile{{Path: "NOTES.md", Data: []byte("x")}}, Plan: plan("3")}, variantNow); err == nil {
+		t.Fatal("a context variant accepted a plan binding")
+	}
+	// a trial of the bound variant carries the binding; the report sends only opaque references
+	in := suites.TrialInput{Suite: "su-0000000000000001", Eval: a.Ref, Attempt: 1, Arm: "refactor", Agent: "oracle", RunnerVersion: "0.23.0", MaxSeconds: 600,
+		Started: variantNow, PlanBinding: plan(strings.Repeat("3", 32))}
+	one := 1.0
+	n, err := suites.RecordTrial(l, in, runner.Trial{Name: "pb", Reward: &one, Checks: map[string]string{"C1": "pass", "C2": "pass"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tr map[string]any
+	l.Manifest("trial", n, &tr)
+	if tr["plan_binding"] == nil {
+		t.Fatal("the trial record lost the plan binding")
 	}
 }

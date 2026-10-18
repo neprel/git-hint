@@ -243,3 +243,39 @@ func TestStartRefusesMemberDigestsThatDoNotMatch(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 }
+
+// T1: the trial's plan binding must equal the member's frozen binding (bound or unbound)
+func TestThePlanBindingOfATrialMustMatchTheMember(t *testing.T) {
+	s, l, ref := project(t)
+	m := manifest(ref, 2)
+	bound := map[string]any{"recommendation_set_id": strings.Repeat("1", 32), "set_digest": "sha256:" + strings.Repeat("2", 64), "plan_id": strings.Repeat("3", 32),
+		"unit_ref": strings.Repeat("4", 32), "revision": 3, "attempt_ref": strings.Repeat("5", 32), "after_snapshot_id": strings.Repeat("6", 32),
+		"after_tree": "sha256:" + strings.Repeat("7", 64)}
+	m.Members[0].Plan = bound
+	if err := Start(s, l, m, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	one := 1.0
+	ok := runner.Trial{Reward: &one, Checks: map[string]string{"C1": "pass", "C2": "pass"}, InputTokens: ptr(10), OutputTokens: ptr(1)}
+	other := map[string]any{}
+	for k, v := range bound {
+		other[k] = v
+	}
+	other["plan_id"] = strings.Repeat("9", 32)
+	for i, pb := range []map[string]any{nil, other} { // unbound trial, other binding
+		in := planned(ref, 1)
+		in.PlanBinding = pb
+		ok.Name = fmt.Sprintf("pb%d", i)
+		n, _ := suites.RecordTrial(l, in, ok)
+		if err := Record(s, l, "jb-0000000000000001", ref, n); err == nil || !strings.Contains(err.Error(), "plan binding") {
+			t.Fatalf("case %d accepted: %v", i, err)
+		}
+	}
+	in := planned(ref, 1)
+	in.PlanBinding = bound
+	ok.Name = "pbok"
+	n, _ := suites.RecordTrial(l, in, ok)
+	if err := Record(s, l, "jb-0000000000000001", ref, n); err != nil {
+		t.Fatalf("the matching binding: %v", err)
+	}
+}

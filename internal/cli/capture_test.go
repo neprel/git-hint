@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,5 +109,42 @@ func TestAHistoricalAfterHasNoArtifact(t *testing.T) {
 	must(t, run(t, shop, "", "changes", "--declare-plan", planID, "--work-unit", "split", "--after", latest.Record.SnapshotID))
 	if d := declaration(t, shop); d.AfterTree != "" || d.AfterSnapshotID != latest.Record.SnapshotID {
 		t.Fatalf("a historical after state got an artifact: %+v", d)
+	}
+}
+
+func TestVariantPlanNeedsTheCapturedAfterTree(t *testing.T) {
+	shop, planID := closedUnit(t)
+	s, _ := store.Open(shop)
+	if _, _, err := project.VariantPlan(s, "split", planID); err == nil || !strings.Contains(err.Error(), "no declaration") {
+		t.Fatalf("without a declaration: %v", err)
+	}
+	must(t, run(t, shop, "", "changes", "--declare-plan", planID, "--work-unit", "split", "--after", "latest"))
+	plan, after, err := project.VariantPlan(s, "split", planID)
+	if err != nil || plan["after_tree"] != after || plan["plan_id"] != planID {
+		t.Fatalf("plan %v %v", plan, err)
+	}
+	l := library.Open(s, 0)
+	w, _ := trees.FromWorktree(context.Background(), l, shop, trees.Limits{})
+	if w != after {
+		t.Fatal("the unchanged work tree is not the captured after state")
+	}
+	os.WriteFile(filepath.Join(shop, "canary_dir_e1d2", "billing", "late.go"), []byte("package billing\n"), 0o644) // a change after the capture
+	if w2, _ := trees.FromWorktree(context.Background(), l, shop, trees.Limits{}); w2 == after {
+		t.Fatal("a changed work tree still matches the captured state")
+	}
+	// the stored captured tree itself never changes
+	if _, err := trees.Load(l, after); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVariantPlanIsUnavailableForAHistoricalAfter(t *testing.T) {
+	shop, planID := closedUnit(t)
+	s, _ := store.Open(shop)
+	latest, _ := project.LoadLatest(s, shopRepo(t, s))
+	change(t, shop, "func Later2() int { return 4 }\n")
+	must(t, run(t, shop, "", "changes", "--declare-plan", planID, "--work-unit", "split", "--after", latest.Record.SnapshotID))
+	if _, _, err := project.VariantPlan(s, "split", planID); err == nil || !strings.Contains(err.Error(), "no captured tree") {
+		t.Fatalf("historical: %v", err)
 	}
 }

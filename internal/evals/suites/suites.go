@@ -204,6 +204,8 @@ type TrialInput struct {
 	DeclaredChanges                      []string
 	// RunID is the run (job) whose manifest planned this trial (immutable binding)
 	RunID string
+	// PlanBinding is the frozen plan binding of the variant that runs (nil: unbound)
+	PlanBinding map[string]any
 	// ModelCheck is the proxy's check of the model field of every forwarded request
 	ModelCheck string
 	// ObservedConfig are digests of the effective launch configuration (kind, sha256 digest);
@@ -274,6 +276,9 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 	}
 	if in.RunID != "" {
 		rec["run_id"] = in.RunID
+	}
+	if in.PlanBinding != nil {
+		rec["plan_binding"] = in.PlanBinding
 	}
 	if in.Objective != "" {
 		rec["objective"] = in.Objective
