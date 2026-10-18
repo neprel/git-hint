@@ -38,6 +38,7 @@ type SuiteReport struct {
 	Outcomes map[string]int `json:"outcomes"`
 	Stopped  string         `json:"stopped,omitempty"`
 	Requests *int64         `json:"model_requests"`
+	Kept     int            `json:"run_dirs_kept,omitempty"` // results that could not be archived stay on disk
 }
 
 // RunSuite freezes a suite and runs bounded trials. Every attempt is recorded.
@@ -144,13 +145,24 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				zero := int64(0)
 				in.Requests = &zero
 			}
+			// the results are evidence: archive them before the work directory goes
+			_ = l.RecordExternal(library.External{Kind: "job_dir", Name: work})
+			archived, kerr := keepRun(l, work)
+			if kerr == nil {
+				in.Artifacts = []string{archived}
+			}
+			_ = l.Consume(job, int(reqs), int(retries), 1, time.Since(started).Seconds())
 			if _, err := suites.RecordTrial(l, in, trials[0]); err != nil {
-				return rep, err
+				return rep, err // the work directory stays
 			}
 			rep.Trials++
 			rep.Outcomes[trials[0].Outcome()]++
-			_ = l.Consume(job, int(reqs), int(retries), 1, time.Since(started).Seconds())
+			if kerr != nil {
+				rep.Kept++ // not archived (size or quota): the directory stays, listed in the external inventory
+				continue
+			}
 			os.RemoveAll(work)
+			_ = l.RecordExternal(library.External{Kind: "job_dir", Name: work, Removed: true})
 		}
 		if rep.Stopped != "" {
 			break

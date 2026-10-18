@@ -163,7 +163,7 @@ func Freeze(l *library.Library, want []string, now time.Time) (string, []string,
 	}
 	h := sha256.Sum256([]byte(fmt.Sprint(members)))
 	suite := map[string]any{"record": "suite", "manifest_version": 1, "suite_id": "su-" + hex.EncodeToString(h[:8]),
-		"created_at": now.UTC().Format(time.RFC3339), "qualification_policy": "q1", "members": members}
+		"created_at": now.UTC().Format(time.RFC3339), "qualification_policy": "q2", "members": members}
 	var old map[string]any
 	if l.Manifest("suite", suite["suite_id"].(string), &old) == nil {
 		return suite["suite_id"].(string), skipped, nil // the same set is the same frozen suite
@@ -188,7 +188,8 @@ type TrialInput struct {
 	MaxSeconds    int
 	Requests      *int64 // counted at HINT's proxy; nil when not observed
 	Retries       *int64
-	Stop          string // completed, request_limit, time_limit, cancelled, error
+	Stop          string   // completed, request_limit, time_limit, cancelled, error
+	Artifacts     []string // archived run results (library objects)
 }
 
 // RecordTrial stores one trial (every attempt, whatever its outcome).
@@ -248,6 +249,13 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 		"counters": map[string]any{"requests": count(in.Requests), "retries": count(in.Retries), "input_tokens": count(t.InputTokens),
 			"output_tokens": count(t.OutputTokens), "cache_tokens": count(t.CacheTokens), "wall_seconds": sec(t.WallSeconds), "agent_seconds": sec(t.AgentSeconds)},
 		"budget": budget,
+	}
+	if len(in.Artifacts) > 0 {
+		arts := []any{}
+		for _, a := range in.Artifacts {
+			arts = append(arts, a)
+		}
+		rec["artifacts"] = arts
 	}
 	return l.PutManifest("trial", rec)
 }

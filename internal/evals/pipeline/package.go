@@ -202,6 +202,7 @@ func safe(s string) string { return unsafeName.ReplaceAllString(s, "_") }
 type QualifyReport struct {
 	Blocked   string         `json:"blocked,omitempty"`
 	Qualified int            `json:"qualified"`
+	Kept      int            `json:"run_dirs_kept,omitempty"` // results that could not be archived stay on disk
 	States    map[string]int `json:"states,omitempty"`
 	Trials    int            `json:"trials"`
 	Stopped   string         `json:"stopped,omitempty"`
@@ -289,14 +290,18 @@ func Qualify(ctx context.Context, s *store.Store, r qualify.Runner, now time.Tim
 			rep.States["error"]++
 			continue
 		}
-		evidence, _ := keepEvidence(l, work)
+		evidence, kerr := keepRun(l, work)
 		next := nextVersion(rec, res, evidence, now)
 		if _, err := l.PutManifest("eval", next); err != nil {
 			rep.States["store_failed"]++
-			continue
+			continue // the work directory stays: it holds the only copy of the results
 		}
 		rep.Qualified++
 		rep.States[res.State]++
+		if kerr != nil {
+			rep.Kept++ // results not archived: the directory stays, listed in the external inventory
+			continue
+		}
 		_ = os.RemoveAll(work)
 		_ = l.RecordExternal(library.External{Kind: "job_dir", Name: work, Removed: true})
 	}
@@ -351,32 +356,64 @@ func nextVersion(rec map[string]any, res qualify.Result, evidence string, now ti
 	return next
 }
 
-// keepEvidence stores the trial results and verifier outputs of a qualification as one
-// archive object (small files only; agent logs are not kept).
-func keepEvidence(l *library.Library, work string) (string, error) {
+// Limits of a stored run archive.
+const (
+	runFileMax  = 64 << 20
+	runTotalMax = 256 << 20
+)
+
+// errRunTooLarge is returned when a run directory exceeds the archive limits; the
+// directory is then kept on disk.
+var errRunTooLarge = errors.New("the run results exceed the archive limits")
+
+// keepRun stores everything that the runner wrote under work/jobs (trial results,
+// verifier outputs, agent logs and the collected artifacts) as one archive object in the
+// library. The caller removes the directory only when this succeeds: the results are
+// evidence, and a later regrade or review needs them.
+func keepRun(l *library.Library, work string) (string, error) {
 	var files []string
-	filepath.WalkDir(filepath.Join(work, "jobs"), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || !d.Type().IsRegular() {
-			return nil
+	var total int64
+	var tooLarge bool
+	err := filepath.WalkDir(filepath.Join(work, "jobs"), func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-		base := d.Name()
-		if base == "result.json" || base == "test-stdout.txt" || base == "reward.txt" {
-			files = append(files, p)
+		if !d.Type().IsRegular() {
+			return nil // links and special files are not results
 		}
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if fi.Size() > runFileMax {
+			tooLarge = true
+		}
+		total += fi.Size()
+		files = append(files, p)
 		return nil
 	})
+	if err != nil {
+		return "", err
+	}
+	if tooLarge || total > runTotalMax {
+		return "", errRunTooLarge
+	}
 	sort.Strings(files)
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	for _, f := range files {
 		b, err := os.ReadFile(f)
-		if err != nil || len(b) > 1<<20 {
-			continue
+		if err != nil {
+			return "", err
 		}
 		rel, _ := filepath.Rel(work, f)
-		tw.WriteHeader(&tar.Header{Name: filepath.ToSlash(rel), Mode: 0o644, Size: int64(len(b)), ModTime: time.Unix(0, 0), Typeflag: tar.TypeReg})
+		if err := tw.WriteHeader(&tar.Header{Name: filepath.ToSlash(rel), Mode: 0o644, Size: int64(len(b)), ModTime: time.Unix(0, 0), Typeflag: tar.TypeReg, Format: tar.FormatPAX}); err != nil {
+			return "", err
+		}
 		tw.Write(b)
 	}
-	tw.Close()
+	if err := tw.Close(); err != nil {
+		return "", err
+	}
 	return l.PutObject(buf.Bytes())
 }

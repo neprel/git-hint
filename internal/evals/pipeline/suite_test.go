@@ -1,11 +1,15 @@
 package pipeline
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -146,4 +150,99 @@ func TestDraftedVerifier(t *testing.T) {
 	if _, ok := draftVerifier(context.Background(), l, &p, in); ok || calls != 1 {
 		t.Fatal("the same episode got a second draft budget")
 	}
+}
+
+// G10-4: the results of a trial (verifier output, agent log, collected artifact) are
+// archived in the library before the work directory is removed; when they cannot be
+// archived, the directory stays.
+func TestRunSuiteKeepsRunResults(t *testing.T) {
+	s, l := validatedProject(t)
+	p := evals.Enabled(nil)
+	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	s.Cfg.Evals = &p
+	rep, err := RunSuite(context.Background(), s, &e2eRunner{agentLog: 100}, "0.23.0", SuiteOptions{Agent: "oracle"}, time.Now())
+	if err != nil || rep.Trials != 1 || rep.Kept != 0 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	names, _ := l.Manifests("trial")
+	var tr map[string]any
+	if len(names) != 1 || l.Manifest("trial", names[0], &tr) != nil {
+		t.Fatalf("trials %v", names)
+	}
+	arts, _ := tr["artifacts"].([]any)
+	if len(arts) != 1 {
+		t.Fatalf("trial artifacts %v", tr["artifacts"])
+	}
+	files := archiveNames(t, l, arts[0].(string))
+	for _, want := range []string{"result.json", "verifier/test-stdout.txt", "verifier/c1.txt", "agent/trajectory.json", "artifacts/app/cart.go"} {
+		if !files[want] {
+			t.Errorf("archive lacks %s: %v", want, files)
+		}
+	}
+	if ents, _ := os.ReadDir(s.Path("cache", "evals", "work")); len(ents) != 0 {
+		t.Fatalf("work directories left: %v", ents)
+	}
+	// the archived results survive garbage collection
+	if _, err := l.CollectGarbage(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.GetObject(arts[0].(string)); err != nil {
+		t.Fatal("garbage collection removed the run results")
+	}
+	// a run whose results do not fit the quota keeps its directory
+	p.QuotaMB = 16
+	rep, err = RunSuite(context.Background(), s, &e2eRunner{agentLog: 17 << 20}, "0.23.0", SuiteOptions{Agent: "oracle"}, time.Now().Add(time.Minute))
+	if err != nil || rep.Trials != 1 || rep.Kept != 1 {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	ents, _ := os.ReadDir(s.Path("cache", "evals", "work"))
+	if len(ents) != 1 {
+		t.Fatalf("the unarchived run directory was removed: %v", ents)
+	}
+	if _, err := os.Stat(filepath.Join(s.Path("cache", "evals", "work"), ents[0].Name(), "jobs")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// G10-4: a qualification archives the full verifier output, not only the reward.
+func TestQualifyKeepsRunResults(t *testing.T) {
+	s, env := e2eProject(t)
+	srv, _ := mappingServer(t, e2eMapping)
+	p := evals.Enabled([]string{"opencode"})
+	p.Model = &evals.Model{Use: "lan", BaseURL: srv.URL + "/v1", Model: "local-coder", KeyEnv: "HINT_TEST_MODEL_KEY"}
+	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	s.Cfg.Evals = &p
+	Run(context.Background(), s, env)
+	if q := Qualify(context.Background(), s, &e2eRunner{agentLog: 10}, env.Now()); q.Qualified != 1 || q.Kept != 0 {
+		t.Fatalf("%+v", q)
+	}
+	l := library.Open(s, 0)
+	names, _ := l.Manifests("eval")
+	var v2 map[string]any
+	l.Manifest("eval", names[1], &v2)
+	ev := v2["qualification"].(map[string]any)["checks"].([]any)[0].(map[string]any)["evidence"].([]any)[0].(string)
+	files := archiveNames(t, l, ev)
+	for _, want := range []string{"jobs/base/base-0/verifier/c1.txt", "jobs/reference/reference-0/artifacts/app/cart.go"} {
+		if !files[want] {
+			t.Errorf("evidence lacks %s: %v", want, files)
+		}
+	}
+}
+
+func archiveNames(t *testing.T, l *library.Library, digest string) map[string]bool {
+	t.Helper()
+	b, err := l.GetObject(digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]bool{}
+	tr := tar.NewReader(bytes.NewReader(b))
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			break
+		}
+		out[strings.TrimPrefix(h.Name, "jobs/trial/trial-0/")] = true
+	}
+	return out
 }

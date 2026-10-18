@@ -95,7 +95,7 @@ func e2eProject(t *testing.T) (*store.Store, Env) {
 }
 
 // e2eRunner evaluates tasks like the generated verifier (see qualify tests).
-type e2eRunner struct{ calls int }
+type e2eRunner struct{ calls, agentLog int }
 
 func (r *e2eRunner) Run(_ context.Context, task string, o runner.RunOptions) ([]runner.Trial, error) {
 	r.calls++
@@ -115,10 +115,15 @@ func (r *e2eRunner) Run(_ context.Context, task string, o runner.RunOptions) ([]
 		}
 		tr := runner.Trial{Name: fmt.Sprintf("%s-%d", o.JobName, k), Reward: &rw, Checks: map[string]string{"C1": c1, "C2": "pass"},
 			Tests: map[string]string{"C1 " + evaltest.GoBugFixTest: c1, "C2 cart_test.go::TestNoDiscount": "pass"}}
+		// the files a Harbor trial leaves (results, verifier output, agent log, artifact)
+		dir := filepath.Join(o.JobsDir, o.JobName, tr.Name)
+		for rel, body := range map[string]string{"result.json": `{"trial_name":"` + tr.Name + `"}`, "verifier/test-stdout.txt": "CHECK C1 " + strings.ToUpper(c1) + "\n",
+			"verifier/c1.txt": "ok\n", "agent/trajectory.json": strings.Repeat("x", r.agentLog), "artifacts/app/cart.go": "package shop\n"} {
+			os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755)
+			os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o644)
+		}
 		if probe {
-			p := filepath.Join(o.JobsDir, o.JobName, tr.Name, "agent", "oracle.txt")
-			os.MkdirAll(filepath.Dir(p), 0o755)
-			os.WriteFile(p, []byte("HINT_PROBE_NET=blocked\n"), 0o644)
+			os.WriteFile(filepath.Join(dir, "agent", "oracle.txt"), []byte("HINT_PROBE_NET=blocked\n"), 0o644)
 		}
 		out = append(out, tr)
 	}
