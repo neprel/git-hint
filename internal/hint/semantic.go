@@ -466,6 +466,19 @@ func (c *checker) forecast(m, fb map[string]any, at string) {
 	if (sim["level"] == "L2" || sim["level"] == "L3") && !conds["behavior_transport"] {
 		bad("conditional_on")
 	}
+	// a necessary (not sufficient) consistency gate for recommend: an L3 forecast with a
+	// baseline calibration, explicitly in distribution, with a known comparable cost and a
+	// known probability at or above the threshold and a known net interval; nothing passes by
+	// omission; break-even is not required
+	if recommend {
+		p, pok := fb["p_net_gain_positive"].(float64)
+		th, _ := fb["threshold"].(float64)
+		cal := sim["calibration_status"]
+		if sim["level"] != "L3" || (cal != "backtested" && cal != "holdout_validated") || sim["out_of_distribution"] != false ||
+			fb["cost_basis"] != "observed_comparable_work" || cost == nil || !pok || p < th || fb["net_gain_interval"] == nil {
+			bad("decision")
+		}
+	}
 }
 
 // DefaultForecastThreshold is the heuristic default decision threshold (a versioned example

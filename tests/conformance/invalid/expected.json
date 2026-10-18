@@ -309,6 +309,41 @@
     "code": "finding",
     "level": "schema"
   },
+  "forecast-recommend-below-threshold.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-recommend-calibration-omitted.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-recommend-cost-unknown.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-recommend-l2.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-recommend-ood-omitted.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-recommend-out-of-distribution.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "forecast-recommend-uncalibrated.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
   "forecast-scenario-recommended.json": {
     "base": "recommendation-findings.json",
     "code": "forecast_inconsistent",

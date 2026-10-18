@@ -257,6 +257,31 @@ func v02Invalid() []invalidCase {
 		{"forecast-hidden-behavior-transport", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
 			obj(d, "payload", "plans", 0, "forecast_basis")["conditional_on"] = A{}
 		}, nil},
+		{"forecast-recommend-out-of-distribution", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "simulation")["out_of_distribution"] = true
+		}, nil},
+		{"forecast-recommend-uncalibrated", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "simulation")["calibration_status"] = "uncalibrated"
+		}, nil},
+		{"forecast-recommend-calibration-omitted", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			delete(obj(d, "payload", "plans", 0, "simulation"), "calibration_status")
+		}, nil},
+		{"forecast-recommend-ood-omitted", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			delete(obj(d, "payload", "plans", 0, "simulation"), "out_of_distribution")
+		}, nil},
+		{"forecast-recommend-cost-unknown", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			p := obj(d, "payload", "plans", 0)
+			delete(p, "refactoring_cost_estimate")
+			delete(p, "break_even_horizon")
+			fb := p["forecast_basis"].(map[string]any)
+			fb["cost_basis"], fb["p_net_gain_positive"], fb["net_gain_interval"] = nil, nil, nil
+		}, nil},
+		{"forecast-recommend-below-threshold", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "forecast_basis")["p_net_gain_positive"] = 0.01
+		}, nil},
+		{"forecast-recommend-l2", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			obj(d, "payload", "plans", 0, "simulation")["level"] = "L2"
+		}, nil},
 		// a second measurement of the same call, stage and action (two stages are fine)
 		{"context-duplicate-stage", "activity-context.json", "semantic", "duplicate_measurement", func(d M) {
 			o := plain(o0(d))
