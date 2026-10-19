@@ -241,3 +241,63 @@ func firstPlan(t *testing.T, shop string) string {
 	}
 	return doc.Payload.Plans[0].PlanID
 }
+
+// modelMember runs one agent task of a work unit whose plugin forwards model calls (OpenCode
+// 2.0.26): one primary call; closed is false for a run without its closure line.
+func modelMember(t *testing.T, dir, unit, task string, closed bool) result {
+	t.Helper()
+	t.Setenv("HINT_WORK_UNIT", unit)
+	t.Setenv("HINT_TASK_ID", task)
+	defer t.Setenv("HINT_WORK_UNIT", "")
+	defer t.Setenv("HINT_TASK_ID", "")
+	t0 := time.Now().UnixMilli()
+	var b strings.Builder
+	line := func(dt int64, m map[string]any) {
+		m["t_wall_ms"] = t0 + dt
+		j, _ := json.Marshal(m)
+		b.Write(j)
+		b.WriteByte('\n')
+	}
+	ses := "ses_" + task
+	evt := func(dt int64, e map[string]any) {
+		e["sessionID"] = ses
+		line(dt, map[string]any{"hook": "event", "event": e})
+	}
+	line(0, map[string]any{"hook": "hint.attach"})
+	evt(1, map[string]any{"id": task + "-1", "type": "session.created"})
+	line(2, map[string]any{"hook": "model.request", "input": map[string]any{"sessionID": ses, "kind": "primary"}})
+	evt(3, map[string]any{"id": task + "-2", "type": "session.step.started", "assistantMessageID": task + "-m"})
+	evt(4, map[string]any{"id": task + "-3", "type": "session.step.ended", "assistantMessageID": task + "-m",
+		"tokens": map[string]any{"input": 1000, "output": 50, "reasoning": 10, "cache": map[string]any{"read": 0, "write": 0}}})
+	if closed {
+		line(5, map[string]any{"hook": "hint.close", "close": map[string]any{"drained": true, "dropped": 0, "errors": 0}})
+	}
+	return run(t, dir, b.String(), "adapter", "opencode", "--project", dir, "--agent-version", "2.0.26", "--model-calls")
+}
+
+func TestAttemptUsageNeedsCompleteCoverageOfEveryMemberTask(t *testing.T) {
+	shop, _ := setup(t)
+	t.Setenv("HINT_TASK_FAMILY", "")
+	must(t, run(t, shop, "", "eval", "work", "start", "covered", "--family", "billing"))
+	must(t, modelMember(t, shop, "covered", "task-a", true))
+	must(t, modelMember(t, shop, "covered", "task-b", true))
+	must(t, run(t, shop, "", "eval", "work", "close", "covered", "--outcome", "failed"))
+	must(t, modelMember(t, shop, "covered", "task-c", true))
+	must(t, modelMember(t, shop, "covered", "task-d", false)) // no closure line: interrupted
+	must(t, run(t, shop, "", "eval", "work", "close", "covered", "--outcome", "abandoned"))
+	revs := revisions(workReport(t, shop))
+	atts := revs[len(revs)-1]["attempts"].([]any)
+	full, part := atts[0].(map[string]any), atts[1].(map[string]any)
+	u := full["usage"].(map[string]any)
+	// two tasks of 1000 input and 60 generated output each; cache reported as unknown zeros
+	if u["input_tokens"] != 2000.0 || u["output_tokens"] != 120.0 || u["requests"] != nil || u["cache_tokens"] != nil ||
+		full["usage_provenance"] != "activity_usage" || full["usage_normalization"] != "opencode-2.0.26:tokeninfo-v1" ||
+		full["coverage"].(map[string]any)["tasks_with_complete_usage"] != 2.0 {
+		t.Fatalf("complete attempt: %v", full)
+	}
+	pu := part["usage"].(map[string]any)
+	if pu["input_tokens"] != nil || part["usage_provenance"] != "unknown" || part["usage_normalization"] != nil ||
+		part["coverage"].(map[string]any)["tasks_with_complete_usage"] != 1.0 {
+		t.Fatalf("partial attempt: never a partial sum: %v", part)
+	}
+}

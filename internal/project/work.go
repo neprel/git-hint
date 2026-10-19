@@ -322,10 +322,26 @@ func (u *WorkUnit) Revise(s *store.Store, now time.Time) error {
 	return saveWork(s, u)
 }
 
-// reportAttempts is the eval report form of the attempts. The client records no model usage
-// for these runs (the OpenCode plugin reports none), so usage stays unknown (null, never zero)
-// and the coverage says that no member task has complete usage.
+// reportAttempts is the eval report form of the attempts. Usage is the sum over the member
+// tasks only when every member task has complete model-call coverage under one usage
+// normalization (activity.UsageCoverage, 07B-E §33); otherwise the counts stay unknown (null,
+// never zero or a partial sum). The model-request count stays unknown: steps and physical
+// requests are not proven one-to-one (retries).
 func (u *WorkUnit) reportAttempts(s *store.Store) ([]any, error) {
+	obs, _, err := ReadSpool(s)
+	if err != nil {
+		return nil, err
+	}
+	srcs, err := Sources(s)
+	if err != nil {
+		return nil, err
+	}
+	byTask := map[string][]activity.Observation{}
+	for _, o := range obs {
+		if t := o.Correlation["task_id"]; t != "" {
+			byTask[t] = append(byTask[t], o)
+		}
+	}
 	res := []any{}
 	for _, a := range u.Attempts {
 		closure := map[string]any{"state": a.Closure}
@@ -337,11 +353,38 @@ func (u *WorkUnit) reportAttempts(s *store.Store) ([]any, error) {
 		default:
 			closure["reason"] = "no_validation"
 		}
+		complete, norms := 0, map[string]bool{}
+		var in, out, cache float64
+		cacheKnown := true
+		for _, t := range a.Tasks {
+			c := activity.UsageCoverage(byTask[t], srcs)
+			if c.State != "complete" {
+				continue
+			}
+			complete++
+			norms[c.Normalization] = true
+			in, out = in+c.Input, out+c.Output
+			if c.Cache == nil {
+				cacheKnown = false
+			} else {
+				cache += *c.Cache
+			}
+		}
+		usage := map[string]any{"requests": nil, "input_tokens": nil, "output_tokens": nil, "cache_tokens": nil}
+		prov, norm := "unknown", any(nil)
+		if len(a.Tasks) > 0 && complete == len(a.Tasks) && len(norms) == 1 {
+			usage["input_tokens"], usage["output_tokens"] = in, out
+			if cacheKnown {
+				usage["cache_tokens"] = cache
+			}
+			prov = "activity_usage"
+			for n := range norms {
+				norm = n
+			}
+		}
 		ra := map[string]any{"attempt_ref": a.Ref, "task_ids": a.Tasks, "outcome": a.Outcome, "closure": closure,
-			"application_change_set": nil,
-			"usage":                  map[string]any{"requests": nil, "input_tokens": nil, "output_tokens": nil, "cache_tokens": nil},
-			"usage_provenance":       "unknown",
-			"coverage":               map[string]any{"tasks": len(a.Tasks), "tasks_with_complete_usage": 0}}
+			"application_change_set": nil, "usage": usage, "usage_provenance": prov, "usage_normalization": norm,
+			"coverage": map[string]any{"tasks": len(a.Tasks), "tasks_with_complete_usage": complete}}
 		if len(a.Late) > 0 {
 			ra["late_tasks"] = a.Late
 		}
