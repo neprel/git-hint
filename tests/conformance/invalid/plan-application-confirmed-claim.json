@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:025e93eb71482607fd565ef4662ad6dbefa8af54b13ff59af1b17f9e99eb01d5",
+  "content_digest": "sha256:23a6e607168fba3e4a608babe8b5081c3ad39a998596606651b4d72899f27fca",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "514ccb69d33efd2702ada482efe38579",
   "document_type": "change_set",
@@ -178,7 +178,7 @@
       "declaration": "confirmed_realization",
       "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
       "recommendation_set": {
-        "content_digest": "sha256:a51083e96f353d5f2f706b8e97767b1c5170045f8a61b8913f0b1021bd777a83",
+        "content_digest": "sha256:ab9a2e74ac4647b45ec5bfd77357668101b356c7d8acba6fe04c687939c25d4c",
         "document_id": "fe4798b23a0ad03a54a5c2be583dbab3"
       },
       "work": {

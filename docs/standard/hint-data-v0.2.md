@@ -102,6 +102,19 @@ A change set can declare that the client applied one plan of a stored recommenda
 
 **Semantic rules:** `call_link_conflict` — one call (`source_id`, session, `call_ref`) has two start records or two terminal records, or a terminal of another `request_kind` than its start; `collection_inconsistent` — a second closure of the same session scope, a non-integer count or a `closed_at` before the session start.
 
+### Counter provenance of effort deltas (draft)
+
+Every `effort_delta` (in a finding's decision alternatives and in `project_comparisons`) can carry:
+
+- `counter_semantics`: `harbor-0.23.0+opencode:n-tokens-root-v1` (Harbor 0.23.0 counters of an OpenCode run: root session only; input includes cache reads; output excludes reasoning; a missing step usage reads as 0), `hint-task-tokens-v1` (non-cached input plus generated output including reasoning, over the whole task, with complete task coverage established separately), or `unknown`;
+- `scope`: `root_session`, `full_task` or `unknown`.
+
+Absent fields mean `unknown`. The Harbor/OpenCode counters pair only with `root_session`, `hint-task-tokens-v1` only with `full_task`, `unknown` only with `unknown`. A root-session or unknown delta is a descriptive comparison of raw counters, not a task-effort saving.
+
+**Semantic rule `effort_scope_inconsistent`:** a delta's semantics and scope do not belong together; an alternative in state `chosen`, `known` or `cost_unknown` has no whole-task effort delta (`hint-task-tokens-v1`, `full_task`); an alternative in state `chosen` is not the decision's `chosen`; `chosen` names an intervention without an alternative in state `chosen`; `NO_CHANGE` with an alternative that is neither excluded for correctness nor known with whole-task effort.
+
+Compatibility: the fields are additive. The rule intentionally refuses decision claims that earlier drafts allowed without whole-task counters (for example a `CONTEXT_ONLY` choice from root-session counters); such documents are not behaviorally backward compatible.
+
 ## Versions
 
 - The CLI and the server accept `0.1` and `0.2`. A v0.1 document cannot carry a context measurement or findings.

@@ -1134,64 +1134,7 @@
                 ]
               },
               "effort_delta": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "observed": {
-                        "type": [
-                          "number",
-                          "null"
-                        ]
-                      },
-                      "interval": {
-                        "oneOf": [
-                          {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "properties": {
-                              "lower": {
-                                "type": "number"
-                              },
-                              "upper": {
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "lower",
-                              "upper"
-                            ]
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "unit": {
-                        "const": "tokens_per_attempt"
-                      },
-                      "coverage": {
-                        "type": "array",
-                        "items": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "minItems": 2,
-                        "maxItems": 2
-                      }
-                    },
-                    "required": [
-                      "observed",
-                      "interval",
-                      "unit",
-                      "coverage"
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
+                "$ref": "#/$defs/EffortDelta"
               },
               "success_delta": {
                 "oneOf": [
@@ -1541,64 +1484,7 @@
           "minimum": 1
         },
         "effort_delta": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "observed": {
-                  "type": [
-                    "number",
-                    "null"
-                  ]
-                },
-                "interval": {
-                  "oneOf": [
-                    {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "properties": {
-                        "lower": {
-                          "type": "number"
-                        },
-                        "upper": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "lower",
-                        "upper"
-                      ]
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "unit": {
-                  "const": "tokens_per_attempt"
-                },
-                "coverage": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "minItems": 2,
-                  "maxItems": 2
-                }
-              },
-              "required": [
-                "observed",
-                "interval",
-                "unit",
-                "coverage"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "$ref": "#/$defs/EffortDelta"
         },
         "success_delta": {
           "oneOf": [
@@ -1807,6 +1693,85 @@
         "cost_basis",
         "evidence",
         "conditional_on"
+      ]
+    },
+    "EffortDelta": {
+      "description": "An observed token difference per attempt with its interval, coverage (objectives with known counters, all objectives) and the provenance of its counters (draft v0.2).",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "observed": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "interval": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "lower": {
+                      "type": "number"
+                    },
+                    "upper": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "lower",
+                    "upper"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "unit": {
+              "const": "tokens_per_attempt"
+            },
+            "coverage": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "counter_semantics": {
+              "type": "string",
+              "enum": [
+                "harbor-0.23.0+opencode:n-tokens-root-v1",
+                "hint-task-tokens-v1",
+                "unknown"
+              ],
+              "description": "The token counters behind the difference. harbor-0.23.0+opencode:n-tokens-root-v1: Harbor 0.23.0 counters of an OpenCode run (root session only; input includes cache reads; output excludes reasoning; a missing step usage reads as 0). hint-task-tokens-v1: non-cached input plus generated output including reasoning, over the whole task. Absent means unknown."
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "root_session",
+                "full_task",
+                "unknown"
+              ],
+              "description": "The part of the task's model work the counters cover. Only full_task supports an effort-based decision. Absent means unknown."
+            }
+          },
+          "required": [
+            "observed",
+            "interval",
+            "unit",
+            "coverage"
+          ]
+        },
+        {
+          "type": "null"
+        }
       ]
     }
   }

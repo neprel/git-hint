@@ -207,6 +207,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			delete(defs, "Finding")
 			delete(defs, "Abstention")
 			delete(defs, "Decision")
+			delete(defs, "EffortDelta") // the shared effort delta with its counter provenance (C7BE-23)
 			delete(defs, "ContextFeedback")
 			delete(defs, "ProjectComparison")
 			delete(defs, "ForecastBasis")

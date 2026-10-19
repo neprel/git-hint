@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:75d0a4ce6c56c7a006d2c9433506e76f9b10598009432d640b3c9ef2b3ef6603",
+  "content_digest": "sha256:b62bc46ea090cf34f72f53fe1705cb96a9db77f0bf901e490e6983f95fc5d861",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "514ccb69d33efd2702ada482efe38579",
   "document_type": "change_set",
@@ -179,7 +179,7 @@
       "note": "HINTCANARY_PROMPT_9d1e07 fix the failing test",
       "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
       "recommendation_set": {
-        "content_digest": "sha256:a51083e96f353d5f2f706b8e97767b1c5170045f8a61b8913f0b1021bd777a83",
+        "content_digest": "sha256:ab9a2e74ac4647b45ec5bfd77357668101b356c7d8acba6fe04c687939c25d4c",
         "document_id": "fe4798b23a0ad03a54a5c2be583dbab3"
       },
       "work": {

@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:31c332ba55341de5e1b7a330fb20d9449cfdf28ac1d9299b4fff30b7617cdce1",
+  "content_digest": "sha256:4e6fe418fb5bd23788462a191c02815628c9c0ecec176a6e44ac8f2fa60e46e9",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
   "document_type": "recommendation_set",
@@ -593,6 +593,7 @@
           "9e5a3b6729f04c019df37d08f386b929"
         ],
         "effort_delta": {
+          "counter_semantics": "harbor-0.23.0+opencode:n-tokens-root-v1",
           "coverage": [
             6,
             6
@@ -602,6 +603,7 @@
             "upper": 300
           },
           "observed": -120.5,
+          "scope": "root_session",
           "unit": "tokens_per_attempt"
         },
         "intervention_refs": [

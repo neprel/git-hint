@@ -289,6 +289,31 @@
     "code": "finding",
     "level": "schema"
   },
+  "decision-chosen-root-scope.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-chosen-state-conflict.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-chosen-without-effort.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-known-unlabeled-effort.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-no-change-partial.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
   "decision-with-net-value.json": {
     "base": "recommendation-findings.json",
     "code": "finding",
@@ -318,6 +343,21 @@
     "base": "effect-report.json",
     "code": "evidence",
     "level": "schema"
+  },
+  "effort-labels-mismatched.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "effort-scope-free-text.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "effort-unknown-semantics-full-task.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
   },
   "end-before-start.json": {
     "base": "activity-trace.json",

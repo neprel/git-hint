@@ -47,6 +47,9 @@ const (
 	// CodeCallLink: one model call (source, session, call_ref) with two start or two terminal
 	// records, or a terminal of another request kind than its start (v0.2)
 	CodeCallLink = "call_link_conflict"
+	// CodeEffortScope: an effort delta whose counter semantics and scope do not belong together,
+	// or a decision that uses an effort delta without whole-task scope (v0.2)
+	CodeEffortScope = "effort_scope_inconsistent"
 )
 
 // Canary values of the public research conventions; also used by the negative tests.
@@ -417,7 +420,90 @@ func (c *checker) modelCall(m map[string]any, i int, closed, calls map[string]bo
 	}
 }
 
+// effortLabels returns the counter semantics and scope of an effort delta ("unknown" when absent).
+func effortLabels(e map[string]any) (string, string) {
+	sem, scope := str(e["counter_semantics"]), str(e["scope"])
+	if sem == "" {
+		sem = "unknown"
+	}
+	if scope == "" {
+		scope = "unknown"
+	}
+	return sem, scope
+}
+
+// effortPaired reports whether an effort delta's semantics and scope belong together.
+func effortPaired(e map[string]any) bool {
+	sem, scope := effortLabels(e)
+	switch sem {
+	case "harbor-0.23.0+opencode:n-tokens-root-v1":
+		return scope == "root_session"
+	case "hint-task-tokens-v1":
+		return scope == "full_task"
+	}
+	return scope == "unknown"
+}
+
+// decisions checks the effort deltas of the findings' decisions and of the project comparisons:
+// a delta's semantics and scope belong together; an alternative in state chosen, known or
+// cost_unknown needs a whole-task effort delta (hint-task-tokens-v1, full_task); chosen names
+// the alternative in state chosen; NO_CHANGE needs every alternative excluded for correctness or
+// known with whole-task effort.
+func (c *checker) decisions(payload map[string]any) {
+	for i, x := range list(payload["project_comparisons"]) {
+		m, _ := x.(map[string]any)
+		if e, ok := m["effort_delta"].(map[string]any); ok && !effortPaired(e) {
+			c.add(CodeEffortScope, "payload.project_comparisons[%d].effort_delta", i)
+		}
+	}
+	for i, f := range list(payload["findings"]) {
+		fm, _ := f.(map[string]any)
+		d, ok := fm["decision"].(map[string]any)
+		if !ok {
+			continue
+		}
+		at := fmt.Sprintf("payload.findings[%d].decision", i)
+		chosen := str(d["chosen"])
+		hasChosen := false
+		for j, a := range list(d["alternatives"]) {
+			am, _ := a.(map[string]any)
+			e, hasEffort := am["effort_delta"].(map[string]any)
+			if hasEffort && !effortPaired(e) {
+				c.add(CodeEffortScope, "%s.alternatives[%d].effort_delta", at, j)
+			}
+			state := str(am["state"])
+			switch state {
+			case "chosen", "known", "cost_unknown":
+				if _, scope := effortLabels(e); !hasEffort || scope != "full_task" || !effortPaired(e) {
+					c.add(CodeEffortScope, "%s.alternatives[%d].state", at, j)
+				}
+			}
+			if state == "chosen" {
+				hasChosen = true
+				if str(am["intervention"]) != chosen {
+					c.add(CodeEffortScope, "%s.alternatives[%d].state", at, j)
+				}
+			}
+			if chosen == "NO_CHANGE" && state != "excluded_correctness" && state != "known" && state != "cost_unknown" {
+				c.add(CodeEffortScope, "%s.chosen", at)
+			}
+		}
+		if (chosen == "CONTEXT_ONLY" || chosen == "REFACTOR_CODE") && !hasChosen {
+			c.add(CodeEffortScope, "%s.chosen", at)
+		}
+	}
+}
+
+// DecisionEffortProblem reports whether one finding decision breaks the effort_scope_inconsistent
+// rule (for consumers that render stored documents: such a decision is historical/unverified).
+func DecisionEffortProblem(d map[string]any) bool {
+	c := &checker{doc: map[string]any{}}
+	c.decisions(map[string]any{"findings": []any{map[string]any{"decision": d}}})
+	return len(c.out) > 0
+}
+
 func (c *checker) plans(payload map[string]any, repos map[string]bool) {
+	c.decisions(payload)
 	c.uniq(payload, "plans", "plan_id")
 	for i, p := range list(payload["plans"]) {
 		m, _ := p.(map[string]any)

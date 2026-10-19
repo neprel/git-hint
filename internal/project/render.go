@@ -325,7 +325,7 @@ func renderComparisons(w func(string, ...any), cs []any) {
 	w("| Pair | Arm | Partition | Objectives | Tokens per attempt (variant - baseline) | Success difference |\n|---|---|---|---|---|---|\n")
 	for _, x := range cs {
 		c := x.(map[string]any)
-		w("| `%s` | %s | %s | %v | %s | %s |\n", str(c["pair_id"]), str(c["arm"]), str(c["partition"]), c["paired_objectives"], delta(c["effort_delta"]), delta(c["success_delta"]))
+		w("| `%s` | %s | %s | %v | %s | %s |\n", str(c["pair_id"]), str(c["arm"]), str(c["partition"]), c["paired_objectives"], effortDelta(c["effort_delta"]), delta(c["success_delta"]))
 	}
 	w("\n")
 }
@@ -342,6 +342,21 @@ func delta(v any) string {
 		return fmt.Sprintf("%s (no interval; %v of %v)", numOr(m["observed"]), cov[0], cov[1])
 	}
 	return fmt.Sprintf("%s (%v to %v; %v of %v)", numOr(m["observed"]), iv["lower"], iv["upper"], cov[0], cov[1])
+}
+
+// effortDelta writes a token difference with the provenance of its counters: only whole-task
+// counters are task effort; root-session or unknown counters are raw counter differences.
+func effortDelta(v any) string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return "unknown"
+	}
+	label := map[string]string{"root_session": "root-session raw counters (Harbor 0.23.0 + OpenCode), not task effort",
+		"full_task": "whole-task tokens"}[str(m["scope"])]
+	if label == "" {
+		label = "counter scope unknown, not task effort"
+	}
+	return delta(v) + " [" + label + "]"
 }
 
 // renderFeedback writes the proposals on the local context policy versions. Nothing changes
@@ -370,7 +385,13 @@ func renderFeedback(w func(string, ...any), fb []any) {
 // renderDecision writes the intervention comparison of a finding: observed differences of
 // the project's eval pairs, never a net value or a break-even (the cost model is unavailable).
 func renderDecision(w func(string, ...any), d map[string]any) {
-	w("Intervention comparison (heuristic; cost model unavailable, so no net value or break-even): **%s**.\n\n", str(d["chosen"]))
+	if hint.DecisionEffortProblem(d) {
+		// a stored decision that the current rules refuse (for example a choice from root-session
+		// counters): historical and unverified, never an active recommendation
+		w("Intervention comparison: **historical, unverified** (stored choice `%s` is not supported under the current rules: its token differences do not cover the whole task). Not an active recommendation.\n\n", str(d["chosen"]))
+	} else {
+		w("Intervention comparison (heuristic; cost model unavailable, so no net value or break-even): **%s**.\n\n", str(d["chosen"]))
+	}
 	w("| Intervention | State | Tokens per attempt (variant - baseline) | Success difference | Pairs |\n|---|---|---|---|---|\n")
 	for _, x := range list(d["alternatives"]) {
 		a := x.(map[string]any)
@@ -378,7 +399,7 @@ func renderDecision(w func(string, ...any), d map[string]any) {
 		if sc, ok := a["scope"].(map[string]any); ok {
 			scope = fmt.Sprintf("`%s`: %s, %s, %v objectives, %v families", str(sc["pair_id"]), str(sc["arm"]), str(sc["partition"]), sc["paired_objectives"], sc["task_families"])
 		}
-		w("| %s | %s | %s | %s | %s |\n", str(a["intervention"]), str(a["state"]), delta(a["effort_delta"]), delta(a["success_delta"]), scope)
+		w("| %s | %s | %s | %s | %s |\n", str(a["intervention"]), str(a["state"]), effortDelta(a["effort_delta"]), delta(a["success_delta"]), scope)
 	}
 	if d["evidence"] == "unbound" {
 		w("\nNo eval comparison is bound to this finding's objectives, so the choice is to collect more evidence (see the project eval comparisons).\n\n")

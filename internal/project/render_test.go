@@ -2,6 +2,7 @@ package project
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ func TestRenderFindings(t *testing.T) {
 		"Next step: **refresh_index_and_recheck** on billing/ledger.go", "- coordination_wait: insufficient_coverage", "### Finding 2: large_low_selectivity_read (limited)",
 		"Intervention comparison (heuristic; cost model unavailable, so no net value or break-even): **COLLECT_MORE_EVIDENCE**.",
 		"| CONTEXT_ONLY | unbound | unknown | unknown | none |", "No eval comparison is bound to this finding's objectives",
-		"## Project eval comparisons", "| context_only | held_out | 6 | -120.5 (-400 to 300; 6 of 6) | 0.1 (0 to 0.2; 6 of 6) |",
+		"## Project eval comparisons", "| context_only | held_out | 6 | -120.5 (-400 to 300; 6 of 6) [root-session raw counters (Harbor 0.23.0 + OpenCode), not task effort] | 0.1 (0 to 0.2; 6 of 6) |",
 		"Forecast basis (a model-conditional forecast, not a measurement): objective model_tokens in tokens over 120 future tasks.",
 		"- P(net value over the horizon > 0) under the model: 0.93; decision threshold 0.9 (heuristic default).",
 		"- Net value over 120 tasks: 50000 to 200000 tokens (0.9 interval).",
@@ -84,4 +85,30 @@ func BenchmarkRender(b *testing.B) {
 		n = len(Render(im, cur, "x.json"))
 	}
 	b.ReportMetric(float64(n), "report_bytes")
+}
+
+// C7BE-23: a stored decision that the current rules refuse (a choice from root-session or
+// unlabeled counters) is rendered as historical and unverified, never as an active choice; an
+// unlabeled delta says its counter scope is unknown.
+func TestRenderRefusesUnsupportedStoredDecisions(t *testing.T) {
+	var md strings.Builder
+	w := func(f string, a ...any) { fmt.Fprintf(&md, f, a...) }
+	legacy := map[string]any{"chosen": "CONTEXT_ONLY", "evidence": "bound_eval_pairs", "alternatives": []any{
+		map[string]any{"intervention": "CONTEXT_ONLY", "state": "chosen",
+			"effort_delta": map[string]any{"observed": -990.0, "interval": map[string]any{"lower": -990.0, "upper": -990.0}, "unit": "tokens_per_attempt", "coverage": []any{3.0, 3.0}}}}}
+	renderDecision(w, legacy)
+	out := md.String()
+	if !strings.Contains(out, "**historical, unverified**") || strings.Contains(out, "heuristic; cost model unavailable, so no net value or break-even): **CONTEXT_ONLY**") ||
+		!strings.Contains(out, "[counter scope unknown, not task effort]") {
+		t.Fatalf("legacy decision:\n%s", out)
+	}
+	md.Reset()
+	full := map[string]any{"chosen": "CONTEXT_ONLY", "evidence": "bound_eval_pairs", "alternatives": []any{
+		map[string]any{"intervention": "CONTEXT_ONLY", "state": "chosen",
+			"effort_delta": map[string]any{"observed": -50.0, "interval": map[string]any{"lower": -80.0, "upper": -20.0}, "unit": "tokens_per_attempt", "coverage": []any{3.0, 3.0},
+				"counter_semantics": "hint-task-tokens-v1", "scope": "full_task"}}}} // a synthetic whole-task fixture
+	renderDecision(w, full)
+	if out := md.String(); !strings.Contains(out, "**CONTEXT_ONLY**") || !strings.Contains(out, "[whole-task tokens]") {
+		t.Fatalf("whole-task decision:\n%s", out)
+	}
 }

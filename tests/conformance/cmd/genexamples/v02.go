@@ -145,7 +145,8 @@ func findingsDoc(rec, act, ctx M) M {
 	p["findings"] = A{nav, read}
 	p["abstentions"] = A{M{"problem": "coordination_wait", "reason": "insufficient_coverage"}}
 	p["project_comparisons"] = A{M{"pair_id": id("pair", "context-only"), "arm": "context_only", "partition": "held_out", "paired_objectives": 6, "task_families": 3,
-		"effort_delta":   M{"observed": -120.5, "interval": M{"lower": -400, "upper": 300}, "unit": "tokens_per_attempt", "coverage": A{6, 6}},
+		"effort_delta": M{"observed": -120.5, "interval": M{"lower": -400, "upper": 300}, "unit": "tokens_per_attempt", "coverage": A{6, 6},
+			"counter_semantics": "harbor-0.23.0+opencode:n-tokens-root-v1", "scope": "root_session"},
 		"success_delta":  M{"observed": 0.1, "interval": M{"lower": 0, "upper": 0.2}, "unit": "success_fraction", "coverage": A{6, 6}},
 		"objective_refs": A{id("objective", "1")}, "intervention_refs": A{id("eval", "variant-1")}, "baseline_refs": A{id("eval", "baseline-1")},
 		"label": "observed_unbound"}}
@@ -254,6 +255,43 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"decision-calibrated-basis", "recommendation-findings.json", "schema", "finding", func(d M) {
 			obj(d, "payload", "findings", 0, "decision")["basis"] = "calibrated"
+		}, nil},
+		{"effort-labels-mismatched", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			obj(d, "payload", "project_comparisons", 0, "effort_delta")["scope"] = "full_task"
+		}, nil},
+		{"effort-unknown-semantics-full-task", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			e := obj(d, "payload", "project_comparisons", 0, "effort_delta")
+			delete(e, "counter_semantics")
+			e["scope"] = "full_task"
+		}, nil},
+		{"decision-chosen-root-scope", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			dec := obj(d, "payload", "findings", 0, "decision")
+			dec["chosen"], dec["evidence"] = "CONTEXT_ONLY", "bound_eval_pairs"
+			a := obj(d, "payload", "findings", 0, "decision", "alternatives", 0)
+			a["state"] = "chosen"
+			a["effort_delta"] = obj(d, "payload", "project_comparisons", 0, "effort_delta")
+		}, nil},
+		{"decision-chosen-without-effort", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			obj(d, "payload", "findings", 0, "decision")["chosen"] = "CONTEXT_ONLY"
+			obj(d, "payload", "findings", 0, "decision", "alternatives", 0)["state"] = "chosen"
+		}, nil},
+		{"decision-known-unlabeled-effort", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			a := obj(d, "payload", "findings", 0, "decision", "alternatives", 0)
+			a["state"] = "known"
+			a["effort_delta"] = M{"observed": -50.0, "interval": M{"lower": -80, "upper": -20}, "unit": "tokens_per_attempt", "coverage": A{3, 3}}
+		}, nil},
+		{"decision-chosen-state-conflict", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			a := obj(d, "payload", "findings", 0, "decision", "alternatives", 0)
+			a["state"] = "chosen"
+			a["effort_delta"] = M{"observed": -50.0, "interval": M{"lower": -80, "upper": -20}, "unit": "tokens_per_attempt", "coverage": A{3, 3},
+				"counter_semantics": "hint-task-tokens-v1", "scope": "full_task"}
+		}, nil},
+		{"decision-no-change-partial", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			obj(d, "payload", "findings", 0, "decision")["chosen"] = "NO_CHANGE"
+			obj(d, "payload", "findings", 0, "decision", "alternatives", 0)["state"] = "partial_coverage"
+		}, nil},
+		{"effort-scope-free-text", "recommendation-findings.json", "schema", "finding", func(d M) {
+			obj(d, "payload", "project_comparisons", 0, "effort_delta")["scope"] = "whole repo"
 		}, nil},
 		{"feedback-automatic-change", "recommendation-findings.json", "schema", "finding", func(d M) {
 			obj(d, "payload", "context_feedback", 0)["proposal"] = "apply_revision"

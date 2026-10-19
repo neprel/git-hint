@@ -9,6 +9,7 @@
 - Optional `ChangeSetPayload.plan_application`: a client-declared association of a change set with one plan of a stored recommendation set (set ID and digest, plan ID, optional cross-repository group). An association only, never a confirmed realization or effect. Semantic rule `plan_application_inconsistent`.
 - Optional `sources[].configuration` (canonical effective configuration with known/not_applicable/unknown states and the user's declared settings), `correlation.task_family_id` (declared task family) and `plan_application.work` (the realized attempt of a declared work unit). Semantic rule `task_family_conflict`.
 - Draft model calls (C7B-E): `op: MODEL_CALL` with `request_kind` and `correlation.call_ref`, `request_kind` on the terminal `USAGE`, the typed `collection` closure on a closing `SESSION` record, allowlisted `sources[].usage_normalization`. Semantic rules `call_link_conflict` and `collection_inconsistent`. Field names `correlation.call_ref`, `request_kind`, `collection`.
+- Draft counter provenance on every `effort_delta` (`counter_semantics`, `scope`) and the semantic rule `effort_scope_inconsistent`. Additive fields; the rule intentionally refuses decisions that use effort deltas without whole-task scope, which earlier drafts allowed.
 - The export policy lists `context`, `collection` and `request_kind` as observation fields.
 - Everything else is unchanged; v0.1 documents stay valid v0.1 documents.
 - Conformance: the "unsupported minor version" fixture now uses `0.3.0`, because `0.2` is supported.
