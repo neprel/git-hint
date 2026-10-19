@@ -129,10 +129,10 @@ func TestLedgerIncompleteStates(t *testing.T) {
 		}, EntryComplete},
 		{"oversize usage value", func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, `{"usage":{"prompt_tokens":1,"completion_tokens":1,"pad":"`+strings.Repeat("x", maxUsageValue)+`"}}`)
-		}, EntryMissingUsage},
+		}, EntryUnreadable},
 		{"truncated json", func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, `{"usage":{"prompt_tokens":1,"completion_tokens":1}`)
-		}, EntryMissingUsage},
+		}, EntryUnreadable},
 		{"conflicting json usage", func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, `{"usage":{"prompt_tokens":1,"completion_tokens":1},"usage":{"prompt_tokens":2,"completion_tokens":1}}`)
 		}, EntryUsageConflict},
@@ -299,5 +299,179 @@ func TestLedgerCompletenessConditions(t *testing.T) {
 	_, c, _, _ := ledgerProxy(t, up, 4)
 	if r := seal(c); r.State != "incomplete" || r.Reasons[0] != "model_not_observed" && !strings.Contains(strings.Join(r.Reasons, ","), "no_requests") {
 		t.Fatalf("empty run: %+v", r)
+	}
+}
+
+// C7BE-25: a usage without a known prompt or completion count is no complete total; null,
+// missing and invalid values stay unknown (JSON and stream; mixed entries).
+func TestLedgerMainComponentsMustBeKnown(t *testing.T) {
+	for _, body := range []string{`{"usage":{"prompt_tokens":5}}`, `{"usage":{"completion_tokens":7}}`,
+		`{"usage":{"prompt_tokens":5,"completion_tokens":null}}`, `{"usage":{"prompt_tokens":null,"completion_tokens":7}}`,
+		`{"usage":{"prompt_tokens":5,"completion_tokens":7.5}}`, `{"usage":{"prompt_tokens":-1,"completion_tokens":7}}`,
+		`{"usage":{"prompt_tokens":"5","completion_tokens":7}}`} {
+		_, c, url, _ := ledgerProxy(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, body) }, 4)
+		post(t, context.Background(), url, request)
+		r := seal(c)
+		if r.TotalComplete || r.Counts[EntryUsagePartial] != 1 || r.ComponentsN["completion"]+r.ComponentsN["prompt"] != 1 {
+			t.Errorf("%s: %+v", body, r)
+		}
+	}
+	partial := `data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":null}}` + "\n\n"
+	_, c, url, _ := ledgerProxy(t, sse(partial, "data: [DONE]\n\n"), 4)
+	post(t, context.Background(), url, request)
+	if r := seal(c); r.TotalComplete || r.Counts[EntryUsagePartial] != 1 {
+		t.Fatalf("stream: %+v", r)
+	}
+	// mixed: one complete and one partial exchange; the components keep both, the total is not complete
+	n := 0
+	_, c, url, _ = ledgerProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		n++
+		if n == 1 {
+			io.WriteString(w, `{"usage":{"prompt_tokens":5,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":null}}}`)
+		} else {
+			io.WriteString(w, `{"usage":{"prompt_tokens":3}}`)
+		}
+	}, 4)
+	post(t, context.Background(), url, request)
+	post(t, context.Background(), url, request)
+	if r := seal(c); r.TotalComplete || r.Counts[EntryComplete] != 1 || r.Components["prompt"] != 8 || r.ComponentsN["cached"] != 0 {
+		t.Fatalf("mixed: %+v", r)
+	}
+}
+
+// C7BE-26: only one valid JSON document counts; the scanner checks the whole grammar.
+func TestLedgerJSONGrammar(t *testing.T) {
+	good := `{"usage":{"prompt_tokens":5,"completion_tokens":7}}`
+	for body, want := range map[string]string{
+		`{"usage":{"prompt_tokens":5,"completion_tokens":7},"x":INVALID}`: EntryUnreadable,
+		good + ` trailing`: EntryUnreadable,
+		good + ` ` + good:  EntryUnreadable,
+		`{"usage":{"prompt_tokens":5,"completion_tokens":7},}`:                      EntryUnreadable,
+		`{"usage":{"prompt_tokens":5,"completion_tokens":7},"s":"a` + "\x01" + `"}`: EntryUnreadable,
+		`{"usage":{"prompt_tokens":5,"completion_tokens":7},"n":01}`:                EntryUnreadable,
+		`{"usage":{"prompt_tokens":5,"completion_tokens":7},"e":"\q"}`:              EntryUnreadable,
+		`{"\u0075sage":{"prompt_tokens":5,"completion_tokens":7}}`:                  EntryUnreadable,
+		`{"usage":7}`:    EntryUnreadable,
+		`[` + good + `]`: EntryMissingUsage,
+		`{"a":[1,-2.5e+3,true,false,null,{"usage":{"prompt_tokens":1}}],"usage":null}`: EntryMissingUsage,
+		"\n " + good + " \n": EntryComplete,
+		`{"x":{"y":"z\"}\\"},"usage":{"prompt_tokens":5,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":2}}}`: EntryComplete,
+		good[:len(good)-1] + `,"usage":{"prompt_tokens":5,"completion_tokens":7}}`:                                           EntryComplete, // an equal duplicate
+	} {
+		_, c, url, _ := ledgerProxy(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, body) }, 4)
+		post(t, context.Background(), url, request)
+		if r := seal(c); r.Counts[want] != 1 || (want != EntryComplete) == r.TotalComplete {
+			t.Errorf("%s: want %s, %+v", body, want, r)
+		}
+	}
+	// many duplicate usage members keep bounded state: only the first parsed value and a flag
+	var j jsonUsage
+	j.feed([]byte(`{`))
+	for i := 0; i < 1000; i++ {
+		j.feed([]byte(`"usage":{"prompt_tokens":1,"completion_tokens":1},`))
+	}
+	j.feed([]byte(`"z":0}`))
+	if st, _ := j.result(); st != EntryComplete || cap(j.value) > 2*maxUsageValue {
+		t.Fatalf("duplicates: %s cap %d", st, cap(j.value))
+	}
+}
+
+// C7BE-26: a skipped, undecodable or unusable data line before [DONE] makes the stream
+// unreadable even when a later line holds a valid usage.
+func TestLedgerStreamUnreadableLines(t *testing.T) {
+	for name, first := range map[string]string{
+		"oversize line": "data: {\"pad\":\"" + strings.Repeat("x", maxSSELine) + "\"}\n\n",
+		"undecodable":   "data: {not json}\n\n",
+		"usage number":  "data: {\"usage\":5}\n\n",
+	} {
+		_, c, url, _ := ledgerProxy(t, sse(first, usage, "data: [DONE]\n\n"), 4)
+		post(t, context.Background(), url, request)
+		if r := seal(c); r.Counts[EntryUnreadable] != 1 || r.TotalComplete {
+			t.Errorf("%s: %+v", name, r)
+		}
+	}
+	// comments and event lines are not data; a usage:null chunk is no usage
+	_, c, url, _ := ledgerProxy(t, sse(": keep-alive\n", "event: message\n", "data: {\"usage\":null}\n\n", usage, "data: [DONE]\n\n"), 4)
+	post(t, context.Background(), url, request)
+	if r := seal(c); !r.TotalComplete {
+		t.Fatalf("control: %+v", r)
+	}
+}
+
+// C7BE-27: a request after the seal is refused and stays in the account: the next report is
+// incomplete with a higher revision; earlier reports are separate values; concurrent seals
+// finalize once.
+func TestLedgerLateAfterSealStaysInTheAccount(t *testing.T) {
+	_, c, url, _ := ledgerProxy(t, func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"usage":{"prompt_tokens":5,"completion_tokens":7}}`)
+	}, 4)
+	if c.Report() != nil {
+		t.Fatal("a report before the seal")
+	}
+	post(t, context.Background(), url, request)
+	var wg sync.WaitGroup
+	reports := make([]*LedgerReport, 8)
+	for i := range reports {
+		wg.Add(1)
+		go func(i int) { defer wg.Done(); reports[i] = seal(c) }(i)
+	}
+	wg.Wait()
+	for _, r := range reports {
+		if !r.TotalComplete || r.Revision != 0 || r.Counts[EntryComplete] != 1 {
+			t.Fatalf("concurrent seals: %+v", r)
+		}
+	}
+	first := reports[0]
+	if code, _ := post(t, context.Background(), url, request); code != http.StatusForbidden {
+		t.Fatalf("after the seal: %d", code)
+	}
+	after := c.Report()
+	if after.TotalComplete || after.Counts["late"] != 1 || after.Revision != 1 || !strings.Contains(strings.Join(after.Reasons, ","), "late_requests") {
+		t.Fatalf("late request disappeared: %+v", after)
+	}
+	if again := seal(c); again.Revision != 1 || again.TotalComplete {
+		t.Fatalf("a later seal: %+v", again)
+	}
+	if !first.TotalComplete || first.Counts["late"] != 0 {
+		t.Fatalf("an earlier report value changed: %+v", first)
+	}
+}
+
+// The scanner accepts exactly what encoding/json accepts, on every one-byte deletion, insertion
+// and replacement of a few seed documents.
+func TestLedgerScannerMatchesEncodingJSON(t *testing.T) {
+	seeds := []string{`{"usage":{"prompt_tokens":5,"completion_tokens":7}}`, `[1,-0.5e+3,"a\"\\é",true,false,null,{}]`,
+		`{"a":{"b":[[],{}]},"c":"x"}`, `-12.5E-3`, `"s"`, `0`}
+	alphabet := []byte(`{}[]",:\-+.0123456789eEtfnulrsa ` + "\n\x01")
+	check := func(doc []byte) {
+		var s scanner
+		for _, c := range doc {
+			s.step(c)
+		}
+		if got, want := s.finish(), json.Valid(doc); got != want {
+			t.Fatalf("%q: scanner %v, encoding/json %v", doc, got, want)
+		}
+	}
+	n := 0
+	for _, seed := range seeds {
+		b := []byte(seed)
+		for i := 0; i <= len(b); i++ {
+			if i < len(b) {
+				check(append(append([]byte{}, b[:i]...), b[i+1:]...))
+				n++
+			}
+			for _, c := range alphabet {
+				check(append(append(append([]byte{}, b[:i]...), c), b[i:]...))
+				if i < len(b) {
+					r := append([]byte{}, b...)
+					r[i] = c
+					check(r)
+				}
+				n += 2
+			}
+		}
+	}
+	if n < 1000 {
+		t.Fatalf("only %d cases", n)
 	}
 }
