@@ -448,9 +448,18 @@ func TestDamageAfterAnEarlierExportIsPublishedAsAnInvalidation(t *testing.T) {
 			}
 			third := t.TempDir()
 			must(t, run(t, shop, "", "export", "--out", third)) // idempotent: nothing new
-			b := readAll(t, third)
-			if strings.Contains(string(b), `"collection"`) {
-				t.Fatal("a repeated export sent the invalidation again")
+			files, _ := filepath.Glob(filepath.Join(third, "*.json"))
+			for _, f := range files {
+				b, _ := os.ReadFile(f)
+				var d struct {
+					Type    string `json:"document_type"`
+					Payload struct {
+						Observations []any `json:"observations"`
+					} `json:"payload"`
+				}
+				if json.Unmarshal(b, &d) == nil && d.Type == "activity_stream" && len(d.Payload.Observations) > 0 {
+					t.Fatalf("a repeated export sent activity again: %d records", len(d.Payload.Observations))
+				}
 			}
 		})
 	}

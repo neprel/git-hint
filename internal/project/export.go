@@ -387,9 +387,16 @@ func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 			return "0.2.0", nil
 		}
 	}
-	obs, _, err := ReadSpool(s)
+	obs, damage, err := ReadSpoolChecked(s)
 	if err != nil {
 		return "", err
+	}
+	if damage.Any() { // an invalidating closure (draft v0.2 collection) may be published (C7BE-21)
+		for _, o := range append(slices.Clone(obs), damage.Withheld...) {
+			if o.Collection != nil {
+				return "0.2.0", nil
+			}
+		}
 	}
 	st, err := loadExportState(s)
 	if err != nil {
