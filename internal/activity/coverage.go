@@ -35,20 +35,30 @@ func parseTS(s string) (time.Time, bool) {
 func UsageCoverage(obs []Observation, sources map[string]Source) Coverage {
 	type scope struct{ src, ses string }
 	sc := func(o Observation) scope { return scope{o.SourceID, o.Correlation["session_id"]} }
-	var calls []Observation
-	legacy := false
+	// the relevant population is every agent record of the task (watcher-only records
+	// excluded): each of its sessions needs a complete closure, and an untyped USAGE anywhere in
+	// it blocks complete usage (C7BE-19)
+	var calls, relevant []Observation
+	untyped := false
 	for _, o := range obs {
+		if o.Source == "watcher" {
+			continue
+		}
+		relevant = append(relevant, o)
 		if o.Op == "MODEL_CALL" || o.Op == "USAGE" && o.RequestKind != "" {
 			calls = append(calls, o)
 		} else if o.Op == "USAGE" {
-			legacy = true
+			untyped = true
 		}
 	}
 	if len(calls) == 0 {
-		if legacy {
+		if untyped {
 			return Coverage{State: "unknown", Reason: "no_usage_coverage"}
 		}
 		return Coverage{State: "unknown", Reason: "no_model_calls"}
+	}
+	if untyped {
+		return Coverage{State: "partial", Reason: "untyped_usage"}
 	}
 	norm := ""
 	for _, o := range calls {
@@ -56,16 +66,22 @@ func UsageCoverage(obs []Observation, sources map[string]Source) Coverage {
 		if !ok || src.UsageNormalization != UsageNormalization {
 			return Coverage{State: "unknown", Reason: "normalization_unknown"}
 		}
+		norm = src.UsageNormalization
+	}
+	sessions := map[scope]bool{}
+	for _, o := range relevant {
+		if o.Correlation["session_id"] == "" {
+			return Coverage{State: "partial", Reason: "session_unknown"}
+		}
+		sessions[sc(o)] = true
+	}
+	for s := range sessions {
+		src := sources[s.src]
 		for _, c := range coverageCaps {
 			if !slices.Contains(src.Capabilities, c) {
 				return Coverage{State: "unknown", Reason: "capabilities_missing"}
 			}
 		}
-		norm = src.UsageNormalization
-	}
-	sessions := map[scope]bool{}
-	for _, o := range calls {
-		sessions[sc(o)] = true
 	}
 	for s := range sessions {
 		var closures []Observation

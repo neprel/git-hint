@@ -59,7 +59,8 @@ type ocClose struct {
 type callSession struct {
 	raw       string
 	owned     bool
-	lifecycle string
+	created   string // the session.created time when it arrived after the attach line
+	parent    string // the parent of a created child session
 	start     string
 	primary   int             // model.request hooks of kind primary
 	steps     int             // session.step.started events
@@ -73,27 +74,52 @@ type callSession struct {
 	closed    bool
 }
 
-// calls tracks the model calls and the collector closure of the sessions of one run. A
-// session is owned when its session.created event arrives after the subscription started
-// (a root session, or a child of an owned session); a session that this process calls a
-// model for without such an event is owned as attached mid-session. Events of other
-// sessions are never recorded (no timing-based ownership).
+// calls tracks the model calls and the collector closure of the sessions of one run. Only
+// the explicitly declared root session (Normalizer.RootSessions, from HINT_OPENCODE_SESSION)
+// and its observed descendants (session.created with a parent link, in any arrival order) are
+// owned (C7BE-18): arrival after the attach line, a model request or a tool call of the same
+// OpenCode server never makes a session part of this run. A session is attached at start
+// only when its session.created arrived after the attach line.
 type calls struct {
 	attached bool
 	sessions map[string]*callSession
 	order    []string
 	events   map[string]string // scoped source event -> canonical body (dedup)
+	children map[string][]string
 	closed   bool
 }
 
-func newCalls() *calls {
-	return &calls{sessions: map[string]*callSession{}, events: map[string]string{}}
+func newCalls(roots []string) *calls {
+	c := &calls{sessions: map[string]*callSession{}, events: map[string]string{}, children: map[string][]string{}}
+	for _, r := range roots {
+		c.own(r)
+	}
+	return c
+}
+
+// own marks a session and every already observed descendant as owned.
+func (c *calls) own(raw string) {
+	s := c.session(raw)
+	if s.owned {
+		return
+	}
+	s.owned = true
+	for _, ch := range c.children[raw] {
+		c.own(ch)
+	}
+}
+
+func (s *callSession) lifecycle() string {
+	if s.created != "" {
+		return "attached_at_start"
+	}
+	return "attached_mid_session" // created before the attach line, or its creation was not observed
 }
 
 func (c *calls) session(raw string) *callSession {
 	s, ok := c.sessions[raw]
 	if !ok {
-		s = &callSession{raw: raw, lifecycle: "unknown", open: map[string]bool{}, retried: map[string]bool{}, ordinal: map[string]int{}}
+		s = &callSession{raw: raw, open: map[string]bool{}, retried: map[string]bool{}, ordinal: map[string]int{}}
 		c.sessions[raw] = s
 		c.order = append(c.order, raw)
 	}
@@ -181,9 +207,12 @@ func (n *Normalizer) modelEvent(c *calls, e ocEvent) []Observation {
 		if raw == "" || !slices.Contains(requestKinds, kind) {
 			return nil
 		}
-		s := c.session(raw)
-		if !s.owned { // this process calls a model for a session whose creation was not observed
-			s.owned, s.lifecycle, s.start = true, "attached_mid_session", at
+		s, ok := c.sessions[raw]
+		if !ok || !s.owned { // a model request of another session of the same server
+			return nil
+		}
+		if s.start == "" {
+			s.start = at
 		}
 		if kind == "primary" { // the primary record comes from its step (exact call identity)
 			s.primary++
@@ -203,14 +232,27 @@ func (n *Normalizer) modelEvent(c *calls, e ocEvent) []Observation {
 	}
 	if ev.Type == "session.created" {
 		s := c.session(ev.SessionID)
-		if c.attached && !s.owned && (ev.ParentID == "" || c.sessions[ev.ParentID] != nil && c.sessions[ev.ParentID].owned) {
-			s.owned, s.lifecycle, s.start = true, "attached_at_start", at
+		if c.attached && s.created == "" {
+			s.created = at
+		}
+		if s.start == "" {
+			s.start = at
+		}
+		if ev.ParentID != "" && s.parent == "" { // a child inherits ownership from its parent, in any order
+			s.parent = ev.ParentID
+			c.children[ev.ParentID] = append(c.children[ev.ParentID], ev.SessionID)
+			if p := c.sessions[ev.ParentID]; p != nil && p.owned {
+				c.own(ev.SessionID)
+			}
 		}
 		return nil
 	}
 	s, ok := c.sessions[ev.SessionID]
 	if !ok || !s.owned {
 		return nil // an unrelated session of a shared OpenCode server
+	}
+	if s.start == "" {
+		s.start = at
 	}
 	// dedup: an identical replay collapses; the same scoped event with another body is a conflict
 	scoped := ev.SessionID + "\x00" + ev.ID
@@ -327,7 +369,7 @@ func (n *Normalizer) closeSessions(c *calls, e *ocEvent, skipped int) []Observat
 		}
 	}
 	count := func(v *float64) scan.Quantity {
-		if v == nil || *v < 0 || *v != math.Trunc(*v) {
+		if !validCount(v) {
 			return scan.Quantity{Unit: "count", State: "unknown", Reason: "not_collected"}
 		}
 		return scan.Known("count", *v, "count_of_records")
@@ -343,24 +385,39 @@ func (n *Normalizer) closeSessions(c *calls, e *ocEvent, skipped int) []Observat
 		if s.primary != s.steps { // a lost model.request or a lost step: the two channels disagree
 			errs++
 		}
-		if cl.Errors != nil && *cl.Errors > 0 { // shared stream errors affect every session
-			errs += int(*cl.Errors)
-		}
 		errs += skipped // unreadable lines of the shared stream affect every session
 		start := s.start
+		if start == "" {
+			start = at // a declared root without any observed event
+		}
 		o := n.modelObs("SESSION", raw, start, hint.DeriveID(n.Key, "session-closure", n.SourceID, raw))
 		o.Time.End = &at
 		o.Missing = slices.DeleteFunc(o.Missing, func(m string) bool { return m == "targets" })
-		ec := float64(errs)
 		oc := float64(len(s.open) + s.running)
-		o.Collection = &Collection{Lifecycle: s.lifecycle, Closure: closure, EventsDropped: count(cl.Dropped),
-			Errors: count(&ec), OpenCalls: count(&oc), ClosedAt: closedAt}
+		// the plugin's stream-wide error count must itself be a valid count; a missing, negative,
+		// fractional or oversized value leaves the errors unknown, never zero (C7BE-20)
+		errors := scan.Quantity{Unit: "count", State: "unknown", Reason: "not_collected"}
+		if e != nil && validCount(cl.Errors) {
+			ec := float64(errs) + *cl.Errors
+			errors = count(&ec)
+		}
+		lifecycle := s.lifecycle()
+		if s.created == "" && s.parent == "" && !c.attached {
+			lifecycle = "unknown"
+		}
+		o.Collection = &Collection{Lifecycle: lifecycle, Closure: closure, EventsDropped: count(cl.Dropped),
+			Errors: errors, OpenCalls: count(&oc), ClosedAt: closedAt}
 		if e == nil {
 			o.Collection.EventsDropped = scan.Quantity{Unit: "count", State: "unknown", Reason: "not_collected"}
 		}
 		res = append(res, n.finish(o))
 	}
 	return res
+}
+
+// validCount is a finite, non-negative, integral and bounded count.
+func validCount(v *float64) bool {
+	return v != nil && !math.IsNaN(*v) && !math.IsInf(*v, 0) && *v >= 0 && *v == math.Trunc(*v) && *v <= 1e9
 }
 
 func itoa(i int) string {

@@ -1,7 +1,11 @@
 package activity
 
 import (
+	"encoding/json"
 	"testing"
+
+	"github.com/neprel/git-hint/internal/hint"
+	"github.com/neprel/git-hint/internal/scan"
 )
 
 // The client mirror of the server completeness rule (07B-E §33) on replayed adapter output.
@@ -64,5 +68,85 @@ func TestCoverageNeedsTheSourceNormalizationAndCapabilities(t *testing.T) {
 	nocap.Capabilities = []string{"usage"}
 	if c := UsageCoverage(obs, map[string]Source{src.SourceID: nocap}); c.Reason != "capabilities_missing" {
 		t.Fatalf("%+v", c)
+	}
+}
+
+// roundTrip serializes records as the spool and the export do and reads them back.
+func roundTrip(t *testing.T, obs []Observation) []Observation {
+	t.Helper()
+	b, err := json.Marshal(obs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []Observation
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func replayed(t *testing.T, lines ...map[string]any) ([]Observation, map[string]Source) {
+	t.Helper()
+	n := withCalls(true)
+	n.TaskID = "t"
+	src := OpenCodeSource(testKey, SourceOptions{AgentVersion: "2.0.26", TaskDeclared: true, ModelCalls: true})
+	n.SourceID = src.SourceID
+	return run(t, n, lines...), map[string]Source{src.SourceID: src}
+}
+
+func TestEveryRelevantSessionOfTheTaskNeedsCompleteCollection(t *testing.T) {
+	obs, srcs := replayed(t, append(chain(), closing(true))...)
+	if c := UsageCoverage(roundTrip(t, obs), srcs); c.State != "complete" {
+		t.Fatalf("baseline %+v", c)
+	}
+	base := obs[0]
+	extra := func(op, session string, mut func(*Observation)) []Observation {
+		o := base
+		o.ObservationID = hint.DeriveID(testKey, "extra", op, session)
+		o.Op, o.RequestKind, o.Usage, o.Collection = op, "", nil, nil
+		o.Correlation = map[string]string{"session_id": sid(session), "task_id": "t"}
+		if mut != nil {
+			mut(&o)
+		}
+		return append(append([]Observation{}, obs...), o)
+	}
+	nine := 9000.0
+	cases := map[string]struct {
+		obs  []Observation
+		want string
+	}{
+		"untyped usage": {extra("USAGE", "s1", func(o *Observation) {
+			o.Usage = &Usage{InputTokens: scan.Known("tokens", nine, "harness_usage"), OutputTokens: scan.Known("tokens", nine, "harness_usage")}
+		}), "untyped_usage"},
+		"child with only tools": {extra("TOOL", "unclosed-child", nil), "closure_missing"},
+		"child interrupted closure": {extra("SESSION", "unclosed-child", func(o *Observation) {
+			z := scan.Known("count", 0, "count_of_records")
+			o.Collection = &Collection{Lifecycle: "attached_at_start", Closure: "interrupted", EventsDropped: z, Errors: z, OpenCalls: z}
+		}), "closure_not_flushed"},
+		"record without session": {extra("TOOL", "", func(o *Observation) { delete(o.Correlation, "session_id") }), "session_unknown"},
+	}
+	for name, c := range cases {
+		if got := UsageCoverage(roundTrip(t, c.obs), srcs); got.State == "complete" || got.Reason != c.want {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+	watcher := extra("TOOL", "w", func(o *Observation) { o.Source = "watcher" })
+	if got := UsageCoverage(roundTrip(t, watcher), srcs); got.State != "complete" {
+		t.Errorf("a watcher-only record is not an agent session: %+v", got)
+	}
+}
+
+func TestInvalidPluginCountersStayIncompleteAfterSerialization(t *testing.T) {
+	for _, v := range []any{nil, -1, 0.5, 1e12} {
+		end := closing(true)
+		if v == nil {
+			delete(end["close"].(map[string]any), "errors")
+		} else {
+			end["close"].(map[string]any)["errors"] = v
+		}
+		obs, srcs := replayed(t, append(chain(), end)...)
+		if c := UsageCoverage(roundTrip(t, obs), srcs); c.State == "complete" || c.Reason != "collection_loss" {
+			t.Errorf("errors %v: %+v", v, c)
+		}
 	}
 }

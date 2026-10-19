@@ -18,7 +18,10 @@
 //
 // Environment (optional): HINT_BIN (path of git-hint; default "git-hint" on PATH),
 // HINT_DISABLE=1 (turn the adapter off), HINT_MCP_SERVER (the name of the git-hint MCP server
-// in opencode.json; default "githint").
+// in opencode.json; default "githint"), HINT_OPENCODE_SESSION (the root OpenCode session of
+// the run, for example started with `opencode run --session <id>`; model usage is recorded
+// only for that session and its observed child sessions, never for other sessions of a shared
+// OpenCode server; without it model usage stays unknown).
 
 const ARG_ALLOW = ["filePath", "path", "offset", "limit", "command", "workdir"]
 

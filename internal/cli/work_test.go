@@ -250,6 +250,8 @@ func modelMember(t *testing.T, dir, unit, task string, closed bool) result {
 	t.Setenv("HINT_TASK_ID", task)
 	defer t.Setenv("HINT_WORK_UNIT", "")
 	defer t.Setenv("HINT_TASK_ID", "")
+	t.Setenv("HINT_OPENCODE_SESSION", "ses_"+task)
+	defer t.Setenv("HINT_OPENCODE_SESSION", "")
 	t0 := time.Now().UnixMilli()
 	var b strings.Builder
 	line := func(dt int64, m map[string]any) {
@@ -299,5 +301,88 @@ func TestAttemptUsageNeedsCompleteCoverageOfEveryMemberTask(t *testing.T) {
 	if pu["input_tokens"] != nil || part["usage_provenance"] != "unknown" || part["usage_normalization"] != nil ||
 		part["coverage"].(map[string]any)["tasks_with_complete_usage"] != 1.0 {
 		t.Fatalf("partial attempt: never a partial sum: %v", part)
+	}
+}
+
+// spoolLines returns the spool lines and a writer for a changed spool.
+func spoolLines(t *testing.T, dir string) ([]string, func([]string)) {
+	t.Helper()
+	p := filepath.Join(dir, ".hint", "state", "activity", "spool.jsonl")
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	return lines, func(l []string) {
+		if err := os.WriteFile(p, []byte(strings.Join(l, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// changed returns the line of the first record of op with one field changed.
+func changed(t *testing.T, lines []string, op string) string {
+	t.Helper()
+	for _, l := range lines {
+		var m map[string]any
+		if json.Unmarshal([]byte(l), &m) == nil && m["op"] == op {
+			if op == "USAGE" {
+				m["usage"].(map[string]any)["input_tokens"].(map[string]any)["value"] = 1.0
+			} else {
+				m["collection"].(map[string]any)["closure"] = "interrupted"
+				m["collection"].(map[string]any)["closed_at"] = nil
+			}
+			b, _ := json.Marshal(m)
+			return string(b)
+		}
+	}
+	t.Fatalf("no %s record", op)
+	return ""
+}
+
+func TestSpoolDamageMakesAttemptUsageUnknownAndExportHonest(t *testing.T) {
+	type variant struct {
+		name  string
+		edit  func(lines []string) []string
+		known bool
+	}
+	var variants []variant
+	for _, op := range []string{"USAGE", "SESSION"} {
+		op := op
+		variants = append(variants,
+			variant{"conflicting " + op + " after", func(l []string) []string { return append(l, changed(t, l, op)) }, false},
+			variant{"conflicting " + op + " before", func(l []string) []string { return append([]string{changed(t, l, op)}, l...) }, false})
+	}
+	variants = append(variants,
+		variant{"identical replay", func(l []string) []string { return append(l, l...) }, true},
+		variant{"unreadable line", func(l []string) []string { return append(l, `{"observation_id": "broken`) }, false})
+	for _, v := range variants {
+		t.Run(v.name, func(t *testing.T) {
+			shop, _ := setup(t)
+			t.Setenv("HINT_TASK_FAMILY", "")
+			must(t, run(t, shop, "", "eval", "work", "start", "u", "--family", "billing"))
+			must(t, modelMember(t, shop, "u", "task-a", true))
+			must(t, run(t, shop, "", "eval", "work", "close", "u", "--outcome", "failed"))
+			lines, write := spoolLines(t, shop)
+			write(v.edit(lines))
+			revs := revisions(workReport(t, shop))
+			a := revs[len(revs)-1]["attempts"].([]any)[0].(map[string]any)
+			known := a["usage"].(map[string]any)["input_tokens"] != nil
+			if known != v.known || (!known && (a["usage_provenance"] != "unknown" || a["coverage"].(map[string]any)["tasks_with_complete_usage"] != 0.0)) {
+				t.Fatalf("attempt usage: %v", a)
+			}
+			if !known && a["usage"].(map[string]any)["input_tokens"] == 1.0 {
+				t.Fatal("a conflicting version won")
+			}
+			out := t.TempDir()
+			must(t, run(t, shop, "", "export", "--out", out))
+			all := string(readAll(t, out))
+			if !v.known && (strings.Contains(all, `"closure":"flushed"`) || strings.Contains(all, `"closure": "flushed"`)) {
+				t.Fatal("a damaged spool exported a flushed closure")
+			}
+			if v.known && !strings.Contains(all, `"flushed"`) {
+				t.Fatal("an identical replay must not degrade the closure")
+			}
+		})
 	}
 }

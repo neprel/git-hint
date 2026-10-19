@@ -328,7 +328,7 @@ func (u *WorkUnit) Revise(s *store.Store, now time.Time) error {
 // never zero or a partial sum). The model-request count stays unknown: steps and physical
 // requests are not proven one-to-one (retries).
 func (u *WorkUnit) reportAttempts(s *store.Store) ([]any, error) {
-	obs, _, err := ReadSpool(s)
+	obs, damage, err := ReadSpoolChecked(s)
 	if err != nil {
 		return nil, err
 	}
@@ -357,6 +357,9 @@ func (u *WorkUnit) reportAttempts(s *store.Store) ([]any, error) {
 		var in, out, cache float64
 		cacheKnown := true
 		for _, t := range a.Tasks {
+			if damage.Any() { // an unreadable line or a conflicting record can be any task's: unknown loss (C7BE-21)
+				break
+			}
 			c := activity.UsageCoverage(byTask[t], srcs)
 			if c.State != "complete" {
 				continue

@@ -121,6 +121,10 @@ func adapterOpenCode(e *Env, args []string) int {
 	if rawFamily != "" && !project.ValidTaskID(rawFamily) {
 		return fail(e, errors.New("HINT_TASK_FAMILY is not a usable family label (1-200 bytes of printable text); nothing was written"))
 	}
+	root := os.Getenv("HINT_OPENCODE_SESSION")
+	if root != "" && !project.ValidTaskID(root) {
+		return fail(e, errors.New("HINT_OPENCODE_SESSION is not a usable session ID (1-200 bytes of printable text); nothing was written"))
+	}
 	// the configuration is attached only when the orchestrator declares something explicit;
 	// otherwise the source identity and the v0.1 export stay as before
 	var cfg *activity.Configuration
@@ -174,6 +178,11 @@ func adapterOpenCode(e *Env, args []string) int {
 		ModelCalls: modelCalls}
 	// the child's acknowledgment at the plugin's closure line: every preceding record was written
 	n.Acknowledged = func() bool { return stopped == nil && discarded == 0 }
+	// the declared root OpenCode session of this run (the orchestrator starts OpenCode with
+	// --session <id>); without it no session is owned and model usage stays unknown (C7BE-18)
+	if root != "" {
+		n.RootSessions = []string{root}
+	}
 	if declared {
 		n.TaskID = project.TaskID(s.Key(), rawTask)
 		if rawFamily != "" {

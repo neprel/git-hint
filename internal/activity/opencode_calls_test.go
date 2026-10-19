@@ -15,6 +15,7 @@ func withCalls(ack bool) *Normalizer {
 	n := norm()
 	n.ModelCalls = true
 	n.Acknowledged = func() bool { return ack }
+	n.RootSessions = []string{"s1"} // the declared root of the run (HINT_OPENCODE_SESSION)
 	return n
 }
 
@@ -201,19 +202,77 @@ func TestARetriedStepHasUnknownUsage(t *testing.T) {
 	}
 }
 
-func TestOwnershipIsExplicitAndMidSessionAttachIsLabeled(t *testing.T) {
-	// an unrelated session of a shared server: no record at all
-	l := []map[string]any{attach(), bus("u1", "session.step.started", "s9", map[string]any{"assistantMessageID": "m1"}),
-		bus("u2", "session.step.ended", "s9", map[string]any{"assistantMessageID": "m1", "tokens": tok(10, 1, 0, 0, 0)}),
-		created("u3", "s8", "s9"), closing(true)}
-	if obs := run(t, withCalls(true), l...); len(obs) != 0 {
-		t.Fatalf("unrelated sessions were recorded: %d", len(obs))
+func sessionsOf(obs []Observation) map[string]bool {
+	out := map[string]bool{}
+	for _, o := range obs {
+		out[o.Correlation["session_id"]] = true
 	}
-	// created before the attach: a model call of this process owns it as attached mid-session
+	return out
+}
+
+func sid(raw string) string { return hint.DeriveID(testKey, "session", norm().SourceID, raw) }
+
+func TestOwnershipIsExplicitAndMidSessionAttachIsLabeled(t *testing.T) {
+	// C7BE-18 reproduction: an unrelated root created after the attach line on the same server
+	l := append(chain(), created("other-created", "unrelated", ""))
+	l = append(l, step("other", "unrelated", "other-msg", tok(999, 11, 0, 0, 0))...)
+	obs := run(t, withCalls(true), append(l, closing(true))...)
+	if sessionsOf(obs)[sid("unrelated")] {
+		t.Fatal("an unrelated root session was recorded under this run")
+	}
+	for _, o := range ops(obs, "USAGE") {
+		if *o.Usage.InputTokens.Value == 999 {
+			t.Fatal("usage of an unrelated session")
+		}
+	}
+	// without a declared root nothing is owned
+	n := withCalls(true)
+	n.RootSessions = nil
+	if obs := run(t, n, append(chain(), closing(true))...); len(obs) != 0 {
+		t.Fatalf("records without a declared root: %d", len(obs))
+	}
+	// unrelated roots, their children and their model requests stay out; the declared root's child is in
+	mixed := []map[string]any{attach(), created("u1", "x", ""), created("u2", "xc", "x"), created("e1", "s1", ""), created("e2", "s1c", "s1")}
+	mixed = append(mixed, step("a", "x", "m1", tok(5, 5, 0, 0, 0))...)
+	mixed = append(mixed, step("b", "xc", "m2", tok(5, 5, 0, 0, 0))...)
+	mixed = append(mixed, step("c", "s1c", "m3", tok(7, 7, 0, 0, 0))...)
+	got := sessionsOf(run(t, withCalls(true), append(mixed, closing(true))...))
+	if got[sid("x")] || got[sid("xc")] || !got[sid("s1c")] || !got[sid("s1")] {
+		t.Fatalf("ownership %v", got)
+	}
+	// reordered creation: the grandchild's creation arrives before the child's
+	re := []map[string]any{attach(), created("e1", "s1", ""), created("g", "s1gc", "s1c"), created("c", "s1c", "s1")}
+	re = append(re, step("d", "s1gc", "m4", tok(3, 3, 0, 0, 0))...)
+	if !sessionsOf(run(t, withCalls(true), append(re, closing(true))...))[sid("s1gc")] {
+		t.Fatal("a descendant whose creation arrived first must still be owned")
+	}
+	// the declared root created before the attach line: mid-session
 	mid := []map[string]any{created("e0", "s1", ""), attach()}
 	mid = append(mid, step("p", "s1", "m1", tok(10, 1, 0, 0, 0))...)
 	if c := closure(t, run(t, withCalls(true), append(mid, closing(true))...), "s1"); c.Lifecycle != "attached_mid_session" {
 		t.Fatalf("lifecycle %s", c.Lifecycle)
+	}
+}
+
+func TestInvalidPluginCountersAreNeverZero(t *testing.T) {
+	for name, v := range map[string]any{"missing": nil, "negative": -1, "fraction": 0.5, "huge": 1e12} {
+		for _, field := range []string{"errors", "dropped"} {
+			end := closing(true)
+			cl := end["close"].(map[string]any)
+			if v == nil {
+				delete(cl, field)
+			} else {
+				cl[field] = v
+			}
+			c := closure(t, run(t, withCalls(true), append(chain(), end)...), "s1")
+			q := c.Errors
+			if field == "dropped" {
+				q = c.EventsDropped
+			}
+			if q.State != "unknown" {
+				t.Errorf("%s %s: %+v", field, name, q)
+			}
+		}
 	}
 }
 

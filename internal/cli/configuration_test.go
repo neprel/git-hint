@@ -150,6 +150,7 @@ func TestAdapterModelCallsExportAsV02WithoutRawIdentifiers(t *testing.T) {
 	shop, _ := setup(t)
 	s, _ := store.Open(shop)
 	t.Setenv("HINT_TASK_ID", "HINTCANARY_TASK_8")
+	t.Setenv("HINT_OPENCODE_SESSION", "ses_HINTCANARY_S1") // the declared root session of the run
 	must(t, run(t, shop, modelCallEvents(), "adapter", "opencode", "--project", shop, "--agent-version", "2.0.26", "--model-calls"))
 	obs, _, _ := project.ReadSpool(s)
 	srcs, _ := project.Sources(s)

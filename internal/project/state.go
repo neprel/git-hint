@@ -73,34 +73,67 @@ func OpenSpool(s *store.Store) (*store.Appender, error) {
 	return s.OpenAppend("state", "activity", spoolFile)
 }
 
-// ReadSpool returns all spooled observations and the number of unreadable lines.
-func ReadSpool(s *store.Store) ([]activity.Observation, int, error) {
+// SpoolDamage is what the spool reader could not take as evidence: unreadable lines and
+// observation IDs recorded with two different bodies. A conflicting ID keeps no version (no
+// first or last winner); both are unknown loss for every consumer (C7BE-21).
+type SpoolDamage struct {
+	Unreadable int
+	Conflicts  []string
+}
+
+// Any reports any damage.
+func (d SpoolDamage) Any() bool { return d.Unreadable > 0 || len(d.Conflicts) > 0 }
+
+// ReadSpoolChecked returns the spooled observations in order, identical replays collapsed,
+// with the damage of the spool.
+func ReadSpoolChecked(s *store.Store) ([]activity.Observation, SpoolDamage, error) {
+	var d SpoolDamage
 	f, err := os.Open(s.Path("state", "activity", spoolFile))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, 0, nil
+		return nil, d, nil
 	}
 	if err != nil {
-		return nil, 0, err
+		return nil, d, err
 	}
 	defer f.Close()
-	var out []activity.Observation
-	bad := 0
-	seen := map[string]bool{}
+	var order []string
+	first := map[string]activity.Observation{}
+	body := map[string]string{}
+	conflict := map[string]bool{}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
 		var o activity.Observation
 		if json.Unmarshal(sc.Bytes(), &o) != nil || o.ObservationID == "" {
-			bad++
+			d.Unreadable++
 			continue
 		}
-		if seen[o.ObservationID] {
+		canon, _ := json.Marshal(o)
+		if b, ok := body[o.ObservationID]; ok {
+			if b != string(canon) && !conflict[o.ObservationID] {
+				conflict[o.ObservationID] = true
+				d.Conflicts = append(d.Conflicts, o.ObservationID)
+			}
 			continue
 		}
-		seen[o.ObservationID] = true
-		out = append(out, o)
+		body[o.ObservationID] = string(canon)
+		first[o.ObservationID] = o
+		order = append(order, o.ObservationID)
 	}
-	return out, bad, sc.Err()
+	var out []activity.Observation
+	for _, id := range order {
+		if !conflict[id] {
+			out = append(out, first[id])
+		}
+	}
+	return out, d, sc.Err()
+}
+
+// ReadSpool returns the spooled observations (identical replays collapsed; conflicting IDs
+// withheld) and the number of damaged entries (unreadable lines plus conflicting IDs).
+func ReadSpool(s *store.Store) ([]activity.Observation, int, error) {
+	obs, d, err := ReadSpoolChecked(s)
+	return obs, d.Unreadable + len(d.Conflicts), err
 }
 
 // Sources returns the registered sources by ID.

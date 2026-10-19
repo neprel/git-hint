@@ -230,9 +230,13 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 	}
 	// 4. activity
 	if allowed["Observation"] && s.Cfg.Policy.Profile != "aggregate" {
-		obs, _, err := ReadSpool(s)
+		obs, damage, err := ReadSpoolChecked(s)
 		if err != nil {
 			return nil, err
+		}
+		if damage.Any() { // conflicting records are withheld (no winner); every closure loses its flush claim (C7BE-21)
+			p.Report.Notes = append(p.Report.Notes, fmt.Sprintf("activity spool damaged: %d unreadable line(s), %d conflicting record(s) withheld; collector closures exported as unknown",
+				damage.Unreadable, len(damage.Conflicts)))
 		}
 		st, err := loadExportState(s)
 		if err != nil {
@@ -256,6 +260,11 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 			}
 			if _, ok := srcs[o.SourceID]; !ok {
 				return nil, fmt.Errorf("observation source %s is not registered; the spool is inconsistent", o.SourceID)
+			}
+			if damage.Any() && o.Collection != nil {
+				c := *o.Collection
+				c.Closure, c.ClosedAt = "unknown", nil
+				o.Collection = &c
 			}
 			m, err := tf.observation(o)
 			if err != nil {

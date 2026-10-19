@@ -43,6 +43,9 @@ type Normalizer struct {
 	// Acknowledged reports, at the plugin's closure line, that every preceding record was
 	// written (no failed or discarded write); without it a closure is never flushed.
 	Acknowledged func() bool
+	// RootSessions are the raw OpenCode root session IDs that the orchestrator declared for this
+	// run (HINT_OPENCODE_SESSION); only they and their observed descendants are owned (C7BE-18).
+	RootSessions []string
 }
 
 // SourceOptions describe one OpenCode agent run as the orchestrator declared it.
@@ -301,7 +304,7 @@ type open struct {
 func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped int, err error) {
 	pending := map[string]*open{}
 	var order []string
-	mc := newCalls()
+	mc := newCalls(n.RootSessions)
 	emitAll := func(l []Observation) error {
 		for _, o := range l {
 			if err := emit(o); err != nil {

@@ -75,9 +75,10 @@ function modelEvents() {
 }
 
 async function replayModel(dir: string, bin: string, opts: { channels?: boolean } = {}) {
-  const saved = { bin: process.env.HINT_BIN, ver: process.env.HINT_AGENT_VERSION }
+  const saved = { bin: process.env.HINT_BIN, ver: process.env.HINT_AGENT_VERSION, root: process.env.HINT_OPENCODE_SESSION }
   process.env.HINT_BIN = bin
   process.env.HINT_AGENT_VERSION = "2.0.26"
+  process.env.HINT_OPENCODE_SESSION = "ses_canary_m1" // the declared root session of the run
   const handlers: Record<string, (ev: any) => Promise<void>> = {}
   const queue: any[] = []
   let wake: (() => void) | null = null
@@ -104,6 +105,8 @@ async function replayModel(dir: string, bin: string, opts: { channels?: boolean 
   if (saved.bin === undefined) delete process.env.HINT_BIN
   if (saved.ver === undefined) delete process.env.HINT_AGENT_VERSION
   else process.env.HINT_AGENT_VERSION = saved.ver
+  if (saved.root === undefined) delete process.env.HINT_OPENCODE_SESSION
+  else process.env.HINT_OPENCODE_SESSION = saved.root
   const evs = modelEvents()
   const push = async (e: any) => {
     queue.push(e)
