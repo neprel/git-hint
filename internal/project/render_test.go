@@ -106,9 +106,27 @@ func TestRenderRefusesUnsupportedStoredDecisions(t *testing.T) {
 	full := map[string]any{"chosen": "CONTEXT_ONLY", "evidence": "bound_eval_pairs", "alternatives": []any{
 		map[string]any{"intervention": "CONTEXT_ONLY", "state": "chosen",
 			"effort_delta": map[string]any{"observed": -50.0, "interval": map[string]any{"lower": -80.0, "upper": -20.0}, "unit": "tokens_per_attempt", "coverage": []any{3.0, 3.0},
-				"counter_semantics": "hint-task-tokens-v1", "scope": "full_task"}}}} // a synthetic whole-task fixture
+				"counter_semantics": "hint-task-tokens-v1", "scope": "full_task"},
+			"success_delta": map[string]any{"observed": 0.1, "interval": map[string]any{"lower": 0.0, "upper": 0.2}, "unit": "success_fraction", "coverage": []any{3.0, 3.0}},
+			"scope":         map[string]any{"pair_id": "p", "paired_objectives": 3.0}}}} // a synthetic complete whole-task fixture
 	renderDecision(w, full)
 	if out := md.String(); !strings.Contains(out, "**CONTEXT_ONLY**") || !strings.Contains(out, "[whole-task tokens]") {
 		t.Fatalf("whole-task decision:\n%s", out)
+	}
+	// whole-task labels without data (null observed and interval, zero or partial coverage) are
+	// not evidence: such a stored decision is historical and unverified
+	for _, eff := range []map[string]any{
+		{"observed": nil, "interval": nil, "unit": "tokens_per_attempt", "coverage": []any{0.0, 3.0}, "counter_semantics": "hint-task-tokens-v1", "scope": "full_task"},
+		{"observed": -990.0, "interval": map[string]any{"lower": -990.0, "upper": -990.0}, "unit": "tokens_per_attempt", "coverage": []any{1.0, 3.0},
+			"counter_semantics": "hint-task-tokens-v1", "scope": "full_task"},
+	} {
+		md.Reset()
+		alt := full["alternatives"].([]any)[0].(map[string]any)
+		forged := map[string]any{"chosen": "CONTEXT_ONLY", "evidence": "bound_eval_pairs", "alternatives": []any{
+			map[string]any{"intervention": "CONTEXT_ONLY", "state": "chosen", "effort_delta": eff, "success_delta": alt["success_delta"], "scope": alt["scope"]}}}
+		renderDecision(w, forged)
+		if out := md.String(); !strings.Contains(out, "**historical, unverified**") {
+			t.Fatalf("label-only decision rendered as active:\n%s", out)
+		}
 	}
 }

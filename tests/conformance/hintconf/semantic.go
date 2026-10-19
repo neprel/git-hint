@@ -444,6 +444,37 @@ func effortPaired(e map[string]any) bool {
 	return scope == "unknown"
 }
 
+// usableDelta reports whether an observed difference is complete evidence: a numeric observed
+// value, an interval with numeric bounds, and coverage [n, n] with n > 0 that equals the
+// alternative's paired objectives when they are given.
+func usableDelta(d map[string]any, paired any) bool {
+	if d == nil {
+		return false
+	}
+	if _, ok := d["observed"].(float64); !ok {
+		return false
+	}
+	iv, ok := d["interval"].(map[string]any)
+	if !ok {
+		return false
+	}
+	_, lo := iv["lower"].(float64)
+	_, hi := iv["upper"].(float64)
+	cov := list(d["coverage"])
+	if !lo || !hi || len(cov) != 2 {
+		return false
+	}
+	k, kok := cov[0].(float64)
+	n, nok := cov[1].(float64)
+	if !kok || !nok || n <= 0 || k != n {
+		return false
+	}
+	if p, ok := paired.(float64); ok && p != n {
+		return false
+	}
+	return true
+}
+
 // decisions checks the effort deltas of the findings' decisions and of the project comparisons:
 // a delta's semantics and scope belong together; an alternative in state chosen, known or
 // cost_unknown needs a whole-task effort delta (hint-task-tokens-v1, full_task); chosen names
@@ -474,7 +505,13 @@ func (c *checker) decisions(payload map[string]any) {
 			state := str(am["state"])
 			switch state {
 			case "chosen", "known", "cost_unknown":
-				if _, scope := effortLabels(e); !hasEffort || scope != "full_task" || !effortPaired(e) {
+				// actionable: whole-task labels AND complete evidence (labels alone are not data)
+				var paired any
+				if sc, ok := am["scope"].(map[string]any); ok {
+					paired = sc["paired_objectives"]
+				}
+				suc, _ := am["success_delta"].(map[string]any)
+				if _, scope := effortLabels(e); !hasEffort || scope != "full_task" || !effortPaired(e) || !usableDelta(e, paired) || !usableDelta(suc, paired) {
 					c.add(CodeEffortScope, "%s.alternatives[%d].state", at, j)
 				}
 			}

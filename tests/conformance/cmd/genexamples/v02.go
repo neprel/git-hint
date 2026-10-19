@@ -170,6 +170,10 @@ func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M)
 	write(ex("recommendation-findings.json"), findings)
 	write(ex("change-set-declared.json"), declared)
 	write(ex("activity-model-call.json"), modelCallDoc(act))
+	// a positive control for the effort rule: an explicitly synthetic complete whole-task choice
+	control := clone(findings)
+	wholeTaskChoice(control)
+	write(filepath.Join(root, "tests", "conformance", "valid", "decision-whole-task-synthetic.json"), reseal(control))
 	return ctx, findings, declared
 }
 
@@ -187,6 +191,21 @@ func declaredChangeSet(changes, findings M) M {
 		"work":               M{"unit_ref": id("eval-report:work-unit", "split-ledger"), "revision": 3, "attempt_ref": id("eval-report:attempt", "split-ledger", "2")},
 	}
 	return reseal(d)
+}
+
+// wholeTaskChoice turns finding 0's decision into an explicitly synthetic, complete whole-task
+// CONTEXT_ONLY choice (canonical labels, numeric observed and interval, full coverage of the
+// paired objectives, success evidence); the negative cases then remove one piece of evidence.
+func wholeTaskChoice(d M) M {
+	dec := obj(d, "payload", "findings", 0, "decision")
+	dec["chosen"], dec["evidence"] = "CONTEXT_ONLY", "bound_eval_pairs"
+	a := obj(d, "payload", "findings", 0, "decision", "alternatives", 0)
+	a["state"] = "chosen"
+	a["scope"] = M{"pair_id": id("pair", "whole-task"), "arm": "context_only", "partition": "held_out", "paired_objectives": 3, "task_families": 3}
+	a["effort_delta"] = M{"observed": -50.0, "interval": M{"lower": -80, "upper": -20}, "unit": "tokens_per_attempt", "coverage": A{3, 3},
+		"counter_semantics": "hint-task-tokens-v1", "scope": "full_task"}
+	a["success_delta"] = M{"observed": 0.1, "interval": M{"lower": 0, "upper": 0.2}, "unit": "success_fraction", "coverage": A{3, 3}}
+	return a
 }
 
 // v02Invalid are the negative cases of the context measurement and of the findings.
@@ -289,6 +308,22 @@ func v02Invalid() []invalidCase {
 		{"decision-no-change-partial", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
 			obj(d, "payload", "findings", 0, "decision")["chosen"] = "NO_CHANGE"
 			obj(d, "payload", "findings", 0, "decision", "alternatives", 0)["state"] = "partial_coverage"
+		}, nil},
+		{"decision-whole-task-null-observed", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			e := wholeTaskChoice(d)["effort_delta"].(M)
+			e["observed"], e["interval"], e["coverage"] = nil, nil, A{0, 3}
+		}, nil},
+		{"decision-whole-task-zero-coverage", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			wholeTaskChoice(d)["effort_delta"].(M)["coverage"] = A{0, 0}
+		}, nil},
+		{"decision-whole-task-partial-coverage", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			wholeTaskChoice(d)["effort_delta"].(M)["coverage"] = A{1, 3}
+		}, nil},
+		{"decision-whole-task-coverage-mismatch", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			wholeTaskChoice(d)["effort_delta"].(M)["coverage"] = A{2, 2} // the pair has 3 objectives
+		}, nil},
+		{"decision-whole-task-no-success", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			wholeTaskChoice(d)["success_delta"] = nil
 		}, nil},
 		{"effort-scope-free-text", "recommendation-findings.json", "schema", "finding", func(d M) {
 			obj(d, "payload", "project_comparisons", 0, "effort_delta")["scope"] = "whole repo"

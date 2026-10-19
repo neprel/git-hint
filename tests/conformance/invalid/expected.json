@@ -314,6 +314,31 @@
     "code": "effort_scope_inconsistent",
     "level": "semantic"
   },
+  "decision-whole-task-coverage-mismatch.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-whole-task-no-success.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-whole-task-null-observed.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-whole-task-partial-coverage.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-whole-task-zero-coverage.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
   "decision-with-net-value.json": {
     "base": "recommendation-findings.json",
     "code": "finding",
