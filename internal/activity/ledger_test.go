@@ -108,3 +108,55 @@ func TestLedgerSelectionVectors(t *testing.T) {
 		}
 	}
 }
+
+// C7BE-30: a later revision can only add late or rejected traffic and reasons; every sealed
+// value stays, and a known incompleteness never heals.
+func TestLedgerLifecycle(t *testing.T) {
+	late := func(m ModelLedger, n int) ModelLedger {
+		m.Counts = map[string]int{}
+		for k, v := range goodLedger().Counts {
+			m.Counts[k] = v
+		}
+		m.Counts["late"], m.State, m.Reasons = n, "incomplete", []string{"late_requests"}
+		return m
+	}
+	r0 := goodLedger()
+	r1 := late(goodLedger(), 1)
+	r1.Revision = 1
+	if LedgerLifecycleProblem(r0, r1) {
+		t.Fatal("a late request after a complete seal must be a valid next revision")
+	}
+	for name, next := range map[string]func() ModelLedger{
+		"heal": func() ModelLedger { n := goodLedger(); n.Revision = 2; return n },
+		"rewrite prompt": func() ModelLedger {
+			n := late(goodLedger(), 2)
+			n.Revision = 2
+			v := int64(100010)
+			n.Components = map[string]*int64{"prompt": &v, "completion": goodLedger().Components["completion"], "cached": nil, "reasoning": nil}
+			return n
+		},
+		"lower late": func() ModelLedger { n := late(goodLedger(), 0); n.Revision = 2; return n },
+		"drop reason": func() ModelLedger {
+			n := late(goodLedger(), 2)
+			n.Revision, n.Reasons = 2, []string{"rejected_limit"}
+			return n
+		},
+		"new seal time": func() ModelLedger {
+			n := late(goodLedger(), 2)
+			n.Revision, n.SealedAt = 2, "2026-10-19T11:00:00.000Z"
+			return n
+		},
+		"admitted": func() ModelLedger {
+			n := late(goodLedger(), 2)
+			n.Revision = 2
+			n.Counts["admitted"], n.Counts["error"] = 3, 1
+			return n
+		},
+		"model check":   func() ModelLedger { n := late(goodLedger(), 2); n.Revision, n.ModelCheck = 2, "unverified"; return n },
+		"skip revision": func() ModelLedger { n := late(goodLedger(), 2); n.Revision = 3; return n },
+	} {
+		if !LedgerLifecycleProblem(r1, next()) {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

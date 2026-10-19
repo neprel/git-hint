@@ -131,3 +131,40 @@ func LedgerProblems(m ModelLedger) []string {
 	}
 	return p
 }
+
+// LedgerLifecycleProblem says whether revision next cannot follow revision prev of the same
+// ledger (C7BE-30): the sealed evidence is frozen (admitted and terminal counts, components and
+// their coverage, the requested-model check, scope, egress, binding and seal time); the late and
+// rejected counts never decrease; a known incompleteness and every earlier reason stay. A later
+// revision can only add late traffic, never heal or rewrite the account.
+func LedgerLifecycleProblem(prev, next ModelLedger) bool {
+	if next.Revision != prev.Revision+1 || next.LedgerRef != prev.LedgerRef || next.Binding != prev.Binding || next.SealedAt != prev.SealedAt ||
+		next.ModelCheck != prev.ModelCheck || next.Scope != prev.Scope || next.Bypass != prev.Bypass {
+		return true
+	}
+	for _, k := range append([]string{"admitted"}, LedgerEntryStates...) {
+		if next.Counts[k] != prev.Counts[k] {
+			return true
+		}
+	}
+	for _, k := range []string{"late", "rejected_limit"} {
+		if next.Counts[k] < prev.Counts[k] {
+			return true
+		}
+	}
+	for _, k := range LedgerComponents {
+		a, b := prev.Components[k], next.Components[k]
+		if next.ComponentCoverage[k] != prev.ComponentCoverage[k] || (a == nil) != (b == nil) || (a != nil && *a != *b) {
+			return true
+		}
+	}
+	if prev.State == "incomplete" && next.State != "incomplete" {
+		return true
+	}
+	for _, r := range prev.Reasons {
+		if !slices.Contains(next.Reasons, r) {
+			return true
+		}
+	}
+	return false
+}

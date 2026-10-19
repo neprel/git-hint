@@ -103,6 +103,27 @@ func ledgerInvalid() []invalidCase {
 				r["model_ledger"].(map[string]any)["components"].(map[string]any)["prompt"] = 6092
 			})
 		}, nil},
+		{"ledger-revision-heals-incompleteness", base, "semantic", "ledger_inconsistent", func(d M) {
+			// revision 0 is incomplete with a late request; revision 1 claims complete with no late request
+			m := l(d)
+			m["state"], m["reasons"] = "incomplete", A{"late_requests"}
+			counts(d)["late"] = 1
+			second(d, func(r M) {
+				r["observation_id"] = id("ledger-usage", "healed")
+				x := r["model_ledger"].(map[string]any)
+				x["revision"], x["state"], x["reasons"] = 1, "complete", A{}
+				x["counts"].(map[string]any)["late"] = 0
+			})
+		}, nil},
+		{"ledger-revision-rewrites-components", base, "semantic", "ledger_inconsistent", func(d M) {
+			second(d, func(r M) {
+				r["observation_id"] = id("ledger-usage", "rewritten")
+				x := r["model_ledger"].(map[string]any)
+				x["revision"], x["state"], x["reasons"] = 1, "incomplete", A{"late_requests"}
+				x["counts"].(map[string]any)["late"] = 1
+				x["components"].(map[string]any)["prompt"] = 106091
+			})
+		}, nil},
 		{"ledger-revision-new-seal-time", base, "semantic", "ledger_inconsistent", func(d M) {
 			second(d, func(r M) {
 				r["observation_id"] = id("ledger-usage", "revision-1")
@@ -170,6 +191,17 @@ func ledgerSelectionVectors(base M) []any {
 	otherCfgPlugin["configuration"].(map[string]any)["budget"].(map[string]any)["max_requests"] = M{"state": "known", "value": 32}
 	otherCfgLedger := clone(ledgerSrc)
 	otherCfgLedger["configuration"].(map[string]any)["budget"].(map[string]any)["max_requests"] = M{"state": "known", "value": 32}
+	lateFirst := rev(led, 0, 1, sealed)
+	lateFirst["observation_id"] = led["observation_id"]
+	healed := rev(led, 1, 0, sealed)
+	rewritten := rev(led, 1, 1, sealed)
+	rewritten["model_ledger"].(map[string]any)["components"].(map[string]any)["prompt"] = 106091
+	lessLate := rev(lateFirst, 1, 1, sealed)
+	lessLate["model_ledger"].(map[string]any)["counts"].(map[string]any)["late"] = 0
+	lessLate["model_ledger"].(map[string]any)["reasons"] = A{"late_requests"}
+	dropped := rev(lateFirst, 1, 2, sealed)
+	dropped["model_ledger"].(map[string]any)["reasons"] = A{"rejected_limit"}
+	dropped["model_ledger"].(map[string]any)["counts"].(map[string]any)["rejected_limit"] = 1
 	return []any{
 		vector("bound complete ledger", "usage_normalization_unmapped", both, withAgents(led)...),
 		vector("agent record of another run", "ledger_other_run", both, withAgents(led, otherRun)...),
@@ -184,5 +216,9 @@ func ledgerSelectionVectors(base M) []any {
 		vector("ledger source with another configuration", "ledger_binding_mismatch", A{plugin, otherCfgLedger}, withAgents(led)...),
 		vector("plugin source with another configuration", "ledger_configuration_mismatch", A{otherCfgPlugin, ledgerSrc}, withAgents(led)...),
 		vector("ledger without behavioral records", "ledger_without_behavior", both, led),
+		vector("later revision heals an incomplete ledger", "ledger_lifecycle_violation", both, withAgents(lateFirst, healed)...),
+		vector("later revision rewrites a sealed component", "ledger_lifecycle_violation", both, withAgents(led, rewritten)...),
+		vector("later revision lowers the late count", "ledger_lifecycle_violation", both, withAgents(lateFirst, lessLate)...),
+		vector("later revision drops a reason", "ledger_lifecycle_violation", both, withAgents(lateFirst, dropped)...),
 	}
 }

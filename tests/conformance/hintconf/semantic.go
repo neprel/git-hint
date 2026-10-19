@@ -361,12 +361,17 @@ func (c *checker) activity(payload map[string]any) {
 		m, _ := s.(map[string]any)
 		norms[str(m["source_id"])] = str(m["usage_normalization"])
 	}
-	ledgers := map[string]string{} // ledger ref (+ revision) -> canonical body, binding and seal time
+	ledgers := map[string]string{}                                         // ledger ref (+ revision) -> canonical body, binding and seal time
+	revisions, revisionAt := map[string]map[string]any{}, map[string]int{} // ledger ref + revision -> record
 	for i, o := range list(payload["observations"]) {
 		m, _ := o.(map[string]any)
 		c.modelCall(m, i, closed, calls, kinds)
-		if l, ok := m["model_ledger"].(map[string]any); ok && ledgerProblem(m, l, norms, ledgers) {
-			c.add(CodeLedger, "payload.observations[%d].model_ledger", i)
+		if l, ok := m["model_ledger"].(map[string]any); ok {
+			if ledgerProblem(m, l, norms, ledgers) {
+				c.add(CodeLedger, "payload.observations[%d].model_ledger", i)
+			}
+			ref := str(l["ledger_ref"]) + "\x00" + fmt.Sprint(num(l["revision"]))
+			revisions[ref], revisionAt[ref] = l, i
 		}
 		// one task declares one family; a second family for the same task is a conflict
 		if corr, _ := m["correlation"].(map[string]any); str(corr["task_family_id"]) != "" {
@@ -391,6 +396,13 @@ func (c *checker) activity(payload map[string]any) {
 				c.add(CodeDuplicateMeasurement, "payload.observations[%d].context", i)
 			}
 			measured[key] = true
+		}
+	}
+	// a later revision of a ledger in the document never heals or rewrites the earlier one
+	for key, next := range revisions {
+		ref, _, _ := strings.Cut(key, "\x00")
+		if prev, ok := revisions[ref+"\x00"+fmt.Sprint(num(next["revision"])-1)]; ok && ledgerLifecycle(prev, next) {
+			c.add(CodeLedger, "payload.observations[%d].model_ledger", revisionAt[key])
 		}
 	}
 	for i, x := range list(payload["metrics"]) {
@@ -803,6 +815,42 @@ func ledgerProblem(m, l map[string]any, norms, seen map[string]string) bool {
 }
 
 func num(v any) float64 { f, _ := v.(float64); return f }
+
+// ledgerLifecycle says whether ledger revision next cannot follow prev (the Go client's
+// activity.LedgerLifecycleProblem on the wire form): frozen evidence, non-decreasing late and
+// rejected counts, no recovery from incompleteness, no lost reason.
+func ledgerLifecycle(prev, next map[string]any) bool {
+	same := func(k string) bool {
+		a, _ := json.Marshal(prev[k])
+		b, _ := json.Marshal(next[k])
+		return string(a) == string(b)
+	}
+	for _, k := range []string{"ledger_ref", "binding", "sealed_at", "model_check", "scope", "bypass", "components", "component_coverage"} {
+		if !same(k) {
+			return true
+		}
+	}
+	pc, _ := prev["counts"].(map[string]any)
+	nc, _ := next["counts"].(map[string]any)
+	for _, k := range append([]string{"admitted"}, ledgerEntryStates...) {
+		if num(pc[k]) != num(nc[k]) {
+			return true
+		}
+	}
+	if num(nc["late"]) < num(pc["late"]) || num(nc["rejected_limit"]) < num(pc["rejected_limit"]) {
+		return true
+	}
+	if prev["state"] == "incomplete" && next["state"] != "incomplete" {
+		return true
+	}
+	have := set(list(next["reasons"]))
+	for _, r := range list(prev["reasons"]) {
+		if !have[str(r)] {
+			return true
+		}
+	}
+	return false
+}
 
 // DefaultForecastThreshold is the heuristic default decision threshold (a versioned example
 // value, not a policy).

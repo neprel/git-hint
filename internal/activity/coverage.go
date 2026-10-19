@@ -80,6 +80,11 @@ func ledgerCoverage(obs []Observation, sources map[string]Source) Coverage {
 			return no("ledger_binding_changed")
 		}
 	}
+	for r := 1; r < len(byRev); r++ {
+		if LedgerLifecycleProblem(*byRev[r-1].ModelLedger, *byRev[r].ModelLedger) {
+			return no("ledger_lifecycle_violation") // a later revision never heals or rewrites the sealed account
+		}
+	}
 	m, b := top.ModelLedger, top.ModelLedger.Binding
 	src, ok := sources[top.SourceID]
 	if len(LedgerProblems(*m)) > 0 || !ok || src.UsageNormalization != LedgerNormalization || top.Usage == nil || top.Usage.InputTokens.State == "known" ||

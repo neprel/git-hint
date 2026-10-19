@@ -115,3 +115,26 @@ func ledgerRecords(t *testing.T, dir string) []map[string]any {
 	}
 	return out
 }
+
+// C7BE-30: the writer refuses a revision that heals or rewrites the sealed ledger, before any
+// write (the spool and the sources stay byte-identical).
+func TestAdapterLedgerRefusesHealingAndRewriting(t *testing.T) {
+	for name, pair := range map[string][2]string{
+		"heal":    {ledgerInputJSON(0, 1), ledgerInputJSON(1, 0)},
+		"rewrite": {ledgerInputJSON(0, 0), strings.Replace(ledgerInputJSON(1, 1), `"prompt":1200`, `"prompt":101200`, 1)},
+	} {
+		shop, _ := setup(t)
+		must(t, run(t, shop, pair[0], "adapter", "ledger"))
+		state := filepath.Join(shop, ".hint", "state", "activity")
+		spool, _ := os.ReadFile(filepath.Join(state, "spool.jsonl"))
+		sources, _ := os.ReadFile(filepath.Join(state, "sources.json"))
+		if r := run(t, shop, pair[1], "adapter", "ledger"); r.code == 0 || !strings.Contains(r.stderr, "heals") {
+			t.Fatalf("%s: accepted: %s %s", name, r.stdout, r.stderr)
+		}
+		spool2, _ := os.ReadFile(filepath.Join(state, "spool.jsonl"))
+		sources2, _ := os.ReadFile(filepath.Join(state, "sources.json"))
+		if string(spool) != string(spool2) || string(sources) != string(sources2) {
+			t.Fatalf("%s: a refused revision changed local state", name)
+		}
+	}
+}

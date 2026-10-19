@@ -81,6 +81,7 @@ func adapterLedger(e *Env, args []string) int {
 		return fail(e, err)
 	}
 	next := 0
+	var prev *activity.ModelLedger
 	for _, x := range obs {
 		l := x.ModelLedger
 		if l == nil || l.LedgerRef != m.LedgerRef {
@@ -96,10 +97,15 @@ func adapterLedger(e *Env, args []string) int {
 			fmt.Fprintln(e.Stdout, "adapter ledger: revision already written")
 			return 0
 		}
-		next = max(next, l.Revision+1)
+		if l.Revision+1 > next {
+			next, prev = l.Revision+1, l
+		}
 	}
 	if m.Revision != next {
 		return fail(e, fmt.Errorf("the ledger revision must be %d; nothing was written", next))
+	}
+	if prev != nil && activity.LedgerLifecycleProblem(*prev, m) {
+		return fail(e, errors.New("the revision rewrites or heals the sealed ledger (only late traffic can be added); nothing was written"))
 	}
 	if err := project.RegisterSource(s, src); err != nil {
 		return fail(e, err)

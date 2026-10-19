@@ -744,7 +744,17 @@
     "code": "observation",
     "level": "schema"
   },
+  "ledger-revision-heals-incompleteness.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
   "ledger-revision-new-seal-time.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-revision-rewrites-components.json": {
     "base": "activity-model-ledger.json",
     "code": "ledger_inconsistent",
     "level": "semantic"
