@@ -194,8 +194,16 @@ func toolEffect(tool string, args map[string]any) effect {
 		}
 		return shellEffect(cmd)
 	}
-	return effect{op: "TOOL", precision: "exact", source: "plugin"}
+	if slices.Contains(localTools, strings.ToLower(tool)) {
+		return effect{op: "TOOL", precision: "exact", source: "plugin"}
+	}
+	// any other tool (MCP, skills, web tools) may deliver content: its further effects are unknown
+	return effect{op: "TOOL", precision: "exact", source: "plugin", secondary: []string{"UNKNOWN"}}
 }
+
+// localTools are tools that work only on the agent's own local state (a todo list, a question to
+// the user) and never deliver repository or remote content.
+var localTools = []string{"todowrite", "todoread", "question"}
 
 var labelOp = map[string]string{
 	shellclass.READ: "READ", shellclass.SEARCH: "SEARCH", shellclass.LIST: "DISCOVER", shellclass.TEST: "TEST",

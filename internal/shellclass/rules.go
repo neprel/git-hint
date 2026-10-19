@@ -1287,6 +1287,63 @@ func afterDashDash(args []arg) ([]arg, bool) {
 	return nil, false
 }
 
+// gitPatch says whether the options request a patch: -p, -u or --patch* (also inside a short
+// option cluster such as -pw; the pickaxe options -S and -G take a string and are not clusters).
+func gitPatch(rest []arg) bool {
+	for _, a := range rest {
+		v := a.val
+		switch {
+		case v == "--":
+			return false
+		case strings.HasPrefix(v, "--patch") || v == "-p" || v == "-u":
+			return true
+		case len(v) > 1 && v[0] == '-' && v[1] != '-' && v[1] != 'S' && v[1] != 'G' && strings.ContainsAny(v[1:], "pu"):
+			return true
+		}
+	}
+	return false
+}
+
+// gitPrintsContent says whether a git subcommand prints repository content (a patch, a blob or
+// annotated lines). A suppression is accepted only when it is proven by a listed option; an
+// unknown option combination keeps the read.
+func gitPrintsContent(sub string, rest []arg) bool {
+	patch := gitPatch(rest)
+	noPatch := hasAny(rest, "--no-patch", "-s")
+	summary := hasAny(rest, "--stat", "--shortstat", "--numstat", "--name-only", "--name-status", "--summary", "--raw", "--dirstat", "--compact-summary")
+	switch sub {
+	case "show":
+		for _, a := range rest {
+			if !strings.HasPrefix(a.val, "-") && strings.Contains(a.val, ":") {
+				return true // REV:PATH prints a file
+			}
+		}
+		return patch || !(noPatch || summary || hasAny(rest, "--quiet"))
+	case "diff":
+		if hasAny(rest, "--quiet") {
+			return false // no output, only the exit status
+		}
+		return patch || !(noPatch || summary)
+	case "log", "whatchanged":
+		return patch && !hasAny(rest, "--no-patch")
+	case "blame", "annotate":
+		return true
+	case "cat-file":
+		if hasAny(rest, "-p") {
+			return true
+		}
+		for _, a := range rest {
+			if !strings.HasPrefix(a.val, "-") {
+				return a.val == "blob" || a.val == "tree" || a.val == "commit" || a.val == "tag"
+			}
+		}
+		return false
+	case "range-diff":
+		return !(noPatch || hasAny(rest, "--stat"))
+	}
+	return false
+}
+
 func gitH(w *walker, _ string, args []arg) {
 	w.a.add(VCS)
 	i := 0
@@ -1306,6 +1363,9 @@ func gitH(w *walker, _ string, args []arg) {
 		return
 	}
 	sub, rest := args[i].val, args[i+1:]
+	if gitPrintsContent(sub, rest) {
+		w.a.add(READ) // repository content reaches the output; the paths and revisions are not resolved
+	}
 	switch sub {
 	case "status", "diff", "show", "blame", "branch", "rev-parse", "describe", "remote", "config",
 		"tag", "shortlog", "reflog", "cat-file", "show-ref", "rev-list", "merge-base", "name-rev",

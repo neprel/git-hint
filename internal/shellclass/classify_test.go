@@ -162,3 +162,26 @@ func BenchmarkClassifySample(b *testing.B) {
 		Classify(sample[i%len(sample)])
 	}
 }
+
+// Content-printing git commands are a read; a proven suppression is not; unknown option
+// combinations keep the read. No target is resolved from revisions or blob paths.
+func TestGitContentReads(t *testing.T) {
+	read := []string{`git show HEAD`, `git show HEAD:internal/a.go`, `git show --stat -p HEAD`, `git show -s HEAD:a.go`, `git show --format=%H HEAD`,
+		`git show -sp HEAD`, `git diff`, `git diff --exit-code`, `git diff --stat -p`, `git diff HEAD~1 -- a.go`, `git log -p`, `git log --oneline -p -3`,
+		`git log -pw`, `git log --patch-with-stat`, `git whatchanged -p`, `git blame a.go`, `git annotate a.go`, `git cat-file -p HEAD:a.go`,
+		`git cat-file blob abc123`, `git range-diff a...b`, `git -C sub show HEAD`, `git --no-pager diff --cached`}
+	noRead := []string{`git status`, `git log`, `git log --oneline -3`, `git log -S needle`, `git log -p --no-patch`, `git show -s HEAD`,
+		`git show --no-patch --format=%H HEAD`, `git show --stat HEAD`, `git show --name-only HEAD`, `git show --quiet HEAD`, `git diff --stat`,
+		`git diff --name-only`, `git diff --name-status HEAD~1`, `git diff --quiet`, `git diff --shortstat`, `git cat-file -t HEAD`,
+		`git cat-file -s HEAD`, `git branch`, `git range-diff --no-patch a...b`}
+	for _, c := range read {
+		if r := Classify(c); !slices.Contains(r.Labels, READ) || !slices.Contains(r.Labels, VCS) || len(r.ReadTargets) != 0 {
+			t.Errorf("%q: %v reads %v, want VCS+READ without targets", c, r.Labels, r.ReadTargets)
+		}
+	}
+	for _, c := range noRead {
+		if r := Classify(c); slices.Contains(r.Labels, READ) {
+			t.Errorf("%q: %v, want no READ", c, r.Labels)
+		}
+	}
+}
