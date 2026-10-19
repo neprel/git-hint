@@ -221,11 +221,29 @@ func attempt(s *store.Store, run, eval, name string, t, ev map[string]any) map[s
 		closure = map[string]any{"state": "unknown", "reason": "trial_error"} // kept; coverage incomplete
 	}
 	c, _ := t["counters"].(map[string]any)
-	_, okIn := c["input_tokens"].(float64)
-	_, okOut := c["output_tokens"].(float64)
+	usage := map[string]any{"requests": c["requests"], "input_tokens": c["input_tokens"], "output_tokens": c["output_tokens"], "cache_tokens": c["cache_tokens"]}
 	prov, complete := "unknown", 0
-	if okIn && okOut { // the Harbor trial result's agent token counts; null stays null
-		prov, complete = "harness_reported", 1
+	if ag, _ := t["agent"].(map[string]any); ag != nil && str(ag["name"]) == "opencode" {
+		// Harbor 0.23.0 + OpenCode counters (harbor-0.23.0+opencode:n-tokens-root-v1, 07B-E §39,
+		// C7BE-22): root session only (children, title and auxiliary calls are never counted) and
+		// every missing step usage becomes 0. The trial keeps the raw counters; the attempt never
+		// claims complete task usage, and a 0 here is unknown, not a measured zero.
+		for _, k := range []string{"input_tokens", "output_tokens", "cache_tokens"} {
+			if v, ok := c[k].(float64); ok && v == 0 {
+				usage[k] = nil
+			}
+		}
+		if _, ok := usage["input_tokens"].(float64); ok {
+			prov = "harness_reported"
+		} else if _, ok := usage["output_tokens"].(float64); ok {
+			prov = "harness_reported"
+		}
+	} else {
+		_, okIn := c["input_tokens"].(float64)
+		_, okOut := c["output_tokens"].(float64)
+		if okIn && okOut { // the harness's token counts; null stays null
+			prov, complete = "harness_reported", 1
+		}
 	}
 	check := "not_observed"
 	if ag, _ := t["agent"].(map[string]any); ag != nil && str(ag["model_check"]) != "" {
@@ -233,8 +251,7 @@ func attempt(s *store.Store, run, eval, name string, t, ev map[string]any) map[s
 	}
 	n := fmt.Sprint(int(num(t["attempt"])))
 	return plain(map[string]any{"attempt_ref": ref("attempt", "controlled", run, eval, n), "task_ids": []any{}, "outcome": out, "closure": closure,
-		"application_change_set": nil, "usage": map[string]any{"requests": c["requests"], "input_tokens": c["input_tokens"], "output_tokens": c["output_tokens"],
-			"cache_tokens": c["cache_tokens"]}, "usage_provenance": prov, "coverage": map[string]any{"tasks": 1, "tasks_with_complete_usage": complete},
+		"application_change_set": nil, "usage": usage, "usage_provenance": prov, "coverage": map[string]any{"tasks": 1, "tasks_with_complete_usage": complete},
 		"trial_ref": tr, "trial_outcome": outcome, "model_check": check, "ordinal": int(num(t["attempt"])),
 		"checks": map[string]any{"mandatory": len(mandatory), "present": present, "passed": passed}, "qualification": nullable(qual)}).(map[string]any)
 }

@@ -279,3 +279,46 @@ func TestThePlanBindingOfATrialMustMatchTheMember(t *testing.T) {
 		t.Fatalf("the matching binding: %v", err)
 	}
 }
+
+// C7BE-22: Harbor 0.23.0 + OpenCode counters are root-session only and coerce every missing step
+// usage to 0 (07B-E §39): the attempt never claims complete task usage, and a 0 is unknown there;
+// the trial keeps the raw counters.
+func TestHarborOpenCodeCountersNeverCompleteTaskUsage(t *testing.T) {
+	s, _, _ := project(t)
+	ev := map[string]any{"verifier": map[string]any{"checks": []any{map[string]any{"check_id": "C1"}}}, "state": "validated"}
+	tr := func(in, out, cache any) map[string]any {
+		return map[string]any{"outcome": "passed", "checks": []any{map[string]any{"check_id": "C1", "status": "pass"}}, "attempt": 1.0,
+			"counters": map[string]any{"requests": 3.0, "input_tokens": in, "output_tokens": out, "cache_tokens": cache},
+			"agent":    map[string]any{"name": "opencode", "version": "2.0.26", "model_check": "verified"}, "runner": map[string]any{"name": "harbor", "version": "0.23.0"}}
+	}
+	for _, c := range []struct {
+		name          string
+		in, out, cach any
+		wantIn        any
+		wantCache     any
+		prov          string
+	}{
+		{"positive full-looking aggregate", 1300.0, 200.0, 300.0, 1300.0, 300.0, "harness_reported"},
+		{"cache zero is unknown, input kept", 1300.0, 200.0, 0.0, 1300.0, nil, "harness_reported"},
+		{"all zero is not a measured zero", 0.0, 0.0, 0.0, nil, nil, "unknown"},
+		{"absent stays absent", nil, nil, nil, nil, nil, "unknown"},
+		{"reasoning-only output gives output 0", 100.0, 0.0, 0.0, 100.0, nil, "harness_reported"},
+	} {
+		trial := tr(c.in, c.out, c.cach)
+		a := attempt(s, "run", "ev@1", "n-"+strings.ReplaceAll(c.name, " ", "-"), trial, ev)
+		u := a["usage"].(map[string]any)
+		cov := a["coverage"].(map[string]any)
+		if cov["tasks_with_complete_usage"] != 0.0 && cov["tasks_with_complete_usage"] != 0 {
+			t.Fatalf("%s: complete task usage claimed: %v", c.name, cov)
+		}
+		if u["input_tokens"] != c.wantIn || u["cache_tokens"] != c.wantCache || a["usage_provenance"] != c.prov {
+			t.Fatalf("%s: usage %v provenance %v", c.name, u, a["usage_provenance"])
+		}
+		if trial["counters"].(map[string]any)["input_tokens"] != c.in { // the raw trial counters are untouched
+			t.Fatalf("%s: raw counters changed", c.name)
+		}
+		if a["outcome"] != "completed" { // the outcome stays as it was
+			t.Fatalf("%s: outcome %v", c.name, a["outcome"])
+		}
+	}
+}
