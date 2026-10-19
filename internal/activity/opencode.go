@@ -433,7 +433,13 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 			if s, ok := mc.sessions[raw]; ok && s.owned {
 				delete(held, raw)
 				waiting -= len(l)
-				for _, e := range l {
+				for _, e := range l { // the held tool and model events of the session, in arrival order
+					if e.Hook == "model.request" || e.Hook == "event" {
+						if err := emitAll(n.modelEvent(mc, e)); err != nil {
+							return err
+						}
+						continue
+					}
 					if err := tool(e); err != nil {
 						return err
 					}
@@ -461,6 +467,20 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 			if !n.ModelCalls {
 				skipped++
 				continue
+			}
+			// a model event of a session not (yet) owned waits like its tool events (C7BE-18):
+			// a later observed parent link replays it; it is never dropped silently for a
+			// session that becomes owned (an overflow counts as a skipped line)
+			if raw := heldSession(e); raw != "" && len(n.RootSessions) > 0 && !mc.closed {
+				if s, ok := mc.sessions[raw]; !ok || !s.owned {
+					if waiting < maxWaiting {
+						held[raw] = append(held[raw], e)
+						waiting++
+					} else {
+						skipped++
+					}
+					continue
+				}
 			}
 			l := n.modelEvent(mc, e)
 			if e.Hook == "hint.close" {
@@ -573,3 +593,16 @@ func (n *Normalizer) contextStages(o *Observation, e ocEvent, delivered int) (Ob
 }
 
 func isContextToolCall(e ocEvent) bool { return isContextTool(e.Input.Tool) }
+
+// heldSession is the session of a model event that may wait for its session's ownership: a
+// model request or a bus event other than a session creation (which carries the parent link
+// and is always handled at once); "" for anything else.
+func heldSession(e ocEvent) string {
+	switch {
+	case e.Hook == "model.request":
+		return e.Input.SessionID
+	case e.Hook == "event" && e.Event != nil && e.Event.Type != "session.created":
+		return e.Event.SessionID
+	}
+	return ""
+}

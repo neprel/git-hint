@@ -150,3 +150,66 @@ func TestInvalidPluginCountersStayIncompleteAfterSerialization(t *testing.T) {
 		}
 	}
 }
+
+func TestEventsBeforeADelayedAssociationAreReplayedOrTheTaskIsIncomplete(t *testing.T) {
+	// the reviewer's probe: the grandchild s3 names parent s4 before s4's link to the root
+	probe := chain(created("grandchild-create", "s3", "s4"))
+	probe = append(probe, step("early-grandchild", "s3", "early-message", tok(9999, 42, 0, 0, 0))...)
+	probe = append(probe, toolCall("read", "s3", "early-read", "/w/proj/grandchild.go")...)
+	probe = append(probe, created("parent-create", "s4", "s1"), closing(true))
+	obs, srcs := replayed(t, probe...)
+	c := UsageCoverage(roundTrip(t, obs), srcs)
+	if c.State != "complete" || c.Input != 8991+9999 || c.Output != 1017+42 {
+		t.Fatalf("every retained event counts exactly: %+v", c)
+	}
+	// multilevel: s6 -> s5 -> s4 -> s1 with primary, retry, title and compaction before any link
+	deep := chain(created("c6", "s6", "s5"), created("c5", "s5", "s4"))
+	deep = append(deep, request("s6", "primary"), bus("d1", "session.step.started", "s6", map[string]any{"assistantMessageID": "m6"}),
+		bus("d2", "session.retry.scheduled", "s6", map[string]any{"assistantMessageID": "m6"}),
+		bus("d3", "session.step.ended", "s6", map[string]any{"assistantMessageID": "m6", "tokens": tok(5, 5, 0, 0, 0)}))
+	deep = append(deep, request("s5", "title"), bus("d4", "session.usage.recorded", "s5", map[string]any{"source": "title", "tokens": tok(7, 3, 0, 0, 0)}))
+	deep = append(deep, bus("d5", "session.compaction.started", "s5", nil), request("s5", "compaction"),
+		bus("d6", "session.compaction.ended", "s5", map[string]any{"tokens": tok(11, 2, 0, 0, 0)}))
+	deep = append(deep, created("c4", "s4", "s1"), closing(true))
+	obs, srcs = replayed(t, deep...)
+	c = UsageCoverage(roundTrip(t, obs), srcs)
+	if c.State == "complete" || c.Reason != "usage_unknown" { // the retried step's usage is unknown: never complete
+		t.Fatalf("retry before the association: %+v", c)
+	}
+	if len(ops(obs, "MODEL_CALL")) != 4+3 { // every held start was replayed (primary, title, compaction)
+		t.Fatalf("held starts: %d", len(ops(obs, "MODEL_CALL")))
+	}
+	// without the retry the same ancestry is complete with the exact total
+	noRetry := deep[:0:0]
+	for _, l := range deep {
+		if e, ok := l["event"].(map[string]any); ok && e["type"] == "session.retry.scheduled" {
+			continue
+		}
+		noRetry = append(noRetry, l)
+	}
+	obs, srcs = replayed(t, noRetry...)
+	if c := UsageCoverage(roundTrip(t, obs), srcs); c.State != "complete" || c.Input != 8991+5+7+11 || c.Output != 1017+5+3+2 {
+		t.Fatalf("late multilevel ancestry: %+v", c)
+	}
+	// an unrelated root with early events stays absent; owned children are unaffected
+	unrel := chain(created("x1", "x", ""))
+	unrel = append(unrel, step("x", "x", "mx", tok(9999, 1, 0, 0, 0))...)
+	obs, srcs = replayed(t, append(unrel, closing(true))...)
+	if sessionsOf(obs)[sid("x")] {
+		t.Fatal("an unrelated session was recorded")
+	}
+	if c := UsageCoverage(roundTrip(t, obs), srcs); c.State != "complete" || c.Input != 8991 {
+		t.Fatalf("owned sessions unaffected: %+v", c)
+	}
+}
+
+func TestAWaitingOverflowMakesEveryClosureIncomplete(t *testing.T) {
+	flood := chain()
+	for i := 0; i < 10001; i++ {
+		flood = append(flood, request("pending", "title")) // a session whose association never arrives
+	}
+	obs, srcs := replayed(t, append(flood, closing(true))...)
+	if c := UsageCoverage(roundTrip(t, obs), srcs); c.State == "complete" || c.Reason != "collection_loss" {
+		t.Fatalf("an overflow must not look complete: %+v", c)
+	}
+}
