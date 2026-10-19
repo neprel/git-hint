@@ -534,6 +534,7 @@ func main() {
 		write(ex(n), d)
 	}
 	docs["activity-context.json"], docs["recommendation-findings.json"], docs["change-set-declared.json"] = writeV02(*root, act, pol, rec, changes)
+	docs["activity-model-call.json"] = modelCallDoc(act)
 	writeValidExtras(conf, act)
 	writeInvalid(conf, docs)
 	writeResolve(conf, rec, single)

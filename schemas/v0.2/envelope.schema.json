@@ -130,6 +130,9 @@
           },
           "configuration": {
             "$ref": "urn:hint:schema:v0.2:common#/$defs/Configuration"
+          },
+          "usage_normalization": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/UsageNormalization"
           }
         },
         "required": [

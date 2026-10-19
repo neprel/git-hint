@@ -92,6 +92,16 @@ A change set can declare that the client applied one plan of a stored recommenda
 
 **Semantic rule `task_family_conflict`:** one task declares one family in a document.
 
+### Model calls and collector closure (draft, C7B-E)
+
+- **`op: MODEL_CALL`**: the start of one model call (the denominator of usage coverage). It carries `request_kind` and never `coordination`, `targets` or `usage`. `REQUEST`, `RESPONSE`, `DELEGATE` and `WAIT` keep their coordination meaning. v0.1 documents do not admit `MODEL_CALL`.
+- **`request_kind`** (`primary`, `title`, `compaction`, `generate`): only on `MODEL_CALL` and on its terminal `USAGE` record.
+- **`correlation.call_ref`** (optional, needs `request_kind`): the opaque identity of one model call, shared by its `MODEL_CALL` and its terminal `USAGE`; set only when the source gives an exact call identity. A call without it is joined only as the single call of its kind in its session under a complete closure; never by order or time.
+- **`collection`** (only on a closing `SESSION` record): the collector's closure of that session (`source_id` + `correlation.session_id`, and `collection_ref` when one source covers several segments): `lifecycle` (`attached_at_start`, `attached_mid_session`, `unknown`), `closure` (`flushed`, `interrupted`, `unknown`; `flushed` needs `closed_at`), and the counts `events_dropped`, `errors` and `open_calls` (unit `count`). `flushed` means the subscription was stopped and drained, in-flight calls were resolved or counted, and the collector acknowledged all preceding data. A closure proves only this collector's observed scope, not that the upstream emitter emitted every provider call. An absent closure or an unknown count is no evidence of zero loss.
+- **`sources[].usage_normalization`** (optional, an allowlisted identifier): the versioned normalization of the source's token counters. `opencode-2.0.26:tokeninfo-v1`: `input_tokens` = non-cached input; `output_tokens` = generated total (visible output + disjoint reasoning); `reasoning_tokens` a subset of `output_tokens`; cache read/write separate and never added to or subtracted from input or output. A zero or missing counter of this harness can be a missing value and is sent as unknown. These are harness-reported counters, not verified provider billing.
+
+**Semantic rules:** `call_link_conflict` — one call (`source_id`, session, `call_ref`) has two start records or two terminal records, or a terminal of another `request_kind` than its start; `collection_inconsistent` — a second closure of the same session scope, a non-integer count or a `closed_at` before the session start.
+
 ## Versions
 
 - The CLI and the server accept `0.1` and `0.2`. A v0.1 document cannot carry a context measurement or findings.

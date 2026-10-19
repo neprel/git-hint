@@ -82,7 +82,8 @@
             "RESPONSE",
             "WAIT",
             "ERROR",
-            "UNKNOWN"
+            "UNKNOWN",
+            "MODEL_CALL"
           ]
         },
         "ops_secondary": {
@@ -213,6 +214,10 @@
             "task_family_id": {
               "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId",
               "description": "The task family that the run declared explicitly (HINT_TASK_FAMILY); a declaration, not a classification. The same derivation as the eval report task_family_ref."
+            },
+            "call_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId",
+              "description": "The opaque identity of one model call, shared by its MODEL_CALL record and its terminal USAGE record; set only when the source gives an exact call identity (draft v0.2, C7B-E)."
             }
           },
           "dependentRequired": {
@@ -671,6 +676,19 @@
               }
             }
           ]
+        },
+        "request_kind": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "title",
+            "compaction",
+            "generate"
+          ],
+          "description": "The kind of a model call on its MODEL_CALL record and on its terminal USAGE record (draft v0.2, C7B-E)."
+        },
+        "collection": {
+          "$ref": "#/$defs/Collection"
         }
       },
       "required": [
@@ -882,6 +900,93 @@
         {
           "if": {
             "required": [
+              "request_kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "MODEL_CALL",
+                  "USAGE"
+                ]
+              }
+            },
+            "required": [
+              "op"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "MODEL_CALL"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "request_kind"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "coordination"
+                  ]
+                },
+                {
+                  "required": [
+                    "targets"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "correlation": {
+                "required": [
+                  "call_ref"
+                ]
+              }
+            },
+            "required": [
+              "correlation"
+            ]
+          },
+          "then": {
+            "required": [
+              "request_kind"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "collection"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "const": "SESSION"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
               "context"
             ]
           },
@@ -1047,6 +1152,114 @@
       },
       "required": [
         "observations"
+      ]
+    },
+    "Collection": {
+      "description": "The collector's closure of one session (source_id + correlation.session_id, and collection_ref when one source covers several segments), only on the closing SESSION record. It proves only this collector's observed scope under its source capabilities (draft v0.2, C7B-E).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "collection_ref": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": [
+            "attached_at_start",
+            "attached_mid_session",
+            "unknown"
+          ]
+        },
+        "closure": {
+          "type": "string",
+          "enum": [
+            "flushed",
+            "interrupted",
+            "unknown"
+          ],
+          "description": "flushed: the subscription was stopped and drained, in-flight calls were resolved or counted in open_calls, and the collector acknowledged all preceding data."
+        },
+        "events_dropped": {
+          "allOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "count"
+                }
+              }
+            }
+          ]
+        },
+        "errors": {
+          "allOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "count"
+                }
+              }
+            }
+          ]
+        },
+        "open_calls": {
+          "allOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Quantity"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "count"
+                }
+              }
+            }
+          ]
+        },
+        "closed_at": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "lifecycle",
+        "closure",
+        "events_dropped",
+        "errors",
+        "open_calls",
+        "closed_at"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "closure": {
+                "const": "flushed"
+              }
+            },
+            "required": [
+              "closure"
+            ]
+          },
+          "then": {
+            "properties": {
+              "closed_at": {
+                "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+              }
+            }
+          }
+        }
       ]
     }
   }

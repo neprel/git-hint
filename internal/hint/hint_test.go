@@ -168,24 +168,40 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 		case "common.schema.json":
 			v1["$defs"].(map[string]any)["SpecVersion"].(map[string]any)["pattern"] = `^0\.2\.(0|[1-9][0-9]*)$`
 			fn := v2["$defs"].(map[string]any)["FieldName"].(map[string]any)
-			var keep []any // "context" (missing context coverage) and "correlation.task_family_id" (C7B-E) are v0.2 entries
+			// "context" (missing context coverage), "correlation.task_family_id" and the model-call
+			// fields "correlation.call_ref", "request_kind", "collection" (C7B-E) are v0.2 entries
+			v02only := map[any]bool{"context": true, "correlation.task_family_id": true, "correlation.call_ref": true, "request_kind": true, "collection": true}
+			var keep []any
 			for _, x := range fn["enum"].([]any) {
-				if x != "context" && x != "correlation.task_family_id" {
+				if !v02only[x] {
 					keep = append(keep, x)
 				}
 			}
 			fn["enum"] = keep
-			for _, k := range []string{"Configuration", "VersionState", "RefState", "Limit", "ModelState"} { // the canonical configuration identity (C7B-E)
+			for _, k := range []string{"Configuration", "VersionState", "RefState", "Limit", "ModelState", "UsageNormalization"} { // the canonical configuration identity and usage normalization (C7B-E)
 				delete(v2["$defs"].(map[string]any), k)
 			}
 		case "activity.schema.json":
 			o := v2["$defs"].(map[string]any)["Observation"].(map[string]any)
 			delete(o["properties"].(map[string]any), "context")
 			all := o["allOf"].([]any)
-			o["allOf"] = all[:len(all)-1] // the context condition is the last entry
+			// the four model-call conditions (C7B-E) precede the context condition, the last entry
+			o["allOf"] = all[:len(all)-5]
 			corr := o["properties"].(map[string]any)["correlation"].(map[string]any)
 			delete(corr["properties"].(map[string]any), "task_family_id") // the declared task family (C7B-E)
+			delete(corr["properties"].(map[string]any), "call_ref")       // the model-call identity (C7B-E)
 			delete(corr, "dependentRequired")
+			delete(o["properties"].(map[string]any), "request_kind")
+			delete(o["properties"].(map[string]any), "collection")
+			delete(v2["$defs"].(map[string]any), "Collection")
+			op := o["properties"].(map[string]any)["op"].(map[string]any)
+			var ops []any
+			for _, x := range op["enum"].([]any) {
+				if x != "MODEL_CALL" {
+					ops = append(ops, x)
+				}
+			}
+			op["enum"] = ops
 		case "recommendation.schema.json":
 			defs := v2["$defs"].(map[string]any)
 			delete(defs, "Finding")
@@ -202,7 +218,8 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			delete(props, "project_comparisons")
 		case "envelope.schema.json":
 			src := v2["properties"].(map[string]any)["sources"].(map[string]any)["items"].(map[string]any)
-			delete(src["properties"].(map[string]any), "configuration") // the canonical configuration identity (C7B-E)
+			delete(src["properties"].(map[string]any), "configuration")       // the canonical configuration identity (C7B-E)
+			delete(src["properties"].(map[string]any), "usage_normalization") // the usage normalization (C7B-E)
 		case "repository.schema.json":
 			defs := v2["$defs"].(map[string]any)
 			delete(defs["ChangeSetPayload"].(map[string]any)["properties"].(map[string]any), "plan_application")
@@ -225,7 +242,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 						items := obs["items"].(map[string]any)
 						var keep []any
 						for _, x := range items["enum"].([]any) {
-							if x != "context" {
+							if x != "context" && x != "collection" && x != "request_kind" {
 								keep = append(keep, x)
 							}
 						}

@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:591081b7dff1a21f1da745191c3b30005d49d41be45b5665beb0b94a3cfa2a90",
+  "content_digest": "sha256:9c189fccaa48cda60d79d37af86449aeb0e4ee340b83a1ed3534114a21652f63",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "1488017b9772dc4bc1d200e58bf8f4a6",
   "document_type": "export_policy",
@@ -77,7 +77,9 @@
         "targets",
         "time",
         "usage",
-        "context"
+        "context",
+        "collection",
+        "request_kind"
       ],
       "Plan": [
         "authorization_basis",

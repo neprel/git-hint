@@ -128,6 +128,7 @@
                 "type": "string",
                 "enum": [
                   "class",
+                  "collection",
                   "command_class",
                   "content_delivery",
                   "context",
@@ -141,6 +142,7 @@
                   "outcome",
                   "precision",
                   "provenance",
+                  "request_kind",
                   "size",
                   "source",
                   "source_id",

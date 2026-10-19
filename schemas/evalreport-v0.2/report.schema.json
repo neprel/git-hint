@@ -1018,6 +1018,20 @@
             }
           ],
           "description": "Controlled attempts: the planned attempt slot (1..planned_attempts)."
+        },
+        "usage_normalization": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "opencode-2.0.26:tokeninfo-v1"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The usage normalization of the attempt's counters (draft, C7B-E); null when unknown or mixed."
         }
       },
       "required": [

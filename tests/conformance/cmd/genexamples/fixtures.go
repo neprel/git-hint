@@ -414,6 +414,7 @@ func writeInvalid(conf func(string) string, docs map[string]M) {
 	}
 	expected := M{}
 	cases = append(cases, v02Invalid()...)
+	cases = append(cases, modelCallInvalid()...)
 	for _, c := range cases {
 		d := clone(docs[c.base])
 		c.mutate(d)

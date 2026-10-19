@@ -14,10 +14,55 @@
     "code": "quantity_range",
     "level": "schema"
   },
+  "call-link-other-kind.json": {
+    "base": "activity-model-call.json",
+    "code": "call_link_conflict",
+    "level": "semantic"
+  },
+  "call-link-two-terminals.json": {
+    "base": "activity-model-call.json",
+    "code": "call_link_conflict",
+    "level": "semantic"
+  },
+  "call-ref-without-kind.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
+  },
   "coarse-with-seconds.json": {
     "base": "activity-trace.json",
     "code": "time_resolution",
     "level": "semantic"
+  },
+  "collection-closed-before-start.json": {
+    "base": "activity-model-call.json",
+    "code": "collection_inconsistent",
+    "level": "semantic"
+  },
+  "collection-count-in-tokens.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "collection-duplicate-closure.json": {
+    "base": "activity-model-call.json",
+    "code": "collection_inconsistent",
+    "level": "semantic"
+  },
+  "collection-flushed-without-time.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "collection-fractional-count.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "collection-on-usage.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
   },
   "configuration-declared-as-effective.json": {
     "base": "activity-context.json",
@@ -444,6 +489,31 @@
     "code": "evidence",
     "level": "schema"
   },
+  "model-call-in-v01-document.json": {
+    "base": "activity-model-call.json",
+    "code": "version",
+    "level": "schema"
+  },
+  "model-call-unknown-kind.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "model-call-with-coordination.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "model-call-with-usage.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "model-call-without-kind.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
+  },
   "move-with-two-targets.json": {
     "base": "change-set.json",
     "code": "change",
@@ -604,6 +674,11 @@
     "code": "repository_not_declared",
     "level": "semantic"
   },
+  "request-kind-on-read.json": {
+    "base": "activity-model-call.json",
+    "code": "observation",
+    "level": "schema"
+  },
   "shell-parser-exact.json": {
     "base": "activity-trace.json",
     "code": "evidence",
@@ -662,6 +737,11 @@
   "unsupported-minor-version.json": {
     "base": "single-repo.json",
     "code": "version",
+    "level": "schema"
+  },
+  "usage-normalization-free-text.json": {
+    "base": "activity-model-call.json",
+    "code": "source",
     "level": "schema"
   },
   "usage-zero-without-state.json": {

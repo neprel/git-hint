@@ -2,6 +2,7 @@ package hint
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -40,6 +41,12 @@ const (
 	CodeSnapshotSet          = "plan_snapshot_set"
 	CodePlanApplication      = "plan_application_inconsistent"
 	CodeTaskFamily           = "task_family_conflict"
+	// CodeCollection: a collector closure of a session (v0.2) with a non-integer count, a
+	// closure time before the session start, or a second closure of the same session scope
+	CodeCollection = "collection_inconsistent"
+	// CodeCallLink: one model call (source, session, call_ref) with two start or two terminal
+	// records, or a terminal of another request kind than its start (v0.2)
+	CodeCallLink = "call_link_conflict"
 )
 
 // Canary values of the conformance suite; also used by the negative tests.
@@ -332,8 +339,12 @@ func (c *checker) activity(payload map[string]any) {
 	}
 	measured := map[string]bool{}
 	family := map[string]string{} // task -> its declared family
+	closed := map[string]bool{}   // source, session, collection ref
+	calls := map[string]bool{}    // source, session, call ref, op
+	kinds := map[string]string{}  // source, session, call ref -> request kind
 	for i, o := range list(payload["observations"]) {
 		m, _ := o.(map[string]any)
+		c.modelCall(m, i, closed, calls, kinds)
 		// one task declares one family; a second family for the same task is a conflict
 		if corr, _ := m["correlation"].(map[string]any); str(corr["task_family_id"]) != "" {
 			task, fam := str(corr["task_id"]), str(corr["task_family_id"])
@@ -366,6 +377,43 @@ func (c *checker) activity(payload map[string]any) {
 				c.add(CodeDangling, "payload.metrics[%d].inputs", i)
 			}
 		}
+	}
+}
+
+// modelCall checks the v0.2 model-call link and the collector closure of one observation.
+func (c *checker) modelCall(m map[string]any, i int, closed, calls map[string]bool, kinds map[string]string) {
+	corr, _ := m["correlation"].(map[string]any)
+	scope := str(m["source_id"]) + "\x00" + str(corr["session_id"])
+	if ref := str(corr["call_ref"]); ref != "" {
+		key := scope + "\x00" + ref
+		if calls[key+"\x00"+str(m["op"])] {
+			c.add(CodeCallLink, "payload.observations[%d].correlation.call_ref", i)
+		}
+		calls[key+"\x00"+str(m["op"])] = true
+		if k, ok := kinds[key]; ok && k != str(m["request_kind"]) {
+			c.add(CodeCallLink, "payload.observations[%d].request_kind", i)
+		}
+		kinds[key] = str(m["request_kind"])
+	}
+	col, ok := m["collection"].(map[string]any)
+	if !ok {
+		return
+	}
+	at := fmt.Sprintf("payload.observations[%d].collection", i)
+	key := scope + "\x00" + str(col["collection_ref"])
+	if closed[key] {
+		c.add(CodeCollection, at)
+	}
+	closed[key] = true
+	for _, f := range []string{"events_dropped", "errors", "open_calls"} {
+		q, _ := col[f].(map[string]any)
+		if v, ok := q["value"].(float64); ok && v != math.Trunc(v) {
+			c.add(CodeCollection, at+"."+f)
+		}
+	}
+	t, _ := m["time"].(map[string]any)
+	if s, e := str(t["start"]), str(col["closed_at"]); s != "" && e != "" && before(e, s) {
+		c.add(CodeCollection, at+".closed_at")
 	}
 }
 
