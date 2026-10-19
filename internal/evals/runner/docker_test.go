@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,14 +59,93 @@ func TestFreezeTree(t *testing.T) {
 		"dot-dot path":       {Name: "app/../etc/x", Typeflag: tar.TypeReg, Mode: 0o644},
 		"device":             {Name: "app/dev", Typeflag: tar.TypeChar, Mode: 0o644},
 		"fifo":               {Name: "app/fifo", Typeflag: tar.TypeFifo, Mode: 0o644},
+		"dot component":      {Name: "app/./x", Typeflag: tar.TypeReg, Mode: 0o644},
+		"empty component":    {Name: "app//x", Typeflag: tar.TypeReg, Mode: 0o644},
+		"empty symlink":      {Name: "app/e", Typeflag: tar.TypeSymlink},
 	} {
-		p := filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".tar")
-		if _, err := freezeTree(tarOf(t, &tar.Header{Name: "app/", Typeflag: tar.TypeDir, Mode: 0o755}, h), p); err == nil {
-			t.Errorf("%s: accepted", name)
+		refused(t, dir, name, &tar.Header{Name: "app/", Typeflag: tar.TypeDir, Mode: 0o755}, h)
+	}
+}
+
+func refused(t *testing.T, dir, name string, entries ...*tar.Header) {
+	t.Helper()
+	p := filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".tar")
+	if _, err := freezeTree(tarOf(t, entries...), p); err == nil {
+		t.Errorf("%s: accepted", name)
+	}
+	if _, err := os.Stat(p); err == nil {
+		t.Errorf("%s: a refused tree left an artifact", name)
+	}
+}
+
+// C7BI-2/3: the link graph is resolved like the filesystem would (chains, "..", cycles) and
+// never on the host; dotted file names are ordinary names.
+func TestFreezeTreeLinkGraph(t *testing.T) {
+	dir := t.TempDir()
+	root := &tar.Header{Name: "app/", Typeflag: tar.TypeDir, Mode: 0o755}
+	sub := &tar.Header{Name: "app/sub/", Typeflag: tar.TypeDir, Mode: 0o755}
+	file := func(n string) *tar.Header { return &tar.Header{Name: n, Typeflag: tar.TypeReg, Mode: 0o644} }
+	sym := func(n, to string) *tar.Header { return &tar.Header{Name: n, Typeflag: tar.TypeSymlink, Linkname: to} }
+	hard := func(n, to string) *tar.Header { return &tar.Header{Name: n, Typeflag: tar.TypeLink, Linkname: to} }
+	for name, entries := range map[string][]*tar.Header{
+		"dotted names":      {root, file("app/config..bak"), file("app/..hidden"), file("app/x.."), sym("app/l", "config..bak")},
+		"chain inside":      {root, sub, file("app/sub/f"), sym("app/a", "sub"), sym("app/b", "a/f"), sym("app/c", "a/../sub/f")},
+		"dot link":          {root, sym("app/a", "."), sym("app/b", "a/a/a")},
+		"up and back":       {root, sub, file("app/f"), sym("app/sub/l", "../f")},
+		"dangling inside":   {root, sym("app/d", "missing/x")},
+		"hard link to file": {root, file("app/f"), hard("app/h", "app/f")},
+	} {
+		if _, err := freezeTree(tarOf(t, entries...), filepath.Join(dir, strings.ReplaceAll(name, " ", "-")+".tar")); err != nil {
+			t.Errorf("%s: refused: %v", name, err)
 		}
-		if _, err := os.Stat(p); err == nil {
-			t.Errorf("%s: a refused tree left an artifact", name)
+	}
+	for name, entries := range map[string][]*tar.Header{
+		"dot then out":            {root, sym("app/a", "."), sym("app/evil", "a/../outside")},
+		"dir link then out":       {root, sub, sym("app/a", "sub"), sym("app/evil", "a/../../outside")},
+		"nested link out":         {root, sub, sym("app/sub/up", ".."), sym("app/evil", "sub/up/../x")},
+		"chain to absolute":       {root, sym("app/a", "/etc"), sym("app/b", "a/passwd")},
+		"cycle":                   {root, sym("app/x", "y"), sym("app/y", "x"), sym("app/z", "x/f")},
+		"dangling then up":        {root, sym("app/d", "missing/../../x")},
+		"entry below a symlink":   {root, sym("app/a", "."), file("app/a/f")},
+		"entry below a file":      {root, file("app/f"), file("app/f/g")},
+		"duplicate path":          {root, file("app/f"), file("app/f")},
+		"hard link to a symlink":  {root, sym("app/s", "x"), hard("app/h", "app/s")},
+		"hard link to later file": {root, hard("app/h", "app/f"), file("app/f")},
+		"hard link to missing":    {root, hard("app/h", "app/none")},
+		"hard link to directory":  {root, sub, hard("app/h", "app/sub")},
+	} {
+		refused(t, dir, name, entries...)
+	}
+}
+
+// C7BI-1: a nonzero exit status of a phase is an error, whatever the phase printed before.
+func TestRunToEndExitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		wait string
+		ok   bool
+	}{{`{"StatusCode":0,"Error":null}`, true}, {`{"StatusCode":17,"Error":null}`, false}, {`{"StatusCode":0,"Error":{"Message":"oom"}}`, false}} {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/start"):
+				w.WriteHeader(http.StatusNoContent)
+			case strings.HasSuffix(r.URL.Path, "/wait"):
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(tc.wait))
+			default:
+				t.Errorf("unexpected %s", r.URL.Path)
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		c, err := client.New(client.WithHost(s.URL), client.WithAPIVersion("1.56"))
+		if err != nil {
+			t.Fatal(err)
 		}
+		d := Docker{cli: c}
+		if err := d.runToEnd(context.Background(), "x", time.Second, "verifier"); (err == nil) != tc.ok {
+			t.Errorf("wait %s: %v", tc.wait, err)
+		}
+		c.Close()
+		s.Close()
 	}
 }
 
@@ -180,7 +261,8 @@ func TestDockerRunnerVerticalSlice(t *testing.T) {
 }
 
 // A hung agent times out and fails the attempt; a final tree with an escaping symlink
-// invalidates the attempt; neither is a pass.
+// invalidates the attempt; a nonzero exit of the agent or the verifier fails it; none is a
+// pass.
 func TestDockerRunnerRefusals(t *testing.T) {
 	d := dockerOrSkip(t)
 	defer d.Close()
@@ -193,6 +275,18 @@ func TestDockerRunnerRefusals(t *testing.T) {
 	evil, err := d.Run(ctx, syntheticTask(t, solveFixed+"ln -s /etc/passwd /app/evil\n", 120), RunOptions{Agent: "oracle", JobsDir: jobs, JobName: "evil"})
 	if err != nil || evil[0].Outcome() != "infrastructure_error" {
 		t.Fatalf("escaping symlink: %+v %v", evil, err)
+	}
+	// a verifier that prints passing checks and writes reward 1, then exits 17, is no pass
+	forged := syntheticTask(t, solveFixed, 120)
+	os.WriteFile(filepath.Join(forged, "tests", "test.sh"), []byte("#!/bin/sh\nmkdir -p /logs/verifier\necho 'CHECK C1 PASS'\necho 1 > /logs/verifier/reward.txt\nexit 17\n"), 0o755)
+	late, err := d.Run(ctx, forged, RunOptions{Agent: "oracle", JobsDir: jobs, JobName: "late"})
+	if err != nil || late[0].Outcome() != "verifier_error" {
+		t.Fatalf("verifier exit 17: %+v %v", late, err)
+	}
+	// an agent that exits nonzero fails the attempt
+	bad, err := d.Run(ctx, syntheticTask(t, solveFixed+"exit 3\n", 120), RunOptions{Agent: "oracle", JobsDir: jobs, JobName: "bad"})
+	if err != nil || bad[0].Outcome() != "infrastructure_error" || bad[0].Exception != "NonZeroAgentExitCodeError" {
+		t.Fatalf("agent exit 3: %+v %v", bad, err)
 	}
 	if _, err := d.Run(ctx, syntheticTask(t, solveFixed, 120), RunOptions{Agent: "opencode", JobsDir: jobs, JobName: "live"}); err == nil {
 		t.Fatal("a live agent ran without the model gate")

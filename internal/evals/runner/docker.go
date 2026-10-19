@@ -181,8 +181,11 @@ func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, li
 	exec.FinishedAt = stamp()
 	if err != nil {
 		var te timeoutError
+		var ee exitError
 		if errors.As(err, &te) {
 			fail("AgentTimeoutError")
+		} else if errors.As(err, &ee) {
+			fail("NonZeroAgentExitCodeError")
 		} else {
 			fail("AgentContainerError")
 		}
@@ -252,7 +255,9 @@ func (d *Docker) agentPhase(ctx context.Context, taskDir, agent string, lim task
 }
 
 // runToEnd starts a container and waits for it to exit within the limit; on timeout or
-// cancellation the container is stopped (then killed) and the attempt fails.
+// cancellation the container is stopped (then killed) and the attempt fails. A nonzero exit
+// status or a container error is an error of the phase (C7BI-1): output written before it
+// never counts.
 func (d *Docker) runToEnd(ctx context.Context, id string, limit time.Duration, phase string) error {
 	if _, err := d.cli.ContainerStart(ctx, id, client.ContainerStartOptions{}); err != nil {
 		return err
@@ -261,7 +266,13 @@ func (d *Docker) runToEnd(ctx context.Context, id string, limit time.Duration, p
 	defer cancel()
 	w := d.cli.ContainerWait(wctx, id, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
-	case <-w.Result:
+	case res := <-w.Result:
+		if res.Error != nil && res.Error.Message != "" {
+			return fmt.Errorf("%s container: %s", phase, res.Error.Message)
+		}
+		if res.StatusCode != 0 {
+			return exitError{phase, res.StatusCode}
+		}
 		return nil
 	case err := <-w.Error:
 		t := 5
@@ -272,6 +283,13 @@ func (d *Docker) runToEnd(ctx context.Context, id string, limit time.Duration, p
 		return err
 	}
 }
+
+type exitError struct {
+	phase string
+	code  int64
+}
+
+func (e exitError) Error() string { return fmt.Sprintf("%s exited with status %d", e.phase, e.code) }
 
 func (d *Docker) remove(id string) {
 	_, _ = d.cli.ContainerRemove(context.Background(), id, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
@@ -349,9 +367,11 @@ const (
 
 // freezeTree copies the tar stream of a stopped container's /app into the artifact file
 // and checks it on the way: regular files and directories with their modes; symlinks
-// kept (never followed) when their target stays inside the tree; hard links inside the
-// tree; device files, FIFOs, sockets and any path that leaves the tree make the attempt
-// invalid; file count and size are bounded. It returns the digest of the artifact.
+// kept (never followed on the host) when they resolve inside the tree; hard links to an
+// earlier regular file of the tree; device files, FIFOs, sockets, non-canonical or
+// duplicate paths, entries below a symlink and any path that leaves the tree make the
+// attempt invalid; file count and size are bounded. It returns the digest of the artifact;
+// a refused tree leaves no artifact.
 func freezeTree(r io.Reader, artifact string) (string, error) {
 	f, err := os.OpenFile(artifact, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -360,40 +380,41 @@ func freezeTree(r io.Reader, artifact string) (string, error) {
 	h := sha256.New()
 	tw := tar.NewWriter(io.MultiWriter(f, h))
 	tr := tar.NewReader(r)
-	var files int
 	var size int64
-	inside := func(p string) bool {
-		c := path.Clean(p)
-		return c == "app" || strings.HasPrefix(c, "app/")
-	}
+	tree := map[string]*tar.Header{} // canonical path below app -> entry
 	err = func() error {
 		for {
 			hd, err := tr.Next()
 			if err == io.EOF {
-				return nil
+				return checkLinks(tree)
 			}
 			if err != nil {
 				return err
 			}
-			if !inside(hd.Name) || strings.Contains(hd.Name, "..") {
-				return fmt.Errorf("path outside the tree: %q", hd.Name)
+			p, ok := treePath(hd.Name)
+			if !ok {
+				return fmt.Errorf("path outside the tree or not canonical: %q", hd.Name)
+			}
+			if _, dup := tree[p]; dup {
+				return fmt.Errorf("duplicate path: %q", hd.Name)
 			}
 			switch hd.Typeflag {
 			case tar.TypeDir, tar.TypeReg:
 			case tar.TypeSymlink:
-				if path.IsAbs(hd.Linkname) || !inside(path.Join(path.Dir(hd.Name), hd.Linkname)) {
+				if hd.Linkname == "" || path.IsAbs(hd.Linkname) {
 					return fmt.Errorf("symlink leaves the tree: %q", hd.Name)
 				}
 			case tar.TypeLink:
-				if !inside(hd.Linkname) {
-					return fmt.Errorf("hard link leaves the tree: %q", hd.Name)
+				t, ok := treePath(hd.Linkname)
+				if !ok || tree[t] == nil || tree[t].Typeflag != tar.TypeReg {
+					return fmt.Errorf("hard link not to an earlier file of the tree: %q", hd.Name)
 				}
 			default:
 				return fmt.Errorf("unsupported file type %q: %q", string(hd.Typeflag), hd.Name)
 			}
-			files++
+			tree[p] = &tar.Header{Typeflag: hd.Typeflag, Linkname: hd.Linkname}
 			size += hd.Size
-			if files > maxTreeFiles || size > maxTreeBytes {
+			if len(tree) > maxTreeFiles || size > maxTreeBytes {
 				return fmt.Errorf("the tree is too large")
 			}
 			if err := tw.WriteHeader(hd); err != nil {
@@ -415,6 +436,79 @@ func freezeTree(r io.Reader, artifact string) (string, error) {
 		return "", err
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// treePath maps an archive name to its path below app ("" is app itself). Every component
+// must be a plain name: no empty, "." or ".." component, so a dotted file name such as
+// config..bak is fine and a traversal is not.
+func treePath(name string) (string, bool) {
+	name = strings.TrimSuffix(name, "/")
+	if name == "app" {
+		return "", true
+	}
+	rest, ok := strings.CutPrefix(name, "app/")
+	if !ok {
+		return "", false
+	}
+	for _, c := range strings.Split(rest, "/") {
+		if c == "" || c == "." || c == ".." {
+			return "", false
+		}
+	}
+	return rest, true
+}
+
+// maxLinkHops bounds symlink resolution like the kernel's limit; a longer chain or a cycle
+// refuses the tree.
+const maxLinkHops = 40
+
+// checkLinks validates the whole link graph of a frozen tree with filesystem resolution
+// semantics (C7BI-2), without touching the host: no entry lies below a symlink, and every
+// symlink resolves, component by component and through chains of symlinks, without ever
+// leaving app. A missing component is taken lexically, so a dangling link cannot point out
+// of the tree either.
+func checkLinks(tree map[string]*tar.Header) error {
+	for p := range tree {
+		for d := path.Dir(p); d != "."; d = path.Dir(d) {
+			if e := tree[d]; e != nil && e.Typeflag != tar.TypeDir {
+				return fmt.Errorf("entry below a non-directory: %q", "app/"+p)
+			}
+		}
+	}
+	for p, e := range tree {
+		if e.Typeflag != tar.TypeSymlink {
+			continue
+		}
+		var stack []string // resolved components below app
+		if d := path.Dir(p); d != "." {
+			stack = strings.Split(d, "/")
+		}
+		queue := strings.Split(e.Linkname, "/")
+		hops := 0
+		for len(queue) > 0 {
+			c := queue[0]
+			queue = queue[1:]
+			switch c {
+			case "", ".":
+				continue
+			case "..":
+				if len(stack) == 0 {
+					return fmt.Errorf("symlink leaves the tree: %q", "app/"+p)
+				}
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			stack = append(stack, c)
+			if t := tree[strings.Join(stack, "/")]; t != nil && t.Typeflag == tar.TypeSymlink {
+				if hops++; hops > maxLinkHops || path.IsAbs(t.Linkname) {
+					return fmt.Errorf("symlink cycle or escape: %q", "app/"+p)
+				}
+				stack = stack[:len(stack)-1]
+				queue = append(strings.Split(t.Linkname, "/"), queue...)
+			}
+		}
+	}
+	return nil
 }
 
 // build builds (or reuses) the image of a build context directory. The image tag is the
