@@ -185,3 +185,26 @@ func TestGitContentReads(t *testing.T) {
 		}
 	}
 }
+
+// C7BE-29: the patch switches count in order (the last wins) and nothing after "--" is an option.
+// Every row was checked against the output of git 2.56 in a temporary repository.
+func TestGitPatchOrderAndOptionBoundary(t *testing.T) {
+	read := []string{`git log --no-patch -p -1`, `git log --no-patch --patch -1`, `git log -s -p`, `git diff -- --stat`, `git diff -- --name-only a.go`,
+		`git show --no-patch -p HEAD`, `git show -s --patch HEAD`, `git show --quiet -p HEAD`, `git show --patch --quiet HEAD`, `git diff --no-patch -p`, `git show -- --stat`,
+		`git range-diff --no-patch -p a...b`}
+	noRead := []string{`git log -p --no-patch -1`, `git log --patch -s`, `git show -p --no-patch HEAD`,
+		`git diff -p --no-patch`, `git diff --stat -- -p`}
+	for _, c := range read {
+		if r := Classify(c); !slices.Contains(r.Labels, READ) {
+			t.Errorf("%q: %v, want READ", c, r.Labels)
+		}
+	}
+	if r := Classify(`git log -- -p`); slices.Contains(r.Labels, READ) { // "-p" is a path here; plain log prints no patch
+		t.Errorf("git log -- -p: %v", r.Labels)
+	}
+	for _, c := range noRead {
+		if r := Classify(c); slices.Contains(r.Labels, READ) {
+			t.Errorf("%q: %v, want no READ", c, r.Labels)
+		}
+	}
+}

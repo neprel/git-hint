@@ -1287,59 +1287,82 @@ func afterDashDash(args []arg) ([]arg, bool) {
 	return nil, false
 }
 
-// gitPatch says whether the options request a patch: -p, -u or --patch* (also inside a short
-// option cluster such as -pw; the pickaxe options -S and -G take a string and are not clusters).
-func gitPatch(rest []arg) bool {
+// gitOpts splits the arguments of a git subcommand at the "--" boundary: the options and
+// operands before it (everything after it is a path, even when it looks like an option).
+func gitOpts(rest []arg) (opts, operands []string) {
 	for _, a := range rest {
-		v := a.val
-		switch {
-		case v == "--":
-			return false
-		case strings.HasPrefix(v, "--patch") || v == "-p" || v == "-u":
-			return true
-		case len(v) > 1 && v[0] == '-' && v[1] != '-' && v[1] != 'S' && v[1] != 'G' && strings.ContainsAny(v[1:], "pu"):
-			return true
+		if a.val == "--" {
+			break
+		}
+		if strings.HasPrefix(a.val, "-") && a.val != "-" {
+			opts = append(opts, a.val)
+		} else {
+			operands = append(operands, a.val)
 		}
 	}
-	return false
+	return opts, operands
+}
+
+// gitPatchState reads the patch switches in order; the last one wins: 1 a patch was requested
+// (-p, -u, --patch*, or a short cluster with p or u such as -pw; the pickaxe options -S and -G
+// take a string and are no cluster), -1 it was switched off (--no-patch, -s), 0 neither.
+func gitPatchState(opts []string) int {
+	st := 0
+	for _, v := range opts {
+		switch {
+		case strings.HasPrefix(v, "--patch") || v == "-p" || v == "-u":
+			st = 1
+		case v == "--no-patch" || v == "-s":
+			st = -1
+		case len(v) > 1 && v[0] == '-' && v[1] != '-' && v[1] != 'S' && v[1] != 'G' && strings.ContainsAny(v[1:], "pu"):
+			st = 1
+		}
+	}
+	return st
 }
 
 // gitPrintsContent says whether a git subcommand prints repository content (a patch, a blob or
-// annotated lines). A suppression is accepted only when it is proven by a listed option; an
-// unknown option combination keeps the read.
+// annotated lines). A suppression is accepted only when a listed option before "--" proves it;
+// an unknown option combination keeps the read.
 func gitPrintsContent(sub string, rest []arg) bool {
-	patch := gitPatch(rest)
-	noPatch := hasAny(rest, "--no-patch", "-s")
-	summary := hasAny(rest, "--stat", "--shortstat", "--numstat", "--name-only", "--name-status", "--summary", "--raw", "--dirstat", "--compact-summary")
-	switch sub {
-	case "show":
-		for _, a := range rest {
-			if !strings.HasPrefix(a.val, "-") && strings.Contains(a.val, ":") {
-				return true // REV:PATH prints a file
-			}
-		}
-		return patch || !(noPatch || summary || hasAny(rest, "--quiet"))
-	case "diff":
-		if hasAny(rest, "--quiet") {
-			return false // no output, only the exit status
-		}
-		return patch || !(noPatch || summary)
-	case "log", "whatchanged":
-		return patch && !hasAny(rest, "--no-patch")
-	case "blame", "annotate":
-		return true
-	case "cat-file":
-		if hasAny(rest, "-p") {
-			return true
-		}
-		for _, a := range rest {
-			if !strings.HasPrefix(a.val, "-") {
-				return a.val == "blob" || a.val == "tree" || a.val == "commit" || a.val == "tag"
+	opts, operands := gitOpts(rest)
+	has := func(names ...string) bool {
+		for _, o := range opts {
+			for _, n := range names {
+				if o == n || strings.HasPrefix(o, n+"=") {
+					return true
+				}
 			}
 		}
 		return false
+	}
+	patch := gitPatchState(opts)
+	summary := has("--stat", "--shortstat", "--numstat", "--name-only", "--name-status", "--summary", "--raw", "--dirstat", "--compact-summary")
+	switch sub {
+	case "show":
+		for _, o := range operands {
+			if strings.Contains(o, ":") {
+				return true // REV:PATH prints a file
+			}
+		}
+		// show --quiet suppresses the patch only when no patch is requested (checked with git 2.56)
+		return patch == 1 || (patch == 0 && !summary && !has("--quiet"))
+	case "diff":
+		if has("--quiet") {
+			return false // no output, only the exit status
+		}
+		return patch == 1 || (patch == 0 && !summary)
+	case "log", "whatchanged":
+		return patch == 1
+	case "blame", "annotate":
+		return true
+	case "cat-file":
+		if has("-p") {
+			return true
+		}
+		return len(operands) > 0 && (operands[0] == "blob" || operands[0] == "tree" || operands[0] == "commit" || operands[0] == "tag")
 	case "range-diff":
-		return !(noPatch || hasAny(rest, "--stat"))
+		return patch == 1 || (patch == 0 && !has("--stat"))
 	}
 	return false
 }
