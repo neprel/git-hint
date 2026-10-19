@@ -79,6 +79,8 @@ func OpenSpool(s *store.Store) (*store.Appender, error) {
 type SpoolDamage struct {
 	Unreadable int
 	Conflicts  []string
+	// Withheld holds the first version of each conflicting ID (its scope only; never exported)
+	Withheld []activity.Observation
 }
 
 // Any reports any damage.
@@ -113,6 +115,7 @@ func ReadSpoolChecked(s *store.Store) ([]activity.Observation, SpoolDamage, erro
 			if b != string(canon) && !conflict[o.ObservationID] {
 				conflict[o.ObservationID] = true
 				d.Conflicts = append(d.Conflicts, o.ObservationID)
+				d.Withheld = append(d.Withheld, first[o.ObservationID])
 			}
 			continue
 		}

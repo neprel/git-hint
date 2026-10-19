@@ -53,6 +53,8 @@ type Usage struct {
 // Collection is the closure of one session by this collector (draft v0.2): it proves only the
 // collector's observed scope under its source capabilities.
 type Collection struct {
+	// CollectionRef separates closures of one session (draft v0.2 collection_ref)
+	CollectionRef string        `json:"collection_ref,omitempty"`
 	Lifecycle     string        `json:"lifecycle"` // attached_at_start, attached_mid_session, unknown
 	Closure       string        `json:"closure"`   // flushed, interrupted, unknown
 	EventsDropped scan.Quantity `json:"events_dropped"`

@@ -74,7 +74,7 @@ function modelEvents() {
   ]
 }
 
-async function replayModel(dir: string, bin: string, opts: { channels?: boolean } = {}) {
+async function replayModel(dir: string, bin: string, opts: { channels?: boolean; unrelated?: boolean } = {}) {
   const saved = { bin: process.env.HINT_BIN, ver: process.env.HINT_AGENT_VERSION, root: process.env.HINT_OPENCODE_SESSION }
   process.env.HINT_BIN = bin
   process.env.HINT_AGENT_VERSION = "2.0.26"
@@ -121,6 +121,16 @@ async function replayModel(dir: string, bin: string, opts: { channels?: boolean 
     expect(JSON.stringify(req)).toBe(before) // the hook never changes the request
   }
   for (const e of evs.slice(1)) await push(e)
+  if (opts.unrelated) {
+    // another session of the same OpenCode server: its tool calls never belong to this run
+    const f = `${dir}/canary_dir_e1d2/app.go`
+    const ev = { tool: "read", sessionID: "ses_canary_other", id: "call_canary_other", input: { filePath: f } }
+    await handlers["execute.before"](ev)
+    await handlers["execute.after"]({ ...ev, status: "completed", result: { content: [{ type: "text", text: "x" }], metadata: {} } })
+    const own = { tool: "read", sessionID: "ses_canary_m1", id: "call_canary_own", input: { filePath: f } }
+    await handlers["execute.before"](own)
+    await handlers["execute.after"]({ ...own, status: "completed", result: { content: [{ type: "text", text: "x" }], metadata: {} } })
+  }
   await cleanup?.()
   return stats().at(-1)
 }
@@ -350,5 +360,12 @@ describe("OpenCode adapter plugin, offline", () => {
     const before = spool(PROJECT).length
     await replayModel(PROJECT, BIN, { channels: false })
     expect(spool(PROJECT).slice(before).filter((o) => o.op === "MODEL_CALL" || o.op === "USAGE").length).toBe(0)
+  })
+
+  test("model calls: tool calls of an unrelated session never reach the spool", async () => {
+    const before = spool(PROJECT).length
+    await replayModel(PROJECT, BIN, { unrelated: true })
+    const reads = spool(PROJECT).slice(before).filter((o) => o.op === "READ")
+    expect(reads.length).toBe(1) // the declared root's read only
   })
 })

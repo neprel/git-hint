@@ -3,6 +3,7 @@ package project
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/neprel/git-hint/internal/activity"
 	"github.com/neprel/git-hint/internal/hint"
+	"github.com/neprel/git-hint/internal/scan"
 	"github.com/neprel/git-hint/internal/snapshot"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/version"
@@ -234,9 +236,11 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 		if err != nil {
 			return nil, err
 		}
-		if damage.Any() { // conflicting records are withheld (no winner); every closure loses its flush claim (C7BE-21)
-			p.Report.Notes = append(p.Report.Notes, fmt.Sprintf("activity spool damaged: %d unreadable line(s), %d conflicting record(s) withheld; collector closures exported as unknown",
-				damage.Unreadable, len(damage.Conflicts)))
+		if damage.Any() { // conflicting records are withheld (no winner); affected sessions get an invalidating closure (C7BE-21)
+			inv := invalidations(s, obs, damage, opt.Now)
+			obs = append(obs, inv...)
+			p.Report.Notes = append(p.Report.Notes, fmt.Sprintf("activity spool damaged: %d unreadable line(s), %d conflicting record(s) withheld; %d session closure(s) invalidated",
+				damage.Unreadable, len(damage.Conflicts), len(inv)))
 		}
 		st, err := loadExportState(s)
 		if err != nil {
@@ -260,11 +264,6 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 			}
 			if _, ok := srcs[o.SourceID]; !ok {
 				return nil, fmt.Errorf("observation source %s is not registered; the spool is inconsistent", o.SourceID)
-			}
-			if damage.Any() && o.Collection != nil {
-				c := *o.Collection
-				c.Closure, c.ClosedAt = "unknown", nil
-				o.Collection = &c
 			}
 			m, err := tf.observation(o)
 			if err != nil {
@@ -699,4 +698,48 @@ func sourceFor(src activity.Source, ver string) activity.Source {
 	src.Configuration = nil
 	src.UsageNormalization = ""
 	return src
+}
+
+// invalidations are the canonical answer to spool damage (C7BE-21): for every collector
+// closure of an affected session a second closure record of the same session with closure
+// unknown and unknown counts, in its own collection segment. A session with two closures is
+// never complete for the server or the client, also when the first closure was exported
+// earlier; earlier records stay as they were. An unreadable line or a withheld record without
+// a session can belong to any session: then every closure is invalidated. The record ID
+// derives from the closure it invalidates, so a repeated export sends it once.
+func invalidations(s *store.Store, obs []activity.Observation, d SpoolDamage, now time.Time) []activity.Observation {
+	type scope struct{ src, ses string }
+	all := d.Unreadable > 0
+	affected := map[scope]bool{}
+	for _, w := range d.Withheld {
+		if w.Correlation["session_id"] == "" {
+			all = true
+		}
+		affected[scope{w.SourceID, w.Correlation["session_id"]}] = true
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	at := activity.Timestamp(now)
+	var out []activity.Observation
+	// the closures in the spool and a withheld conflicting closure (its first version)
+	for _, o := range append(slices.Clone(obs), d.Withheld...) {
+		if o.Collection == nil || !all && !affected[scope{o.SourceID, o.Correlation["session_id"]}] {
+			continue
+		}
+		v := o
+		v.ObservationID = hint.DeriveID(s.Key(), "closure-invalidation", o.SourceID, o.ObservationID)
+		v.Correlation = maps.Clone(o.Correlation)
+		unknown := scan.Quantity{Unit: "count", State: "unknown", Reason: "not_collected"}
+		v.Collection = &activity.Collection{CollectionRef: hint.DeriveID(s.Key(), "damaged-segment", o.SourceID, o.ObservationID),
+			Lifecycle: "unknown", Closure: "unknown", EventsDropped: unknown, Errors: unknown, OpenCalls: unknown}
+		if o.Time.Start != nil && *o.Time.Start > at {
+			at = *o.Time.Start
+		}
+		end := at
+		v.Time = activity.Time{Start: o.Time.Start, End: &end, Clock: o.Time.Clock}
+		v.Provenance.SourceEventID = ""
+		out = append(out, v)
+	}
+	return out
 }

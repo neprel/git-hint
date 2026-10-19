@@ -313,44 +313,17 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 		}
 		return nil
 	}
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 1<<20), 16<<20)
-	for sc.Scan() {
-		var e ocEvent
-		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
-			skipped++
-			continue
-		}
-		if e.Hook == "hint.stats" {
-			if n.OnStats != nil {
-				n.OnStats(sc.Bytes())
-			}
-			continue
-		}
-		switch e.Hook {
-		case "hint.attach", "model.request", "event", "hint.close":
-			if !n.ModelCalls {
-				skipped++
-				continue
-			}
-			l := n.modelEvent(mc, e)
-			if e.Hook == "hint.close" {
-				l = n.closeSessions(mc, &e, skipped)
-			}
-			if err := emitAll(l); err != nil {
-				return skipped, err
-			}
-			continue
-		}
+	// tool handles one tool hook event (an owned session's, see ownedTool)
+	tool := func(e ocEvent) error {
 		if e.Input.CallID == "" {
 			skipped++
-			continue
+			return nil
 		}
 		key := e.Input.SessionID + "\x00" + e.Input.CallID
 		switch e.Hook {
 		case "tool.execute.before":
 			if _, dup := pending[key]; dup {
-				continue
+				return nil
 			}
 			ef := toolEffect(e.Input.Tool, e.Output.Args)
 			base := shellBase(n.Cwd, e.Input.Tool, e.Output.Args)
@@ -394,7 +367,7 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 		case "tool.execute.after":
 			p, ok := pending[key]
 			if !ok {
-				continue
+				return nil
 			}
 			delete(pending, key)
 			o := p.obs
@@ -440,15 +413,84 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 			}
 			raw, ok := n.contextStages(&o, e, delivered)
 			if err := emit(n.finish(o)); err != nil {
-				return skipped, fmt.Errorf("emit: %w", err)
+				return fmt.Errorf("emit: %w", err)
 			}
 			if ok {
 				if err := emit(n.finish(raw)); err != nil {
-					return skipped, fmt.Errorf("emit: %w", err)
+					return fmt.Errorf("emit: %w", err)
 				}
 			}
 		default:
 			skipped++
+		}
+		return nil
+	}
+	held, waiting := map[string][]ocEvent{}, 0
+	const maxWaiting = 10000
+	// release replays the held tool events of sessions that became owned
+	release := func() error {
+		for raw, l := range held {
+			if s, ok := mc.sessions[raw]; ok && s.owned {
+				delete(held, raw)
+				waiting -= len(l)
+				for _, e := range l {
+					if err := tool(e); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		return nil
+	}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 1<<20), 16<<20)
+	for sc.Scan() {
+		var e ocEvent
+		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
+			skipped++
+			continue
+		}
+		if e.Hook == "hint.stats" {
+			if n.OnStats != nil {
+				n.OnStats(sc.Bytes())
+			}
+			continue
+		}
+		switch e.Hook {
+		case "hint.attach", "model.request", "event", "hint.close":
+			if !n.ModelCalls {
+				skipped++
+				continue
+			}
+			l := n.modelEvent(mc, e)
+			if e.Hook == "hint.close" {
+				l = n.closeSessions(mc, &e, skipped)
+			}
+			if err := emitAll(l); err != nil {
+				return skipped, err
+			}
+			if err := release(); err != nil {
+				return skipped, err
+			}
+			continue
+		}
+		// with a declared root, tool and context records are kept only for owned sessions; an
+		// event of a session not (yet) known to be owned waits for its association, bounded,
+		// and is dropped at the end if none is observed (C7BE-18): never adopted by time
+		if len(n.RootSessions) > 0 && n.ModelCalls {
+			raw := e.Input.SessionID
+			if s, ok := mc.sessions[raw]; !ok || !s.owned {
+				if waiting < maxWaiting {
+					held[raw] = append(held[raw], e)
+					waiting++
+				} else {
+					skipped++
+				}
+				continue
+			}
+		}
+		if err := tool(e); err != nil {
+			return skipped, err
 		}
 	}
 	if n.ModelCalls { // end of input without a closure line: every owned session is interrupted

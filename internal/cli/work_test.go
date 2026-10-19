@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/neprel/git-hint/internal/activity"
 	"github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/testkit"
@@ -376,12 +377,80 @@ func TestSpoolDamageMakesAttemptUsageUnknownAndExportHonest(t *testing.T) {
 			}
 			out := t.TempDir()
 			must(t, run(t, shop, "", "export", "--out", out))
-			all := string(readAll(t, out))
-			if !v.known && (strings.Contains(all, `"closure":"flushed"`) || strings.Contains(all, `"closure": "flushed"`)) {
-				t.Fatal("a damaged spool exported a flushed closure")
+			if c := exportedCoverage(t, out); (c.State == "complete") != v.known {
+				t.Fatalf("exported coverage %+v", c)
 			}
-			if v.known && !strings.Contains(all, `"flushed"`) {
-				t.Fatal("an identical replay must not degrade the closure")
+		})
+	}
+}
+
+// exportedCoverage is the completeness of the exported records of each directory together
+// (the server's view after every upload): the usage coverage of the one declared task.
+func exportedCoverage(t *testing.T, dirs ...string) activity.Coverage {
+	t.Helper()
+	var obs []activity.Observation
+	srcs := map[string]activity.Source{}
+	seen := map[string]bool{}
+	for _, dir := range dirs {
+		files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+		for _, f := range files {
+			b, _ := os.ReadFile(f)
+			var d struct {
+				Type    string            `json:"document_type"`
+				Sources []activity.Source `json:"sources"`
+				Payload struct {
+					Observations []activity.Observation `json:"observations"`
+				} `json:"payload"`
+			}
+			if json.Unmarshal(b, &d) != nil || d.Type != "activity_stream" {
+				continue
+			}
+			for _, s := range d.Sources {
+				srcs[s.SourceID] = s
+			}
+			for _, o := range d.Payload.Observations {
+				if !seen[o.ObservationID] { // the server keeps the first body of an ID
+					seen[o.ObservationID] = true
+					obs = append(obs, o)
+				}
+			}
+		}
+	}
+	return activity.UsageCoverage(obs, srcs)
+}
+
+func TestDamageAfterAnEarlierExportIsPublishedAsAnInvalidation(t *testing.T) {
+	for _, v := range []struct {
+		name string
+		edit func(t *testing.T, lines []string) []string
+	}{
+		{"conflicting USAGE after", func(t *testing.T, l []string) []string { return append(l, changed(t, l, "USAGE")) }},
+		{"conflicting USAGE before", func(t *testing.T, l []string) []string { return append([]string{changed(t, l, "USAGE")}, l...) }},
+		{"conflicting SESSION", func(t *testing.T, l []string) []string { return append(l, changed(t, l, "SESSION")) }},
+		{"unreadable line", func(t *testing.T, l []string) []string { return append(l, `{"observation_id": "broken`) }},
+	} {
+		t.Run(v.name, func(t *testing.T) {
+			shop, _ := setup(t)
+			t.Setenv("HINT_TASK_FAMILY", "")
+			must(t, run(t, shop, "", "eval", "work", "start", "u", "--family", "billing"))
+			must(t, modelMember(t, shop, "u", "task-a", true))
+			first := t.TempDir()
+			must(t, run(t, shop, "", "export", "--out", first))
+			if c := exportedCoverage(t, first); c.State != "complete" {
+				t.Fatalf("first export: %+v", c)
+			}
+			lines, write := spoolLines(t, shop)
+			write(v.edit(t, lines))
+			second := t.TempDir()
+			must(t, run(t, shop, "", "export", "--out", second)) // the default incremental export
+			if c := exportedCoverage(t, first, second); c.State == "complete" {
+				t.Fatalf("damage after the first export left the task complete: %+v", c)
+			}
+			third := t.TempDir()
+			must(t, run(t, shop, "", "export", "--out", third)) // idempotent: nothing new
+			b := readAll(t, third)
+			if strings.Contains(string(b), `"collection"`) {
+				t.Fatal("a repeated export sent the invalidation again")
 			}
 		})
 	}

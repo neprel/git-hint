@@ -399,3 +399,53 @@ func TestModelCallRecordsFormAValidV02Document(t *testing.T) {
 		t.Fatal(f)
 	}
 }
+
+func toolEv(hook, tool, session, call string, out map[string]any) map[string]any {
+	wall += 10
+	return map[string]any{"hook": hook, "t_wall_ms": wall, "input": map[string]any{"tool": tool, "sessionID": session, "callID": call}, "output": out}
+}
+
+func toolCall(tool, session, call, path string) []map[string]any {
+	return []map[string]any{toolEv("tool.execute.before", tool, session, call, map[string]any{"args": map[string]any{"filePath": path}}),
+		toolEv("tool.execute.after", tool, session, call, map[string]any{"metadata": map[string]any{}, "status": "completed", "output": "[redacted:len=5]"})}
+}
+
+func TestToolAndContextRecordsFollowTheOwnershipBoundary(t *testing.T) {
+	n := withCalls(true)
+	n.TaskID = "declared-task"
+	l := chain()
+	l = append(l, toolCall("read", "unrelated", "u1", "/w/proj/unrelated.go")...) // the reviewer's reproduction
+	l = append(l, toolCall("edit", "unrelated", "u2", "/w/proj/unrelated.go")...)
+	l = append(l, toolEv("tool.execute.before", "githint_hint_context", "unrelated", "u3", map[string]any{"args": map[string]any{}}),
+		toolEv("tool.execute.after", "githint_hint_context", "unrelated", "u3", map[string]any{"metadata": map[string]any{}, "status": "completed", "output": "[redacted:len=5]"}))
+	l = append(l, toolCall("read", "s1", "o1", "/w/proj/root.go")...)  // the declared root
+	l = append(l, toolCall("read", "s2", "o2", "/w/proj/child.go")...) // its observed child
+	// a grandchild's tools arrive before its creation: held, then kept after the association
+	l = append(l, toolCall("read", "s3", "o3", "/w/proj/grandchild.go")...)
+	l = append(l, created("e3", "s3", "s2"))
+	obs := run(t, n, append(l, closing(true))...)
+	unrelated := hint.FileID(testKey, "repo", "unrelated.go")
+	kept := map[string]bool{}
+	for _, o := range obs {
+		if o.Correlation["session_id"] == sid("unrelated") {
+			t.Fatalf("a record of an unrelated session: %+v", o)
+		}
+		for _, x := range o.Targets {
+			if x.EntityID == unrelated {
+				t.Fatal("an unrelated target reached the spool")
+			}
+			kept[x.EntityID] = true
+		}
+	}
+	for _, f := range []string{"root.go", "child.go", "grandchild.go"} {
+		if !kept[hint.FileID(testKey, "repo", f)] {
+			t.Fatalf("the owned session's %s record is missing", f)
+		}
+	}
+	// without a declared root the legacy tool behavior is unchanged (no model calls, no ownership)
+	legacy := norm()
+	legacy.TaskID = "declared-task"
+	if obs := run(t, legacy, toolCall("read", "unrelated", "u1", "/w/proj/unrelated.go")...); len(obs) != 1 {
+		t.Fatalf("legacy tool records: %d", len(obs))
+	}
+}
