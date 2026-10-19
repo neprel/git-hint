@@ -34,8 +34,10 @@ const (
 	LANModel = "lan-model" // the agent reaches only HINT's model proxy
 )
 
-// Counter counts the model requests of one trial and stops them at the limit.
+// Counter counts the model requests of one trial, stops them at the limit and keeps the
+// trial's model ledger (ledger.go).
 type Counter struct {
+	ledger   ledger
 	token    string
 	limit    int64
 	requests atomic.Int64
@@ -137,17 +139,35 @@ func StartLive(cfg LiveConfig) (*Live, error) {
 			json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []any{map[string]any{"id": lv.model, "object": "model"}}})
 			return
 		}
-		if c.requests.Load() >= c.limit {
-			c.hit.Store(true)
-			c.retries.Add(1)
-			w.WriteHeader(http.StatusTooManyRequests)
+		e, refused := c.admit() // atomic against the seal and the limit
+		if e == nil {
+			w.WriteHeader(refused)
 			return
 		}
-		c.requests.Add(1)
-		lv.checkModel(c, r)
+		c.setModel(e, lv.checkModel(c, r))
 		r.URL.Path, r.URL.RawPath = "/"+sub, "" // SetURL joins the base path
 		r.Header.Del("Authorization")
-		rp.ServeHTTP(w, r)
+		rec := &usageRecorder{ResponseWriter: w}
+		defer func() {
+			// the reverse proxy aborts with http.ErrAbortHandler when the agent goes away
+			// mid-response: the entry is cancelled (what arrived is kept), then the abort goes on
+			if p := recover(); p != nil {
+				_, u := rec.result()
+				c.finish(e, EntryCancelled, u)
+				panic(p)
+			}
+		}()
+		rp.ServeHTTP(rec, r)
+		state, u := rec.result()
+		switch {
+		case r.Context().Err() != nil:
+			state = EntryCancelled // the agent went away; what arrived is kept
+		case !rec.started:
+			state = EntryCancelled
+		case rec.status < 200 || rec.status > 299:
+			state = EntryError
+		}
+		c.finish(e, state, u)
 	})}
 	go lv.srv.Serve(ln)
 	return lv, nil
@@ -214,12 +234,13 @@ func LaunchDigest(ro RunOptions) string {
 // forwarded unread and count as unverified).
 const maxCheckedBody = 32 << 20
 
-// checkModel reads the model field of a forwarded request (the body is restored unchanged)
-// and counts it against the selected model.
-func (lv *Live) checkModel(c *Counter, r *http.Request) {
+// checkModel reads the model field of a forwarded request (the body is restored unchanged),
+// counts it against the selected model and returns the request's label. A verified label means
+// the request named the selected model, not that the upstream served those weights.
+func (lv *Live) checkModel(c *Counter, r *http.Request) string {
 	if r.Body == nil || r.Method != http.MethodPost {
 		c.unverified.Add(1)
-		return
+		return "unverified"
 	}
 	b, err := io.ReadAll(io.LimitReader(r.Body, maxCheckedBody+1))
 	rest := r.Body
@@ -229,18 +250,19 @@ func (lv *Live) checkModel(c *Counter, r *http.Request) {
 	}{io.MultiReader(bytes.NewReader(b), rest), rest}
 	if err != nil || len(b) > maxCheckedBody {
 		c.unverified.Add(1)
-		return
+		return "unverified"
 	}
 	model, ok := requestModel(b)
 	if !ok {
 		c.unverified.Add(1)
-		return
+		return "unverified"
 	}
 	if model == lv.model {
 		c.matched.Add(1)
-	} else {
-		c.mismatched.Add(1)
+		return "verified"
 	}
+	c.mismatched.Add(1)
+	return "mismatch"
 }
 
 // requestModel returns the model of a request body only when it is unambiguous: the body is
