@@ -475,3 +475,35 @@ func TestLedgerScannerMatchesEncodingJSON(t *testing.T) {
 		t.Fatalf("only %d cases", n)
 	}
 }
+
+// C7BE-28: a recognized usage key must be exact and unique (also inside the details blocks);
+// duplicates and case aliases make the usage unusable, in JSON and in a stream. Other keys are
+// ignored.
+func TestLedgerUsageMembersAreUnambiguous(t *testing.T) {
+	for _, u := range []string{
+		`{"prompt_tokens":5,"prompt_tokens":500,"completion_tokens":7}`,
+		`{"prompt_tokens":5,"PROMPT_TOKENS":500,"completion_tokens":7}`,
+		`{"prompt_tokens":5,"completion_tokens":7,"completion_tokens":null,"completion_tokens":70}`,
+		`{"prompt_tokens":5,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":1,"cached_tokens":2}}`,
+		`{"prompt_tokens":5,"completion_tokens":7,"completion_tokens_details":{"Reasoning_Tokens":2}}`,
+		`{"prompt_tokens":5,"completion_tokens":7,"prompt_tokens_details":{},"Prompt_Tokens_Details":{}}`,
+	} {
+		_, c, url, _ := ledgerProxy(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"usage":`+u+`}`) }, 4)
+		post(t, context.Background(), url, request)
+		if r := seal(c); r.TotalComplete || r.Counts[EntryUnreadable] != 1 {
+			t.Errorf("json %s: %+v", u, r)
+		}
+		_, c, url, _ = ledgerProxy(t, sse(`data: {"usage":`+u+"}\n\n", "data: [DONE]\n\n"), 4)
+		post(t, context.Background(), url, request)
+		if r := seal(c); r.TotalComplete || r.Counts[EntryUnreadable] != 1 {
+			t.Errorf("stream %s: %+v", u, r)
+		}
+	}
+	// unrelated keys, null details and non-object details do not block a complete usage
+	ok := `{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12,"prompt_tokens_details":null,"completion_tokens_details":3,"extra":{"prompt_tokens":9}}`
+	_, c, url, _ := ledgerProxy(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"usage":`+ok+`}`) }, 4)
+	post(t, context.Background(), url, request)
+	if r := seal(c); !r.TotalComplete || r.Components["prompt"] != 5 || r.ComponentsN["cached"] != 0 {
+		t.Fatalf("control: %+v", r)
+	}
+}

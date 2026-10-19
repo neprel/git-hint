@@ -480,15 +480,12 @@ func (j *jsonUsage) result() (string, *usageComponents) {
 }
 
 // parseUsageValue reads one usage object; a component is known only as a non-negative integer
-// (missing, null, fractional, negative or non-numeric values stay unknown).
+// (missing, null, fractional, negative or non-numeric values stay unknown). Recognized keys must
+// match exactly and occur once: a duplicate or a case alias of a recognized key (which a
+// decoder could resolve either way) makes the whole usage unusable. Other keys are ignored.
 func parseUsageValue(b []byte) (*usageComponents, bool) {
-	var u struct {
-		Prompt     json.RawMessage `json:"prompt_tokens"`
-		Completion json.RawMessage `json:"completion_tokens"`
-		PromptD    json.RawMessage `json:"prompt_tokens_details"`
-		CompD      json.RawMessage `json:"completion_tokens_details"`
-	}
-	if len(b) == 0 || b[0] != '{' || json.Unmarshal(b, &u) != nil {
+	top, ok := members(b, "prompt_tokens", "completion_tokens", "prompt_tokens_details", "completion_tokens_details")
+	if !ok {
 		return nil, false
 	}
 	num := func(m json.RawMessage) *int64 {
@@ -498,15 +495,59 @@ func parseUsageValue(b []byte) (*usageComponents, bool) {
 		}
 		return &v
 	}
-	sub := func(m json.RawMessage, key string) *int64 {
-		var d map[string]json.RawMessage
-		if len(m) == 0 || json.Unmarshal(m, &d) != nil {
-			return nil
+	sub := func(m json.RawMessage, key string) (*int64, bool) {
+		if len(m) == 0 || string(m) == "null" {
+			return nil, true
 		}
-		return num(d[key])
+		if m[0] != '{' {
+			return nil, true // not an object: the detail is unknown
+		}
+		d, ok := members(m, key)
+		return num(d[key]), ok
 	}
-	return &usageComponents{Prompt: num(u.Prompt), Completion: num(u.Completion),
-		Cached: sub(u.PromptD, "cached_tokens"), Reasoning: sub(u.CompD, "reasoning_tokens")}, true
+	cached, ok1 := sub(top["prompt_tokens_details"], "cached_tokens")
+	reasoning, ok2 := sub(top["completion_tokens_details"], "reasoning_tokens")
+	if !ok1 || !ok2 {
+		return nil, false
+	}
+	return &usageComponents{Prompt: num(top["prompt_tokens"]), Completion: num(top["completion_tokens"]), Cached: cached, Reasoning: reasoning}, true
+}
+
+// members walks the members of one JSON object with a decoder (the value is bounded by the
+// caller) and returns the raw values of the allowlisted keys. It fails when the input is not one
+// object, or when an allowlisted key occurs twice or another key equals one ignoring case.
+func members(b []byte, allow ...string) (map[string]json.RawMessage, bool) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, false
+	}
+	out := map[string]json.RawMessage{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return nil, false
+		}
+		key, _ := t.(string)
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, false
+		}
+		for _, a := range allow {
+			switch {
+			case key == a:
+				if _, dup := out[a]; dup {
+					return nil, false
+				}
+				out[a] = v
+			case strings.EqualFold(key, a):
+				return nil, false // a case alias of a recognized key
+			}
+		}
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
+		return nil, false
+	}
+	return out, true
 }
 
 // Events of the scanner that the usage extractor needs.
