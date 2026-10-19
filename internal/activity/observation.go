@@ -31,8 +31,34 @@ type Observation struct {
 	ContentDelivery     string            `json:"content_delivery,omitempty"`
 	Coordination        *Coordination     `json:"coordination,omitempty"`
 	Context             *Context          `json:"context,omitempty"`
-	Missing             []string          `json:"missing"`
-	Provenance          Provenance        `json:"provenance"`
+	Usage               *Usage            `json:"usage,omitempty"`
+	// RequestKind is the kind of a model call on MODEL_CALL and its terminal USAGE (draft v0.2).
+	RequestKind string `json:"request_kind,omitempty"`
+	// Collection is the collector closure of a session on its closing SESSION record (draft v0.2).
+	Collection *Collection `json:"collection,omitempty"`
+	Missing    []string    `json:"missing"`
+	Provenance Provenance  `json:"provenance"`
+}
+
+// Usage is the token use of one model call (hint-data usage; cache and reasoning are separate
+// quantities, never added to or subtracted from input or output).
+type Usage struct {
+	InputTokens      scan.Quantity  `json:"input_tokens"`
+	OutputTokens     scan.Quantity  `json:"output_tokens"`
+	CacheReadTokens  *scan.Quantity `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens *scan.Quantity `json:"cache_write_tokens,omitempty"`
+	ReasoningTokens  *scan.Quantity `json:"reasoning_tokens,omitempty"`
+}
+
+// Collection is the closure of one session by this collector (draft v0.2): it proves only the
+// collector's observed scope under its source capabilities.
+type Collection struct {
+	Lifecycle     string        `json:"lifecycle"` // attached_at_start, attached_mid_session, unknown
+	Closure       string        `json:"closure"`   // flushed, interrupted, unknown
+	EventsDropped scan.Quantity `json:"events_dropped"`
+	Errors        scan.Quantity `json:"errors"`
+	OpenCalls     scan.Quantity `json:"open_calls"`
+	ClosedAt      *string       `json:"closed_at"`
 }
 
 // Time is the time of an observation.
@@ -58,7 +84,10 @@ type Coordination struct{}
 
 // Provenance records capture time and transformations.
 type Provenance struct {
-	CapturedAt      string      `json:"captured_at"`
+	CapturedAt string `json:"captured_at"`
+	// SourceEventID is the opaque identity of the source event (domain-separated, scoped to
+	// the source and session); empty when the source gives none.
+	SourceEventID   string      `json:"source_event_id,omitempty"`
 	Transformations []Transform `json:"transformations"`
 }
 
@@ -79,6 +108,9 @@ type Source struct {
 	Unavailable  []string `json:"unavailable"`
 	// Configuration is the canonical effective configuration (hint-data v0.2 only).
 	Configuration *Configuration `json:"configuration,omitempty"`
+	// UsageNormalization is the allowlisted normalization of the source's token counters
+	// (draft v0.2); empty when the source reports no usage.
+	UsageNormalization string `json:"usage_normalization,omitempty"`
 }
 
 // Adapter names the adapter of a source.

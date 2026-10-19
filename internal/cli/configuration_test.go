@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/neprel/git-hint/internal/activity"
 	"github.com/neprel/git-hint/internal/hint"
@@ -123,4 +124,63 @@ func TestKnownEmptyConfigRefsStayKnown(t *testing.T) {
 	must(t, run(t, shop, "", "export", "--out", t.TempDir())) // the v0.2 package validates
 	must(t, run(t, shop, "", "eval", "work", "start", "u", "--family", "f"))
 	must(t, run(t, shop, "", "eval", "report", "-o", filepath.Join(t.TempDir(), "r.json"))) // the report validates
+}
+
+func modelCallEvents() string {
+	t0 := time.Now().UnixMilli()
+	var b strings.Builder
+	line := func(dt int64, m map[string]any) {
+		m["t_wall_ms"] = t0 + dt
+		j, _ := json.Marshal(m)
+		b.Write(j)
+		b.WriteByte('\n')
+	}
+	evt := func(dt int64, e map[string]any) { line(dt, map[string]any{"hook": "event", "event": e}) }
+	tok := map[string]any{"input": 5405, "output": 165, "reasoning": 0, "cache": map[string]any{"read": 0, "write": 0}}
+	line(0, map[string]any{"hook": "hint.attach"})
+	evt(1, map[string]any{"id": "evt_HINTCANARY_1", "type": "session.created", "sessionID": "ses_HINTCANARY_S1"})
+	line(2, map[string]any{"hook": "model.request", "input": map[string]any{"sessionID": "ses_HINTCANARY_S1", "kind": "primary"}})
+	evt(3, map[string]any{"id": "evt_HINTCANARY_2", "type": "session.step.started", "sessionID": "ses_HINTCANARY_S1", "assistantMessageID": "msg_HINTCANARY_1"})
+	evt(4, map[string]any{"id": "evt_HINTCANARY_3", "type": "session.step.ended", "sessionID": "ses_HINTCANARY_S1", "assistantMessageID": "msg_HINTCANARY_1", "tokens": tok})
+	line(5, map[string]any{"hook": "hint.close", "close": map[string]any{"drained": true, "dropped": 0, "errors": 0}})
+	return b.String()
+}
+
+func TestAdapterModelCallsExportAsV02WithoutRawIdentifiers(t *testing.T) {
+	shop, _ := setup(t)
+	s, _ := store.Open(shop)
+	t.Setenv("HINT_TASK_ID", "HINTCANARY_TASK_8")
+	must(t, run(t, shop, modelCallEvents(), "adapter", "opencode", "--project", shop, "--agent-version", "2.0.26", "--model-calls"))
+	obs, _, _ := project.ReadSpool(s)
+	srcs, _ := project.Sources(s)
+	var kinds []string
+	for _, o := range obs {
+		kinds = append(kinds, o.Op)
+	}
+	slices.Sort(kinds)
+	if !slices.Equal(kinds, []string{"MODEL_CALL", "SESSION", "USAGE"}) || srcs[obs[0].SourceID].UsageNormalization != activity.UsageNormalization {
+		t.Fatalf("records %v source %+v", kinds, srcs[obs[0].SourceID])
+	}
+	for _, o := range obs {
+		if o.Op == "SESSION" && (o.Collection == nil || o.Collection.Closure != "flushed") {
+			t.Fatalf("closure: %+v", o.Collection)
+		}
+	}
+	out := t.TempDir()
+	must(t, run(t, shop, "", "export", "--out", out))
+	all := readAll(t, out)
+	noCanary(t, "export", all, shop, "HINTCANARY_TASK_8", "ses_HINTCANARY_S1", "msg_HINTCANARY_1", "evt_HINTCANARY_1")
+	if !strings.Contains(string(all), `"MODEL_CALL"`) || !strings.Contains(string(all), `"hint_version":"0.2.0"`) && !strings.Contains(string(all), `"hint_version": "0.2.0"`) {
+		t.Fatal("the export holds the model calls as v0.2")
+	}
+}
+
+func TestAdapterModelCallsNeedTheCheckedVersion(t *testing.T) {
+	shop, _ := setup(t)
+	s, _ := store.Open(shop)
+	must(t, run(t, shop, modelCallEvents(), "adapter", "opencode", "--project", shop, "--agent-version", "2.0.27", "--model-calls"))
+	obs, _, _ := project.ReadSpool(s)
+	if len(obs) != 0 {
+		t.Fatalf("records of an unchecked version: %d", len(obs))
+	}
 }

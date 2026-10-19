@@ -131,6 +131,35 @@ function reduceAfter(ev: any) {
   return { ...base("tool.execute.after", ev), output: out }
 }
 
+// Model calls (draft v0.2, OpenCode 2.0.26; 07B-E §30-§33): the plugin forwards metadata
+// only — the bus event ID, type, session, parent, assistant message, usage source and the
+// numeric token counters, and the kind of each model request. Never text, prompts, headers,
+// request bodies or model names. Events of the allowlisted types only.
+const MODEL_EVENTS = new Set([
+  "session.created", "session.step.started", "session.step.ended", "session.step.failed", "session.retry.scheduled",
+  "session.usage.recorded", "session.compaction.started", "session.compaction.ended", "session.compaction.failed",
+])
+const REQUEST_KINDS = new Set(["primary", "title", "compaction", "generate"])
+const ID = (v: unknown) => (typeof v === "string" && v.length > 0 && v.length <= 200 ? v : undefined)
+const NUM = (v: unknown) => (typeof v === "number" ? v : undefined)
+
+function reduceTokens(t: any) {
+  if (!t || typeof t !== "object") return undefined
+  return { input: NUM(t.input), output: NUM(t.output), reasoning: NUM(t.reasoning), cache: { read: NUM(t.cache?.read), write: NUM(t.cache?.write) } }
+}
+
+function reduceEvent(e: any) {
+  const d = e?.data ?? {}
+  if (!MODEL_EVENTS.has(String(e?.type))) return undefined
+  const out: Record<string, unknown> = { id: ID(e?.id), type: e.type, sessionID: ID(d.sessionID) }
+  if (ID(d.parentID)) out.parentID = d.parentID
+  if (ID(d.assistantMessageID)) out.assistantMessageID = d.assistantMessageID
+  if (d.source === "title" || d.source === "compaction") out.source = d.source
+  const t = reduceTokens(d.tokens)
+  if (t) out.tokens = t
+  return { hook: "event", t_wall_ms: Date.now(), event: out }
+}
+
 type Stats = { sent: number; dropped: number; hookErrors: number; childExit: number | null; stopped: boolean }
 const STATS_KEY = Symbol.for("hint.opencode-adapter.stats")
 
@@ -141,13 +170,16 @@ export default {
     ;((globalThis as any)[STATS_KEY] ??= []).push(stats)
     const dir = String(ctx?.location?.project?.directory ?? ctx?.location?.directory ?? "")
     const bin = process.env.HINT_BIN || "git-hint"
+    // model calls only when this OpenCode exposes both channels; the child still checks the version
+    const modelCalls = typeof ctx?.event?.subscribe === "function" && typeof ctx?.session?.hook === "function"
     let child: any = null
     try {
       if (dir && process.env.HINT_DISABLE !== "1") {
-        child = Bun.spawn([bin, "adapter", "opencode", "--project", dir], {
+        child = Bun.spawn([bin, "adapter", "opencode", "--project", dir, ...(modelCalls ? ["--model-calls"] : [])], {
           stdin: "pipe",
           stdout: "pipe",
           stderr: "ignore",
+          env: { ...process.env }, // HINT_TASK_ID, HINT_AGENT_VERSION and the other declarations as they are now
         })
         child.exited.then((code: number) => {
           stats.childExit = code
@@ -216,9 +248,51 @@ export default {
       stats.hookErrors++
     }
 
+    // the subscription first, then the attach line: sessions created before it are mid-session
+    const abort = new AbortController()
+    let drained: Promise<boolean> = Promise.resolve(true)
+    if (modelCalls) {
+      try {
+        const events = ctx.event.subscribe({ signal: abort.signal })
+        drained = (async () => {
+          try {
+            for await (const e of events) {
+              try {
+                const r = reduceEvent(e)
+                if (r) send(r)
+              } catch {
+                stats.hookErrors++
+              }
+            }
+            return true
+          } catch {
+            return abort.signal.aborted // an abort ends the iteration; anything else is a stream error
+          }
+        })()
+        send({ hook: "hint.attach", t_wall_ms: Date.now() })
+        await ctx.session.hook("model.request", async (ev: any) => {
+          try {
+            const kind = String(ev?.kind ?? "")
+            if (REQUEST_KINDS.has(kind)) send({ hook: "model.request", t_wall_ms: Date.now(), input: { sessionID: String(ev?.sessionID ?? ""), kind } })
+          } catch {
+            stats.hookErrors++
+          }
+        })
+      } catch {
+        stats.hookErrors++
+      }
+    }
+
     return async () => {
       try {
         if (child && stats.childExit === null) {
+          if (modelCalls) {
+            // stop and drain the subscription, then the closure line; the child acknowledges it
+            // only when every preceding line was written
+            abort.abort()
+            const ok = await Promise.race([drained, new Promise<boolean>((r) => setTimeout(() => r(false), 2000))])
+            send({ hook: "hint.close", t_wall_ms: Date.now(), close: { drained: ok === true, dropped: stats.dropped, errors: stats.hookErrors } })
+          }
           writeStats()
           child.stdin.end()
           await Promise.race([child.exited, new Promise((r) => setTimeout(r, 2000))])

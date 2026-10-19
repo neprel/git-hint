@@ -61,6 +61,67 @@ function spool(dir: string): any[] {
   return existsSync(p) ? readFileSync(p, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)) : []
 }
 
+// model-call events in the encoded OpenCode 2.0.26 bus shape ({id, type, data}); text and
+// names that must never leave the plugin carry canaries
+function modelEvents() {
+  const tok = { input: 5405, output: 165, reasoning: 0, cache: { read: 0, write: 0 }, total: 5570 }
+  const ev = (id: string, type: string, data: any) => ({ id, type, data: { sessionID: "ses_canary_m1", ...data, text: "HINTCANARY_TEXT" } })
+  return [
+    ev("evt_canary_1", "session.created", { title: "HINTCANARY_TITLE", model: { id: "HINTCANARY_MODEL", providerID: "lan" } }),
+    ev("evt_canary_2", "session.step.started", { assistantMessageID: "msg_canary_1", model: { id: "HINTCANARY_MODEL" } }),
+    ev("evt_canary_3", "session.text.delta", { delta: "HINTCANARY_DELTA" }),
+    ev("evt_canary_4", "session.step.ended", { assistantMessageID: "msg_canary_1", tokens: tok, finish: "stop" }),
+  ]
+}
+
+async function replayModel(dir: string, bin: string, opts: { channels?: boolean } = {}) {
+  const saved = { bin: process.env.HINT_BIN, ver: process.env.HINT_AGENT_VERSION }
+  process.env.HINT_BIN = bin
+  process.env.HINT_AGENT_VERSION = "2.0.26"
+  const handlers: Record<string, (ev: any) => Promise<void>> = {}
+  const queue: any[] = []
+  let wake: (() => void) | null = null
+  let signal: AbortSignal | undefined
+  async function* stream() {
+    while (!signal?.aborted) {
+      if (queue.length) {
+        yield queue.shift()
+        continue
+      }
+      await new Promise<void>((r) => ((wake = r), signal?.addEventListener("abort", () => r(), { once: true })))
+    }
+  }
+  const ctx: any = {
+    location: { directory: dir, project: { directory: dir, id: "p" } },
+    tool: { hook: async (name: string, fn: any) => ((handlers[name] = fn), { dispose: async () => {} }) },
+  }
+  if (opts.channels !== false) {
+    ctx.event = { subscribe: (o: any) => ((signal = o?.signal), stream()) }
+    ctx.session = { hook: async (name: string, fn: any) => ((handlers["session." + name] = fn), { dispose: async () => {} }) }
+  }
+  const cleanup: any = await adapter.setup(ctx)
+  process.env.HINT_BIN = saved.bin ?? ""
+  if (saved.bin === undefined) delete process.env.HINT_BIN
+  if (saved.ver === undefined) delete process.env.HINT_AGENT_VERSION
+  else process.env.HINT_AGENT_VERSION = saved.ver
+  const evs = modelEvents()
+  const push = async (e: any) => {
+    queue.push(e)
+    wake?.()
+    await new Promise((r) => setTimeout(r, 5))
+  }
+  await push(evs[0])
+  if (handlers["session.model.request"]) {
+    const req = { sessionID: "ses_canary_m1", kind: "primary", agent: "build", model: { id: "HINTCANARY_MODEL" }, headers: { authorization: "HINTCANARY_KEY" } }
+    const before = JSON.stringify(req)
+    await handlers["session.model.request"](req)
+    expect(JSON.stringify(req)).toBe(before) // the hook never changes the request
+  }
+  for (const e of evs.slice(1)) await push(e)
+  await cleanup?.()
+  return stats().at(-1)
+}
+
 describe("OpenCode adapter plugin, offline", () => {
   test("binary and project are prepared", () => {
     expect(existsSync(BIN)).toBe(true)
@@ -242,5 +303,49 @@ describe("OpenCode adapter plugin, offline", () => {
     console.log(`hook latency ms: p50 ${p50.toFixed(4)} p95 ${p95.toFixed(4)} n ${lat.length} dropped ${st.dropped}`)
     expect(p95).toBeLessThan(5)
     expect(st.dropped).toBe(0)
+  })
+
+  test("model calls: one linked primary call and a flushed closure, metadata only", async () => {
+    const before = spool(PROJECT).length
+    const st = await replayModel(PROJECT, BIN)
+    expect(st.hookErrors).toBe(0)
+    // records of the earlier tests' children can still arrive: keep this run's model-call records
+    const obs = spool(PROJECT).slice(before).filter((o) => ["MODEL_CALL", "USAGE", "SESSION"].includes(o.op))
+    const ops = obs.map((o) => o.op).sort()
+    expect(ops).toEqual(["MODEL_CALL", "SESSION", "USAGE"])
+    const start = obs.find((o) => o.op === "MODEL_CALL")
+    const end = obs.find((o) => o.op === "USAGE")
+    expect(start.correlation.call_ref).toBe(end.correlation.call_ref)
+    expect(end.usage.input_tokens.value).toBe(5405)
+    expect(end.usage.output_tokens.value).toBe(165)
+    const closure = obs.find((o) => o.op === "SESSION").collection
+    expect(closure.closure).toBe("flushed")
+    expect(closure.lifecycle).toBe("attached_at_start")
+    expect(closure.errors.value).toBe(0)
+    expect(CANARY.test(JSON.stringify(obs))).toBe(false)
+  })
+
+  test("model calls: the pipe carries no text, title, model name or header", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "hint-pipe-"))
+    try {
+      const out = join(dir, "pipe.txt")
+      const fake = join(dir, "fake-git-hint")
+      writeFileSync(fake, `#!/bin/sh\ncat > "${out}"\n`)
+      chmodSync(fake, 0o755)
+      await replayModel(PROJECT, fake)
+      const pipe = readFileSync(out, "utf8")
+      expect(/HINTCANARY_(TEXT|TITLE|MODEL|DELTA|KEY)/.test(pipe)).toBe(false)
+      expect(pipe.includes('"hook":"hint.attach"')).toBe(true)
+      expect(pipe.includes('"hook":"hint.close"')).toBe(true)
+      expect(pipe.includes("session.text.delta")).toBe(false) // only allowlisted event types
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("model calls: an OpenCode without both channels sends none", async () => {
+    const before = spool(PROJECT).length
+    await replayModel(PROJECT, BIN, { channels: false })
+    expect(spool(PROJECT).slice(before).filter((o) => o.op === "MODEL_CALL" || o.op === "USAGE").length).toBe(0)
   })
 })

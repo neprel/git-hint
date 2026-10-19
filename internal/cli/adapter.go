@@ -92,6 +92,7 @@ func adapterOpenCode(e *Env, args []string) int {
 	fs := flags(e, "adapter opencode", "reads stdin; writes the activity spool; no network")
 	dir := fs.String("project", e.Dir, "project directory of the OpenCode session")
 	agentVersion := fs.String("agent-version", os.Getenv("HINT_AGENT_VERSION"), "OpenCode version, if known")
+	modelCallsFlag := fs.Bool("model-calls", false, "the plugin forwards model-call events (draft v0.2; OpenCode "+activity.UsageAgentVersion+" only)")
 	if fs.Parse(args) != nil {
 		return 2
 	}
@@ -144,8 +145,10 @@ func adapterOpenCode(e *Env, args []string) int {
 			return fail(e, fmt.Errorf("HINT_WORK_UNIT: %w; nothing was written", err))
 		}
 	}
+	// model calls only for the OpenCode version whose events were checked (07B-E §30)
+	modelCalls := *modelCallsFlag && *agentVersion == activity.UsageAgentVersion
 	src := activity.OpenCodeSource(s.Key(), activity.SourceOptions{AgentVersion: *agentVersion, TaskDeclared: declared,
-		FamilyDeclared: rawFamily != "", Configuration: cfg})
+		FamilyDeclared: rawFamily != "", Configuration: cfg, ModelCalls: modelCalls})
 	if err := project.RegisterSource(s, src); err != nil {
 		return fail(e, err)
 	}
@@ -167,7 +170,10 @@ func adapterOpenCode(e *Env, args []string) int {
 			}
 		}
 	}
-	n := &activity.Normalizer{Key: s.Key(), SourceID: src.SourceID, Cwd: cleanAbs(*dir), Resolve: resolver(s), Now: e.Now}
+	n := &activity.Normalizer{Key: s.Key(), SourceID: src.SourceID, Cwd: cleanAbs(*dir), Resolve: resolver(s), Now: e.Now,
+		ModelCalls: modelCalls}
+	// the child's acknowledgment at the plugin's closure line: every preceding record was written
+	n.Acknowledged = func() bool { return stopped == nil && discarded == 0 }
 	if declared {
 		n.TaskID = project.TaskID(s.Key(), rawTask)
 		if rawFamily != "" {

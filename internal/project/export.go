@@ -401,8 +401,10 @@ func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 		if done[o.ObservationID] {
 			continue
 		}
-		// v0.2 fields: a context measurement, a declared task family, a source configuration
-		if o.Context != nil || slices.Contains(o.Missing, "context") || o.Correlation["task_family_id"] != "" || srcs[o.SourceID].Configuration != nil {
+		// v0.2 fields: a context measurement, a declared task family, a source configuration,
+		// a model call (MODEL_CALL, request kind, call identity, collector closure, normalization)
+		if o.Context != nil || slices.Contains(o.Missing, "context") || o.Correlation["task_family_id"] != "" || srcs[o.SourceID].Configuration != nil ||
+			o.Op == "MODEL_CALL" || o.RequestKind != "" || o.Collection != nil || o.Correlation["call_ref"] != "" || srcs[o.SourceID].UsageNormalization != "" {
 			return "0.2.0", nil
 		}
 	}
@@ -573,6 +575,11 @@ func (t *transform) observation(o activity.Observation) (map[string]any, error) 
 			t.span(tm[k].(string))
 		}
 	}
+	if col, ok := m["collection"].(map[string]any); ok {
+		if v, ok := col["closed_at"].(string); ok {
+			col["closed_at"] = coarse(v, t.res, false)
+		}
+	}
 	pv := m["provenance"].(map[string]any)
 	pv["captured_at"] = coarse(pv["captured_at"].(string), t.res, false)
 	if t.res > 1 {
@@ -677,7 +684,10 @@ func sourceFor(src activity.Source, ver string) activity.Source {
 	if ver != version.SpecVersion {
 		return src
 	}
-	src.Capabilities = slices.DeleteFunc(slices.Clone(src.Capabilities), func(c string) bool { return c == "context" || c == "correlation.task_family_id" })
+	src.Capabilities = slices.DeleteFunc(slices.Clone(src.Capabilities), func(c string) bool {
+		return c == "context" || c == "correlation.task_family_id" || c == "request_kind" || c == "correlation.call_ref" || c == "collection"
+	})
 	src.Configuration = nil
+	src.UsageNormalization = ""
 	return src
 }

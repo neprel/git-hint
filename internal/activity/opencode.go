@@ -36,6 +36,13 @@ type Normalizer struct {
 	TaskFamilyID string
 	// OnStats receives the counter lines of the plugin (hook "hint.stats"), if set.
 	OnStats func(line []byte)
+	// ModelCalls maps the model-call events (MODEL_CALL, USAGE, session closure; draft v0.2)
+	// of an OpenCode version whose events were checked (UsageAgentVersion); otherwise those
+	// lines are skipped.
+	ModelCalls bool
+	// Acknowledged reports, at the plugin's closure line, that every preceding record was
+	// written (no failed or discarded write); without it a closure is never flushed.
+	Acknowledged func() bool
 }
 
 // SourceOptions describe one OpenCode agent run as the orchestrator declared it.
@@ -44,6 +51,9 @@ type SourceOptions struct {
 	TaskDeclared   bool           // HINT_TASK_ID: every record of the run carries the task
 	FamilyDeclared bool           // HINT_TASK_FAMILY: and its declared family
 	Configuration  *Configuration // the canonical effective configuration, if built
+	// ModelCalls: the plugin forwards the model-call events of a checked OpenCode version
+	// (UsageAgentVersion): the source reports usage under UsageNormalization (draft v0.2).
+	ModelCalls bool
 }
 
 // OpenCodeSource returns the source entry of the OpenCode plugin adapter. A declared task or
@@ -62,6 +72,9 @@ func OpenCodeSource(key []byte, o SourceOptions) Source {
 	if o.Configuration != nil {
 		parts = append(parts, "configuration", o.Configuration.Digest())
 	}
+	if o.ModelCalls { // the usage normalization is part of the source identity
+		parts = append(parts, "model-calls", UsageNormalization)
+	}
 	s := Source{SourceID: hint.DeriveID(key, "source", parts...), Agent: "opencode",
 		Adapter: Adapter{Name: "opencode-plugin", Version: Version},
 		Capabilities: []string{"time.start", "time.end", "correlation.session_id", "correlation.tool_call_id",
@@ -75,6 +88,11 @@ func OpenCodeSource(key []byte, o SourceOptions) Source {
 	}
 	if o.FamilyDeclared {
 		s.Capabilities = append(s.Capabilities, "correlation.task_family_id")
+	}
+	if o.ModelCalls {
+		s.Capabilities = append(s.Capabilities, "usage", "request_kind", "correlation.call_ref", "collection")
+		s.Unavailable = slices.DeleteFunc(s.Unavailable, func(f string) bool { return f == "usage" })
+		s.UsageNormalization = UsageNormalization
 	}
 	if o.AgentVersion != "" {
 		s.AgentVersion = &o.AgentVersion
@@ -93,7 +111,10 @@ type ocEvent struct {
 		Tool      string `json:"tool"`
 		SessionID string `json:"sessionID"`
 		CallID    string `json:"callID"`
+		Kind      string `json:"kind"` // model.request: the request kind
 	} `json:"input"`
+	Event  *ocModelEvent `json:"event"` // hook "event": one reduced bus event
+	Close  *ocClose      `json:"close"` // hook "hint.close"
 	Output struct {
 		Args           map[string]any  `json:"args"`
 		Output         any             `json:"output"`
@@ -280,6 +301,15 @@ type open struct {
 func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped int, err error) {
 	pending := map[string]*open{}
 	var order []string
+	mc := newCalls()
+	emitAll := func(l []Observation) error {
+		for _, o := range l {
+			if err := emit(o); err != nil {
+				return fmt.Errorf("emit: %w", err)
+			}
+		}
+		return nil
+	}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
@@ -291,6 +321,21 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 		if e.Hook == "hint.stats" {
 			if n.OnStats != nil {
 				n.OnStats(sc.Bytes())
+			}
+			continue
+		}
+		switch e.Hook {
+		case "hint.attach", "model.request", "event", "hint.close":
+			if !n.ModelCalls {
+				skipped++
+				continue
+			}
+			l := n.modelEvent(mc, e)
+			if e.Hook == "hint.close" {
+				l = n.closeSessions(mc, &e, skipped)
+			}
+			if err := emitAll(l); err != nil {
+				return skipped, err
 			}
 			continue
 		}
@@ -401,6 +446,11 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 			}
 		default:
 			skipped++
+		}
+	}
+	if n.ModelCalls { // end of input without a closure line: every owned session is interrupted
+		if err := emitAll(n.closeSessions(mc, nil, skipped)); err != nil {
+			return skipped, err
 		}
 	}
 	for _, k := range order {
