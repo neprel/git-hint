@@ -18,6 +18,13 @@ import (
 // check lines, the test lines and the reward.
 func runVerifier(t *testing.T, l *library.Library, image string, rec map[string]any, app map[string]string) (map[string]string, map[string]string, string) {
 	t.Helper()
+	checks, tests, reward, _ := runVerifierOut(t, l, image, rec, app)
+	return checks, tests, reward
+}
+
+// runVerifierOut is runVerifier that also returns the container's whole stdout.
+func runVerifierOut(t *testing.T, l *library.Library, image string, rec map[string]any, app map[string]string) (map[string]string, map[string]string, string, string) {
+	t.Helper()
 	dir := t.TempDir()
 	write := func(root string, files map[string]string) {
 		for p, c := range files {
@@ -63,7 +70,7 @@ func runVerifier(t *testing.T, l *library.Library, image string, rec map[string]
 			reward = f[1]
 		}
 	}
-	return checks, tests, reward
+	return checks, tests, reward, stdout.String()
 }
 
 func needDocker(t *testing.T) {
