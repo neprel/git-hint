@@ -2,6 +2,8 @@ package activity
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -69,6 +71,40 @@ func TestLedgerProblems(t *testing.T) {
 		mut(&m)
 		if p := LedgerProblems(m); len(p) == 0 {
 			t.Errorf("%s: no problem", name)
+		}
+	}
+}
+
+// The shared usage-selection vectors (tests/conformance/vectors/ledger-selection.json, also
+// checked by the server): the client gives the declared reason for every case, and a task with
+// a ledger never has complete usage.
+func TestLedgerSelectionVectors(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "tests", "conformance", "vectors", "ledger-selection.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Vectors []struct {
+			Name         string        `json:"name"`
+			Reason       string        `json:"reason"`
+			Sources      []Source      `json:"sources"`
+			Observations []Observation `json:"observations"`
+		} `json:"vectors"`
+	}
+	if err := json.Unmarshal(b, &f); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Vectors) < 13 {
+		t.Fatalf("%d vectors", len(f.Vectors))
+	}
+	for _, v := range f.Vectors {
+		srcs := map[string]Source{}
+		for _, s := range v.Sources {
+			srcs[s.SourceID] = s
+		}
+		c := UsageCoverage(v.Observations, srcs)
+		if c.Reason != v.Reason || c.State == "complete" || c.Input != 0 || c.Output != 0 {
+			t.Errorf("%s: %+v, want reason %s", v.Name, c, v.Reason)
 		}
 	}
 }

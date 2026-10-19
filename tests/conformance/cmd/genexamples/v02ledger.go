@@ -113,3 +113,76 @@ func ledgerInvalid() []invalidCase {
 		}, nil},
 	}
 }
+
+// ledgerSelectionVectors are the shared usage-selection cases of one task with a model ledger
+// (07B-G §13): the sources and observations of the task and the declared coverage reason. The
+// client (activity.UsageCoverage) and the server (metrics.usage_selection, with the bound work
+// attempt received) must both give the reason. Without a reviewed provider mapping a bound,
+// consistent, complete ledger still gives no canonical usage.
+func ledgerSelectionVectors(base M) []any {
+	d := clone(base)
+	srcs := d["sources"].([]any)
+	plugin := srcs[0].(map[string]any)
+	ledgerSrc := srcs[len(srcs)-1].(map[string]any)
+	plugin["configuration"] = clone(ledgerSrc["configuration"].(map[string]any))
+	obs := d["payload"].(map[string]any)["observations"].([]any)
+	led := obs[len(obs)-1].(map[string]any)
+	corr := led["correlation"].(map[string]any)
+	var agents []any
+	for _, o := range obs[:len(obs)-1] {
+		m := clone(o.(map[string]any))
+		c := m["correlation"].(map[string]any)
+		c["task_id"], c["task_family_id"], c["run_ref"] = corr["task_id"], corr["task_family_id"], corr["run_ref"]
+		agents = append(agents, m)
+	}
+	rev := func(r M, n int, late int, sealed string) M {
+		x := clone(r)
+		x["observation_id"] = id("ledger-usage", "vector", sealed, string(rune('0'+n)))
+		m := x["model_ledger"].(map[string]any)
+		m["revision"], m["sealed_at"] = n, sealed
+		if late > 0 {
+			m["state"], m["reasons"] = "incomplete", A{"late_requests"}
+			m["counts"].(map[string]any)["late"] = late
+		}
+		return x
+	}
+	sealed := led["model_ledger"].(map[string]any)["sealed_at"].(string)
+	vector := func(name, reason string, sources A, records ...any) M {
+		return M{"name": name, "reason": reason, "sources": sources, "observations": A(records)}
+	}
+	both := A{plugin, ledgerSrc}
+	withAgents := func(extra ...any) A { return append(append(A{}, agents...), extra...) }
+	otherRun := clone(agents[0].(map[string]any))
+	otherRun["correlation"].(map[string]any)["run_ref"] = id("eval-report:trial", "trial-2")
+	noRun := clone(agents[0].(map[string]any))
+	delete(noRun["correlation"].(map[string]any), "run_ref")
+	otherFamily := clone(agents[0].(map[string]any))
+	otherFamily["correlation"].(map[string]any)["task_family_id"] = id("eval-report:family", "feature")
+	secondLedger := clone(led)
+	secondLedger["observation_id"] = id("ledger-usage", "second")
+	secondLedger["model_ledger"].(map[string]any)["ledger_ref"] = id("ledger", "second")
+	conflicting := clone(led)
+	conflicting["observation_id"] = id("ledger-usage", "conflicting")
+	conflicting["model_ledger"].(map[string]any)["components"].(map[string]any)["prompt"] = 6092
+	inconsistent := clone(led)
+	inconsistent["model_ledger"].(map[string]any)["counts"].(map[string]any)["admitted"] = 3
+	otherCfgPlugin := clone(plugin)
+	otherCfgPlugin["configuration"].(map[string]any)["budget"].(map[string]any)["max_requests"] = M{"state": "known", "value": 32}
+	otherCfgLedger := clone(ledgerSrc)
+	otherCfgLedger["configuration"].(map[string]any)["budget"].(map[string]any)["max_requests"] = M{"state": "known", "value": 32}
+	return []any{
+		vector("bound complete ledger", "usage_normalization_unmapped", both, withAgents(led)...),
+		vector("agent record of another run", "ledger_other_run", both, withAgents(led, otherRun)...),
+		vector("agent record without a run", "ledger_other_run", both, withAgents(led, noRun)...),
+		vector("agent record of another family", "ledger_binding_mismatch", both, withAgents(led, otherFamily)...),
+		vector("two ledgers", "ledger_ambiguous", both, withAgents(led, secondLedger)...),
+		vector("revision gap", "ledger_revision_gap", both, withAgents(rev(led, 1, 1, sealed))...),
+		vector("two bodies of revision 0", "ledger_conflict", both, withAgents(led, conflicting)...),
+		vector("late revision", "ledger_incomplete", both, withAgents(led, rev(led, 1, 1, sealed))...),
+		vector("late revision with a new seal time", "ledger_binding_changed", both, withAgents(led, rev(led, 1, 1, "2026-10-11T11:00:06Z"))...),
+		vector("inconsistent counts", "ledger_inconsistent", both, withAgents(inconsistent)...),
+		vector("ledger source with another configuration", "ledger_binding_mismatch", A{plugin, otherCfgLedger}, withAgents(led)...),
+		vector("plugin source with another configuration", "ledger_configuration_mismatch", A{otherCfgPlugin, ledgerSrc}, withAgents(led)...),
+		vector("ledger without behavioral records", "ledger_without_behavior", both, led),
+	}
+}

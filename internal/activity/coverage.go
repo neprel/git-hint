@@ -1,6 +1,7 @@
 package activity
 
 import (
+	"encoding/json"
 	"slices"
 	"time"
 )
@@ -33,6 +34,90 @@ func parseTS(s string) (time.Time, bool) {
 
 // UsageCoverage evaluates the records of one task (all of its observations).
 func UsageCoverage(obs []Observation, sources map[string]Source) Coverage {
+	for _, o := range obs {
+		if o.ModelLedger != nil {
+			return ledgerCoverage(obs, sources)
+		}
+	}
+	return pluginCoverage(obs, sources)
+}
+
+// ledgerCoverage is the usage of a task with model ledger records (the server's
+// metrics._ledger_coverage without the work-attempt check, which needs the received reports):
+// never complete while the ledger usage is descriptive, and the plugin's USAGE values never
+// enter it. Fail closed in the same order as the server.
+func ledgerCoverage(obs []Observation, sources map[string]Source) Coverage {
+	no := func(r string) Coverage { return Coverage{State: "partial", Reason: r} }
+	var ledgers, agents []Observation
+	refs := map[string]bool{}
+	for _, o := range obs {
+		switch {
+		case o.ModelLedger != nil:
+			ledgers = append(ledgers, o)
+			refs[o.ModelLedger.LedgerRef] = true
+		case o.Source != "watcher":
+			agents = append(agents, o)
+		}
+	}
+	if len(refs) != 1 {
+		return no("ledger_ambiguous")
+	}
+	byRev := map[int]Observation{}
+	for _, o := range ledgers {
+		if prev, ok := byRev[o.ModelLedger.Revision]; ok && !sameLedger(prev.ModelLedger, o.ModelLedger) {
+			return no("ledger_conflict")
+		}
+		byRev[o.ModelLedger.Revision] = o
+	}
+	for r := range len(byRev) {
+		if _, ok := byRev[r]; !ok {
+			return no("ledger_revision_gap")
+		}
+	}
+	first, top := byRev[0], byRev[len(byRev)-1]
+	for _, o := range ledgers {
+		if o.ModelLedger.Binding != first.ModelLedger.Binding || o.ModelLedger.SealedAt != first.ModelLedger.SealedAt {
+			return no("ledger_binding_changed")
+		}
+	}
+	m, b := top.ModelLedger, top.ModelLedger.Binding
+	src, ok := sources[top.SourceID]
+	if len(LedgerProblems(*m)) > 0 || !ok || src.UsageNormalization != LedgerNormalization || top.Usage == nil || top.Usage.InputTokens.State == "known" ||
+		top.Usage.OutputTokens.State == "known" || top.Correlation["run_ref"] != b.RunRef || top.Correlation["task_id"] != b.TaskID ||
+		top.Correlation["task_family_id"] != b.TaskFamilyID {
+		return no("ledger_inconsistent")
+	}
+	if src.Configuration == nil || src.Configuration.Digest() != b.ConfigurationDigest {
+		return no("ledger_binding_mismatch")
+	}
+	if len(agents) == 0 {
+		return no("ledger_without_behavior") // the ledger never stands in for missing behavioral events
+	}
+	for _, o := range agents {
+		if o.Correlation["run_ref"] != b.RunRef {
+			return no("ledger_other_run") // an agent record outside the bound run is never discarded
+		}
+		if o.Correlation["task_id"] != b.TaskID || o.Correlation["task_family_id"] != b.TaskFamilyID {
+			return no("ledger_binding_mismatch")
+		}
+		if c := sources[o.SourceID].Configuration; c == nil || c.Digest() != b.ConfigurationDigest {
+			return no("ledger_configuration_mismatch")
+		}
+	}
+	if m.State != "complete" {
+		return no("ledger_incomplete")
+	}
+	return Coverage{State: "unknown", Reason: "usage_normalization_unmapped"}
+}
+
+func sameLedger(a, b *ModelLedger) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
+}
+
+// pluginCoverage is the usage of a task on the plugin coverage path.
+func pluginCoverage(obs []Observation, sources map[string]Source) Coverage {
 	type scope struct{ src, ses string }
 	sc := func(o Observation) scope { return scope{o.SourceID, o.Correlation["session_id"]} }
 	// the relevant population is every agent record of the task (watcher-only records

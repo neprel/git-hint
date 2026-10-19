@@ -171,6 +171,7 @@ func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M)
 	write(ex("change-set-declared.json"), declared)
 	write(ex("activity-model-call.json"), modelCallDoc(act))
 	write(ex("activity-model-ledger.json"), ledgerDoc(act))
+	write(filepath.Join(root, "tests", "conformance", "vectors", "ledger-selection.json"), M{"vectors": ledgerSelectionVectors(ledgerDoc(act))})
 	// a positive control for the effort rule: an explicitly synthetic complete whole-task choice
 	control := clone(findings)
 	wholeTaskChoice(control)
