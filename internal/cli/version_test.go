@@ -13,7 +13,7 @@ func TestVersionAndCapabilities(t *testing.T) {
 	dir := t.TempDir()
 	for _, args := range [][]string{{"--version"}, {"version"}} {
 		r := must(t, run(t, dir, "", args...))
-		if !strings.HasPrefix(r.stdout, "git-hint "+version.Version+" (HINT data standard "+version.SpecVersion+")") {
+		if !strings.HasPrefix(r.stdout, "git-hint "+version.Version+" (HINT data standard "+version.SpecVersion+"; draft "+version.DraftVersion+" only with draft fields)") {
 			t.Fatalf("%v: %q", args, r.stdout)
 		}
 	}

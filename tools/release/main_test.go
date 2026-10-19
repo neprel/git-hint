@@ -216,6 +216,9 @@ func TestBuildUsesOnlyTheCommitsFiles(t *testing.T) {
 	if err := json.Unmarshal(mb, &m); err != nil || m.Commit != strings.TrimSpace(string(head)) {
 		t.Fatalf("manifest commit %q, want %q (%v)", m.Commit, head, err)
 	}
+	if m.StandardVersion != "0.1.0" || m.StandardDraft != "0.2.0" { // the baseline and the draft written only with draft fields
+		t.Fatalf("manifest standard %q draft %q", m.StandardVersion, m.StandardDraft)
+	}
 	f, err := os.Open(filepath.Join(out, m.Artifacts[0].File))
 	if err != nil {
 		t.Fatal(err)

@@ -745,7 +745,7 @@ func cmdVersion(e *Env, args []string) int {
 		if *asJSON {
 			return writeJSON(e, b)
 		}
-		fmt.Fprintf(e.Stdout, "git-hint %s (HINT data standard %s)\ncommit %s%s, %s, %s %s/%s (metadata: %s%s)\n", b.Version, b.Standard,
+		fmt.Fprintf(e.Stdout, "git-hint %s (HINT data standard %s; draft %s only with draft fields)\ncommit %s%s, %s, %s %s/%s (metadata: %s%s)\n", b.Version, b.Standard, b.Draft,
 			b.Commit, modifiedMark(b), b.Date, b.GoVersion, b.OS, b.Arch, b.Source, moduleNote(b))
 		return 0
 	}
@@ -755,6 +755,7 @@ func cmdVersion(e *Env, args []string) int {
 	}
 	w := e.Stdout
 	fmt.Fprintf(w, "git-hint %s (HINT data standard %s; reads %s)\n", b.Version, b.Standard, strings.Join(b.ReadsMinors, ", "))
+	fmt.Fprintf(w, "draft standard %s (not stable): written only for a package with %s\n", b.Draft, strings.Join(b.DraftFields, ", "))
 	fmt.Fprintf(w, "build: commit %s%s, %s, %s, %s/%s, cgo %v (metadata: %s%s)\n", b.Commit, modifiedMark(b), b.Date, b.GoVersion, b.OS, b.Arch, b.CGO,
 		b.Source, moduleNote(b))
 	fmt.Fprintf(w, "platform %s/%s: %s\n", b.OS, b.Arch, c.Platform)

@@ -21,8 +21,18 @@ var (
 	Date = ""
 )
 
-// SpecVersion is the HINT data standard version that the client writes.
+// SpecVersion is the baseline HINT data standard version that the client writes: a package
+// without a draft field is a v0.1 document.
 const SpecVersion = "0.1.0"
+
+// DraftVersion is the draft standard version that the client writes only for a package that
+// holds at least one of DraftFields. The draft is not stable and can change before a release.
+const DraftVersion = "0.2.0"
+
+// DraftFields are the draft v0.2 parts whose presence makes an exported package v0.2.
+var DraftFields = []string{"observation context measurement", "declared task family", "source configuration",
+	"model call (MODEL_CALL, request_kind, correlation.call_ref)", "collector closure (collection)", "usage normalization",
+	"declared plan application"}
 
 // standardVersion is the SemVer pattern of the HINT data standard (common.schema.json).
 var standardVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|dev)(\.(0|[1-9][0-9]*))?)?$`)
@@ -42,7 +52,9 @@ type Build struct {
 	OS            string   `json:"os"`
 	Arch          string   `json:"arch"`
 	CGO           bool     `json:"cgo"`
-	Standard      string   `json:"standard_version"`
+	Standard      string   `json:"standard_version"`      // baseline version written
+	Draft         string   `json:"standard_draft_writes"` // written only with a draft field
+	DraftFields   []string `json:"standard_draft_fields"` // the draft fields that make a package v0.2
 	ReadsMinors   []string `json:"standard_reads"`
 }
 
@@ -63,7 +75,7 @@ func Info() Build {
 
 func info(bi *debug.BuildInfo) Build {
 	b := Build{Version: Version, Commit: Commit, Date: Date, GoVersion: runtime.Version(), OS: runtime.GOOS,
-		Arch: runtime.GOARCH, Standard: SpecVersion, ReadsMinors: Supported}
+		Arch: runtime.GOARCH, Standard: SpecVersion, Draft: DraftVersion, DraftFields: DraftFields, ReadsMinors: Supported}
 	switch {
 	case Commit != "":
 		b.Source = SourceRelease

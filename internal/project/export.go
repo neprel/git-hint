@@ -384,7 +384,7 @@ func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 			return "", err
 		}
 		if len(d) > 0 {
-			return "0.2.0", nil
+			return version.DraftVersion, nil
 		}
 	}
 	obs, damage, err := ReadSpoolChecked(s)
@@ -394,7 +394,7 @@ func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 	if damage.Any() { // an invalidating closure (draft v0.2 collection) may be published (C7BE-21)
 		for _, o := range append(slices.Clone(obs), damage.Withheld...) {
 			if o.Collection != nil {
-				return "0.2.0", nil
+				return version.DraftVersion, nil
 			}
 		}
 	}
@@ -420,7 +420,7 @@ func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 		// a model call (MODEL_CALL, request kind, call identity, collector closure, normalization)
 		if o.Context != nil || slices.Contains(o.Missing, "context") || o.Correlation["task_family_id"] != "" || srcs[o.SourceID].Configuration != nil ||
 			o.Op == "MODEL_CALL" || o.RequestKind != "" || o.Collection != nil || o.Correlation["call_ref"] != "" || srcs[o.SourceID].UsageNormalization != "" {
-			return "0.2.0", nil
+			return version.DraftVersion, nil
 		}
 	}
 	return version.SpecVersion, nil

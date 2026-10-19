@@ -74,7 +74,8 @@ type Manifest struct {
 	Date            string     `json:"date"`
 	GoVersion       string     `json:"go_version"`
 	BuildHost       string     `json:"build_host"`
-	StandardVersion string     `json:"standard_version"`
+	StandardVersion string     `json:"standard_version"`      // baseline version written
+	StandardDraft   string     `json:"standard_draft_writes"` // draft version, written only with draft fields
 	Artifacts       []Artifact `json:"artifacts"`
 	Deferred        []string   `json:"deferred_platforms"`
 }
@@ -149,12 +150,13 @@ func cmdBuild(args []string) error {
 	if err := exportTree(commit, src); err != nil {
 		return err
 	}
-	std, err := goOutput(src, "run", "./tools/release/stdversion")
+	stdOut, err := goOutput(src, "run", "./tools/release/stdversion")
 	if err != nil {
 		return err
 	}
+	std, draft, _ := strings.Cut(stdOut, "\n")
 	m := Manifest{Name: "git-hint", Version: *ver, Commit: commit, Date: when.Format(time.RFC3339),
-		GoVersion: runtime.Version(), BuildHost: runtime.GOOS + "/" + runtime.GOARCH, StandardVersion: std, Deferred: []string{"windows"}}
+		GoVersion: runtime.Version(), BuildHost: runtime.GOOS + "/" + runtime.GOARCH, StandardVersion: std, StandardDraft: draft, Deferred: []string{"windows"}}
 	if err := os.MkdirAll(outAbs, 0o755); err != nil {
 		return err
 	}

@@ -132,5 +132,5 @@ Compatibility: the fields are additive. The rule intentionally refuses decision 
 ## Versions
 
 - The CLI and the server accept `0.1` and `0.2`. A v0.1 document cannot carry a context measurement or findings.
-- A producer writes v0.2 only when a document holds a context measurement or findings; otherwise it writes v0.1.
+- A producer writes v0.2 only when a document holds a v0.2 part; otherwise it writes v0.1. The reference client writes the draft v0.2 for a package with a context measurement, a declared task family, a source configuration, a model call, a collector closure, a usage normalization or a declared plan application; a server writes it for a recommendation set with findings, comparisons, feedback or a forecast basis.
 - `0.3` is unsupported (`unsupported_version`).
