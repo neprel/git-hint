@@ -369,9 +369,19 @@
     "code": "finding",
     "level": "schema"
   },
+  "effect-basis-input-only-objective.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
   "effect-basis-interval-order.json": {
     "base": "recommendation-findings.json",
     "code": "interval_order",
+    "level": "semantic"
+  },
+  "effect-basis-model-seconds-objective.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
     "level": "semantic"
   },
   "effect-basis-model-with-observed-summary.json": {
@@ -427,6 +437,11 @@
   "effect-basis-scenario-recommended.json": {
     "base": "recommendation-findings.json",
     "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-seconds-objective.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
     "level": "semantic"
   },
   "effect-basis-single-task-interval.json": {

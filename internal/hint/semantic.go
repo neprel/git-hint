@@ -643,7 +643,7 @@ func (c *checker) forecast(m, fb map[string]any, at string) {
 	if (fb["p_net_gain_positive"] != nil || fb["net_gain_interval"] != nil || hasBreakEven) && (fb["cost_basis"] == nil || cost == nil) {
 		bad("cost_basis")
 	}
-	if eb, ok := fb["effect_basis"].(map[string]any); ok && effectBasisProblem(eb, unit) {
+	if eb, ok := fb["effect_basis"].(map[string]any); ok && effectBasisProblem(eb, metric, unit) {
 		c.add(CodeEffectBasis, "%s.forecast_basis.effect_basis", at)
 	}
 	if fb["threshold_basis"] == "heuristic_default" && fb["threshold"] != DefaultForecastThreshold {
@@ -691,8 +691,13 @@ var observedFields = []string{"effect", "objectives", "record_refs", "population
 // effectBasisProblem reports whether a forecast effect basis is internally inconsistent. It checks
 // the labels, the fields and the arithmetic of the summary only: whether the opaque records belong
 // to the population and support the summary is a producer check, not a property of the document.
-// The basis never clears a forecast condition by itself.
-func effectBasisProblem(eb map[string]any, unit string) bool {
+// The basis never clears a forecast condition by itself. Both tuples are token estimands, so
+// the forecast objective is model_tokens in tokens (and the objective rule then requires the
+// separate per-task model_tokens prediction); another objective needs its own tuple.
+func effectBasisProblem(eb map[string]any, metric, unit string) bool {
+	if metric != "model_tokens" || unit != "tokens" {
+		return true
+	}
 	want, ok := effectBasisTuples[str(eb["source"])]
 	if !ok || str(eb["estimand"]) != want[0] || str(eb["uncertainty"]) != want[1] {
 		return true
@@ -711,7 +716,7 @@ func effectBasisProblem(eb map[string]any, unit string) bool {
 	pt, pok := e["point"].(float64)
 	lo, lok := iv["lower"].(float64)
 	hi, hok := iv["upper"].(float64)
-	return str(e["unit"]) != unit || !pok || !lok || !hok || pt < lo || pt > hi
+	return str(e["unit"]) != "tokens" || !pok || !lok || !hok || pt < lo || pt > hi
 }
 
 // DefaultForecastThreshold is the heuristic default decision threshold (a versioned example

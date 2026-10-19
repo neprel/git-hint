@@ -212,6 +212,20 @@ func observedOn(d M, i int) M {
 	return fb
 }
 
+// retarget moves plan i's forecast with an observed basis consistently to another objective:
+// the objective, the observed summary unit and the matching per-task model prediction.
+func retarget(d M, i int, metric, unit string) {
+	fb := observedOn(d, i)
+	fb["objective"] = M{"metric": metric, "unit": unit}
+	fb["effect_basis"].(M)["effect"].(M)["unit"] = unit
+	for _, p := range obj(d, "payload", "plans", i)["predictions"].([]any) {
+		pm := p.(map[string]any)
+		if pm["metric"] == "model_tokens" {
+			pm["metric"], pm["unit"] = metric, unit
+		}
+	}
+}
+
 // observedScenario is the split plan with a synthetic observed comparison and an assumed
 // (scenario) one-time cost: numeric economics, refused, never recommended.
 func observedScenario(d M) M {
@@ -464,6 +478,19 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"effect-basis-unit-mismatch", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
 			observedOn(d, 1)["effect_basis"].(M)["effect"].(M)["unit"] = "seconds"
+		}, nil},
+		{"effect-basis-seconds-objective", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			// the whole forecast moved to seconds: objective, observed summary and model prediction
+			retarget(d, 1, "task_elapsed_seconds", "seconds")
+		}, nil},
+		{"effect-basis-input-only-objective", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			retarget(d, 1, "input_tokens", "tokens") // input-only usage is not the model_tokens estimand
+		}, nil},
+		{"effect-basis-model-seconds-objective", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			modelProjection(d)
+			fb := obj(d, "payload", "plans", 1, "forecast_basis")
+			fb["objective"] = M{"metric": "task_elapsed_seconds", "unit": "seconds"}
+			obj(d, "payload", "plans", 1, "predictions", 0)["metric"], obj(d, "payload", "plans", 1, "predictions", 0)["unit"] = "task_elapsed_seconds", "seconds"
 		}, nil},
 		{"effect-basis-point-outside-interval", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
 			observedOn(d, 1)["effect_basis"].(M)["effect"].(M)["point"] = -2500.0
