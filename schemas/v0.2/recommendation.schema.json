@@ -1681,6 +1681,9 @@
               "coordination_unmodeled"
             ]
           }
+        },
+        "effect_basis": {
+          "$ref": "#/$defs/EffectBasis"
         }
       },
       "required": [
@@ -1693,6 +1696,88 @@
         "cost_basis",
         "evidence",
         "conditional_on"
+      ]
+    },
+    "EffectBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Draft v0.2, optional: which effect distribution supplies the forecast economics. Absent: the legacy model-projection reading. model_projection: the model's paired per-task token delta over the sampled task mix, with a model-conditional interval (not a prediction for one task). observed_objective_clustered: an observed controlled comparison, intervention minus baseline tokens per task over objective clusters, with the uncertainty of its mean (not a validated production effect of a change). Wire checks validate the labels, the fields and their internal arithmetic only; whether the opaque records belong to the population and support the summary is checked by the producer, not by this document.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "model_projection",
+            "observed_objective_clustered"
+          ]
+        },
+        "estimand": {
+          "type": "string",
+          "enum": [
+            "model_task_mix_mean_delta",
+            "controlled_task_token_delta"
+          ]
+        },
+        "uncertainty": {
+          "type": "string",
+          "enum": [
+            "model_conditional_interval",
+            "uncertainty_of_mean_delta"
+          ]
+        },
+        "effect": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The observed per-task effect: the mean delta and its interval, in the forecast objective unit. Separate from the model's model_tokens prediction.",
+          "properties": {
+            "point": {
+              "type": "number"
+            },
+            "interval": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Interval"
+            },
+            "unit": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Unit"
+            },
+            "per": {
+              "type": "string",
+              "const": "task"
+            }
+          },
+          "required": [
+            "point",
+            "interval",
+            "unit",
+            "per"
+          ]
+        },
+        "objectives": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of objective clusters of the observed comparison."
+        },
+        "record_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          },
+          "description": "Opaque references to the producer records of the observed comparison."
+        },
+        "population_ref": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId",
+          "description": "Opaque reference to the scoped population of the observed comparison."
+        },
+        "evidence_policy": {
+          "type": "string",
+          "const": "controlled-effect-v1",
+          "description": "The public interpretation of an observed controlled comparison; it identifies the reading, not proof of eligibility."
+        }
+      },
+      "required": [
+        "source",
+        "estimand",
+        "uncertainty"
       ]
     },
     "EffortDelta": {

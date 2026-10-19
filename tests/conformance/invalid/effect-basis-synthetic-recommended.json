@@ -1,0 +1,673 @@
+{
+  "content_digest": "sha256:12de6657d23508a425a0471340ad855f7e33384035d876796517529c31174f9d",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "fe4798b23a0ad03a54a5c2be583dbab3",
+  "document_type": "recommendation_set",
+  "hint_version": "0.2.0",
+  "payload": {
+    "abstentions": [
+      {
+        "problem": "coordination_wait",
+        "reason": "insufficient_coverage"
+      }
+    ],
+    "context_feedback": [
+      {
+        "basis": [
+          "expansion_is_normal",
+          "less_total_navigation",
+          "no_worse_outcome_with_delivery"
+        ],
+        "basis_label": "heuristic",
+        "feedback_id": "9c3e8c6133834eb560fc38e9c9fd9110",
+        "observation_ids": [
+          "674812dcf3d6c3a0afebb7417ef70060"
+        ],
+        "policy_ref": "4d2af0baecd6001e8cd4ae29223cc4ba",
+        "proposal": "keep",
+        "quantities": [
+          {
+            "coverage": [
+              12,
+              12
+            ],
+            "metric": "tasks_with_delivery",
+            "state": "observed",
+            "unit": "tasks",
+            "value": 12
+          },
+          {
+            "coverage": [
+              15,
+              15
+            ],
+            "metric": "comparable_tasks",
+            "state": "observed",
+            "unit": "tasks",
+            "value": 15
+          },
+          {
+            "coverage": [
+              3,
+              3
+            ],
+            "metric": "matched_groups",
+            "state": "observed",
+            "unit": "groups",
+            "value": 3
+          },
+          {
+            "coverage": [
+              20,
+              20
+            ],
+            "metric": "expansions",
+            "state": "observed",
+            "unit": "operations",
+            "value": 9
+          },
+          {
+            "coverage": [
+              12,
+              12
+            ],
+            "metric": "navigation_after_delivery_per_task",
+            "state": "observed",
+            "unit": "operations_per_task",
+            "value": 2.5
+          },
+          {
+            "coverage": [
+              12,
+              12
+            ],
+            "metric": "total_navigation_per_task",
+            "state": "observed",
+            "unit": "operations_per_task",
+            "value": 4.5
+          },
+          {
+            "coverage": [
+              15,
+              15
+            ],
+            "metric": "total_navigation_per_comparable_task",
+            "state": "observed",
+            "unit": "operations_per_task",
+            "value": 6
+          },
+          {
+            "coverage": [
+              12,
+              12
+            ],
+            "metric": "pass_rate_with_delivery",
+            "state": "observed",
+            "unit": "fraction",
+            "value": 0.92
+          },
+          {
+            "coverage": [
+              15,
+              15
+            ],
+            "metric": "pass_rate_comparable",
+            "state": "observed",
+            "unit": "fraction",
+            "value": 0.87
+          }
+        ],
+        "task_ids": [
+          "f81aa6bcaf28b4d064d7335bb684b97b"
+        ]
+      }
+    ],
+    "findings": [
+      {
+        "causes": [
+          {
+            "basis": [
+              "stale_context_measurement",
+              "repeat_without_observed_edit"
+            ],
+            "cause": "stale_index",
+            "state": "supported"
+          },
+          {
+            "basis": [
+              "single_component"
+            ],
+            "cause": "architectural_coupling",
+            "state": "not_supported"
+          },
+          {
+            "basis": [
+              "repeat_after_own_edit"
+            ],
+            "cause": "intentional_repeat",
+            "state": "not_excluded"
+          }
+        ],
+        "decision": {
+          "alternatives": [
+            {
+              "effort_delta": null,
+              "intervention": "CONTEXT_ONLY",
+              "one_time_source": "configuration",
+              "scope": null,
+              "state": "unbound",
+              "success_delta": null
+            },
+            {
+              "effort_delta": null,
+              "intervention": "REFACTOR_CODE",
+              "one_time_source": "unknown",
+              "scope": null,
+              "state": "unbound",
+              "success_delta": null
+            }
+          ],
+          "basis": "heuristic",
+          "chosen": "COLLECT_MORE_EVIDENCE",
+          "cost_model": "unavailable",
+          "evidence": "unbound"
+        },
+        "evidence_state": "supported",
+        "finding_id": "879476c356d6315ccc75baff1a56fdb8",
+        "interventions": [
+          "CONTEXT_ONLY",
+          "COLLECT_MORE_EVIDENCE"
+        ],
+        "next_step": {
+          "check": "refresh_index_and_recheck",
+          "targets": [
+            "484863ed7a5516f4033f6ae5341be4ef"
+          ]
+        },
+        "observation_ids": [
+          "17a4a1afe0b5107233113a68aa275955",
+          "f6ddb340623b21dac0672e02e258e81f"
+        ],
+        "priority": "heuristic",
+        "problem": "repeated_navigation",
+        "quantities": [
+          {
+            "coverage": [
+              6,
+              6
+            ],
+            "metric": "repeats_without_observed_edit",
+            "state": "observed",
+            "unit": "operations",
+            "value": 4
+          },
+          {
+            "coverage": [
+              6,
+              6
+            ],
+            "metric": "repeats_after_edit",
+            "state": "observed",
+            "unit": "operations",
+            "value": 1
+          },
+          {
+            "coverage": [
+              3,
+              3
+            ],
+            "metric": "tasks",
+            "state": "observed",
+            "unit": "tasks",
+            "value": 3
+          }
+        ],
+        "scope": {
+          "snapshot_ids": [
+            "06aa03bd1a8559963284cd91ff7914ba"
+          ],
+          "task_count": 3,
+          "task_ids": [
+            "f81aa6bcaf28b4d064d7335bb684b97b",
+            "8bda786a9d5adda5f04b5015be67ec34",
+            "d562e8ff8f9b2f37419d9af6b2d75969"
+          ]
+        },
+        "targets": [
+          "484863ed7a5516f4033f6ae5341be4ef"
+        ]
+      },
+      {
+        "causes": [
+          {
+            "basis": [
+              "large_read_without_edit",
+              "low_coverage"
+            ],
+            "cause": "insufficient_context",
+            "state": "not_excluded"
+          },
+          {
+            "basis": [],
+            "cause": "necessary_exploration",
+            "state": "not_excluded"
+          }
+        ],
+        "evidence_state": "limited",
+        "finding_id": "ccca44c3cacd9bf391585155dd195da1",
+        "interventions": [
+          "CONTEXT_ONLY",
+          "COLLECT_MORE_EVIDENCE"
+        ],
+        "next_step": {
+          "check": "collect_more_tasks",
+          "targets": []
+        },
+        "observation_ids": [
+          "17a4a1afe0b5107233113a68aa275955"
+        ],
+        "priority": "heuristic",
+        "problem": "large_low_selectivity_read",
+        "quantities": [
+          {
+            "coverage": [
+              2,
+              5
+            ],
+            "metric": "large_reads",
+            "state": "observed",
+            "unit": "operations",
+            "value": 2
+          },
+          {
+            "coverage": [
+              2,
+              5
+            ],
+            "metric": "large_read_bytes",
+            "state": "unknown",
+            "unit": "bytes",
+            "value": null
+          }
+        ],
+        "scope": {
+          "snapshot_ids": [
+            "06aa03bd1a8559963284cd91ff7914ba"
+          ],
+          "task_count": 1,
+          "task_ids": [
+            "f81aa6bcaf28b4d064d7335bb684b97b"
+          ]
+        },
+        "targets": []
+      }
+    ],
+    "plans": [
+      {
+        "authorization_basis": "deterministic",
+        "break_even_horizon": {
+          "interval": {
+            "level": 0.9,
+            "lower": 57,
+            "upper": 131
+          },
+          "unbounded": false,
+          "unit": "tasks"
+        },
+        "created_at": "2026-10-11T12:00:00Z",
+        "decision": "recommend",
+        "expires_at": "2026-10-18T12:00:00Z",
+        "forecast_basis": {
+          "conditional_on": [
+            "behavior_transport"
+          ],
+          "cost_basis": "observed_comparable_work",
+          "effect_basis": {
+            "effect": {
+              "interval": {
+                "level": 0.9,
+                "lower": -1800,
+                "upper": -600
+              },
+              "per": "task",
+              "point": -1200,
+              "unit": "tokens"
+            },
+            "estimand": "controlled_task_token_delta",
+            "evidence_policy": "controlled-effect-v1",
+            "objectives": 3,
+            "population_ref": "2315633cf3febee1a6fdf19fb3e23a02",
+            "record_refs": [
+              "3e37949cc8c5c76b347c8eb35ada65e2"
+            ],
+            "source": "observed_objective_clustered",
+            "uncertainty": "uncertainty_of_mean_delta"
+          },
+          "evidence": "synthetic_fixture",
+          "horizon_tasks": 120,
+          "net_gain_interval": {
+            "level": 0.9,
+            "lower": 50000,
+            "upper": 200000
+          },
+          "objective": {
+            "metric": "model_tokens",
+            "unit": "tokens"
+          },
+          "p_net_gain_positive": 0.93,
+          "threshold": 0.9,
+          "threshold_basis": "heuristic_default"
+        },
+        "intervention_class": "REFACTOR_CODE",
+        "plan_id": "6cdae0b2a2070b0a2c906e4556eaf0db",
+        "plan_schema": "0.2.0",
+        "preconditions": [
+          {
+            "check": "snapshot_matches"
+          },
+          {
+            "check": "entities_resolve",
+            "targets": [
+              "484863ed7a5516f4033f6ae5341be4ef",
+              "f76bf6857ca4943a23d3cabf9025ff99",
+              "be61868d40ff0b3b6a1af8855a4e1c61"
+            ]
+          },
+          {
+            "check": "worktree_clean"
+          },
+          {
+            "check": "tests_pass",
+            "targets": [
+              "484863ed7a5516f4033f6ae5341be4ef"
+            ]
+          }
+        ],
+        "predictions": [
+          {
+            "class": "forecast",
+            "interval": {
+              "level": 0.9,
+              "lower": -6000,
+              "upper": -1500
+            },
+            "metric": "context_bytes",
+            "per": "task",
+            "point": -3200,
+            "probability_improvement": 0.86,
+            "unit": "bytes"
+          },
+          {
+            "class": "forecast",
+            "interval": {
+              "level": 0.9,
+              "lower": -4410,
+              "upper": -1903
+            },
+            "metric": "model_tokens",
+            "per": "task",
+            "point": -2963,
+            "probability_improvement": 0.97,
+            "unit": "tokens"
+          }
+        ],
+        "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+        "reasons": [
+          {
+            "code": "context_size",
+            "metric_ids": [
+              "5112b8e8e05de7b86b05fb583afe7c53"
+            ],
+            "observation_ids": [
+              "17a4a1afe0b5107233113a68aa275955"
+            ]
+          },
+          {
+            "code": "boundary_crossings",
+            "metric_ids": [
+              "f5fb416c725bc034fc0a97e4d3a06710"
+            ]
+          }
+        ],
+        "refactoring_cost_estimate": {
+          "interval": {
+            "level": 0.9,
+            "lower": 180000,
+            "upper": 320000
+          },
+          "unit": "tokens"
+        },
+        "repo_ids": [
+          "0a47f621aa46a0035f78c74eaae15d4c"
+        ],
+        "required_approvals": [
+          "owner"
+        ],
+        "risk_constraints": [
+          {
+            "deterministic": true,
+            "kind": "test",
+            "requirement": "tests_unchanged_pass"
+          },
+          {
+            "constraint_id": "8bf8d537854d94f6abc2f8477dc6a88d",
+            "deterministic": true,
+            "kind": "api",
+            "requirement": "public_api_unchanged"
+          }
+        ],
+        "simulation": {
+          "agent_configuration_id": "d641b43ed4903a944c730c8078869b93",
+          "calibration_status": "backtested",
+          "level": "L3",
+          "model_version": "0.1.0",
+          "out_of_distribution": false,
+          "task_distribution_id": "79b68893b9ac1dc0fbfa3007554877ee"
+        },
+        "snapshots": [
+          {
+            "digest": "sha256:62f1027a8faa219687f014bcf3db320db1e96c6da667a90b5f91994d77cf56be",
+            "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+            "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+          }
+        ],
+        "steps": [
+          {
+            "action": "SPLIT",
+            "depends_on": [],
+            "requires_approval": true,
+            "step_id": 1,
+            "support": "supported",
+            "targets": [
+              "484863ed7a5516f4033f6ae5341be4ef"
+            ]
+          },
+          {
+            "action": "RUN_CHECKS",
+            "depends_on": [
+              1
+            ],
+            "requires_approval": false,
+            "step_id": 2,
+            "support": "supported",
+            "targets": [
+              "484863ed7a5516f4033f6ae5341be4ef"
+            ]
+          }
+        ],
+        "targets": [
+          "484863ed7a5516f4033f6ae5341be4ef",
+          "f76bf6857ca4943a23d3cabf9025ff99",
+          "be61868d40ff0b3b6a1af8855a4e1c61"
+        ],
+        "transformation": "SPLIT"
+      },
+      {
+        "created_at": "2026-10-11T12:00:00Z",
+        "decision": "refuse_uncertain",
+        "expires_at": "2026-10-18T12:00:00Z",
+        "forecast_basis": {
+          "conditional_on": [
+            "behavior_transport"
+          ],
+          "cost_basis": null,
+          "evidence": "project_history",
+          "horizon_tasks": 50,
+          "net_gain_interval": null,
+          "objective": {
+            "metric": "model_tokens",
+            "unit": "tokens"
+          },
+          "p_net_gain_positive": null,
+          "threshold": 0.8,
+          "threshold_basis": "configured_policy"
+        },
+        "intervention_class": "CONTEXT_ONLY",
+        "plan_id": "3a4890f785021a7c5734f35e83e0626d",
+        "plan_schema": "0.2.0",
+        "preconditions": [],
+        "predictions": [
+          {
+            "class": "forecast",
+            "interval": {
+              "level": 0.9,
+              "lower": -9001,
+              "upper": 2118
+            },
+            "metric": "model_tokens",
+            "per": "task",
+            "probability_improvement": 0.55,
+            "unit": "tokens"
+          }
+        ],
+        "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+        "reasons": [
+          {
+            "code": "low_adoption"
+          },
+          {
+            "code": "weak_evidence"
+          }
+        ],
+        "repo_ids": [
+          "0a47f621aa46a0035f78c74eaae15d4c"
+        ],
+        "required_approvals": [],
+        "risk_constraints": [],
+        "simulation": {
+          "agent_configuration_id": "d641b43ed4903a944c730c8078869b93",
+          "calibration_status": "uncalibrated",
+          "level": "L3",
+          "model_version": "0.1.0",
+          "out_of_distribution": false,
+          "task_distribution_id": "79b68893b9ac1dc0fbfa3007554877ee"
+        },
+        "snapshots": [
+          {
+            "digest": "sha256:62f1027a8faa219687f014bcf3db320db1e96c6da667a90b5f91994d77cf56be",
+            "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+            "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+          }
+        ],
+        "steps": [],
+        "targets": [],
+        "transformation": null
+      },
+      {
+        "created_at": "2026-10-11T12:00:00Z",
+        "decision": "collect_more_evidence",
+        "expires_at": "2026-10-18T12:00:00Z",
+        "intervention_class": "COLLECT_MORE_EVIDENCE",
+        "plan_id": "f8cf03c2f506dc404978d69d76324f7d",
+        "plan_schema": "0.2.0",
+        "preconditions": [],
+        "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+        "reasons": [
+          {
+            "code": "weak_evidence"
+          }
+        ],
+        "repo_ids": [
+          "0a47f621aa46a0035f78c74eaae15d4c"
+        ],
+        "required_approvals": [],
+        "risk_constraints": [],
+        "simulation": {
+          "level": "NONE"
+        },
+        "snapshots": [
+          {
+            "digest": "sha256:62f1027a8faa219687f014bcf3db320db1e96c6da667a90b5f91994d77cf56be",
+            "repo_id": "0a47f621aa46a0035f78c74eaae15d4c",
+            "snapshot_id": "06aa03bd1a8559963284cd91ff7914ba"
+          }
+        ],
+        "steps": [],
+        "targets": [],
+        "transformation": null
+      }
+    ],
+    "project_comparisons": [
+      {
+        "arm": "context_only",
+        "baseline_refs": [
+          "9e5a3b6729f04c019df37d08f386b929"
+        ],
+        "effort_delta": {
+          "counter_semantics": "harbor-0.23.0+opencode:n-tokens-root-v1",
+          "coverage": [
+            6,
+            6
+          ],
+          "interval": {
+            "lower": -400,
+            "upper": 300
+          },
+          "observed": -120.5,
+          "scope": "root_session",
+          "unit": "tokens_per_attempt"
+        },
+        "intervention_refs": [
+          "17390008006439f2982a31c54b0251fa"
+        ],
+        "label": "observed_unbound",
+        "objective_refs": [
+          "c9d927e23010d856387f55b5836e77e7"
+        ],
+        "pair_id": "6926d4378b1e7d8417892ab70428dbc4",
+        "paired_objectives": 6,
+        "partition": "held_out",
+        "success_delta": {
+          "coverage": [
+            6,
+            6
+          ],
+          "interval": {
+            "lower": 0,
+            "upper": 0.2
+          },
+          "observed": 0.1,
+          "unit": "success_fraction"
+        },
+        "task_families": 3
+      }
+    ]
+  },
+  "producer": {
+    "tool": "hint-cli",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "detailed",
+    "record_types": [
+      "Plan"
+    ],
+    "time_resolution_seconds": 0
+  },
+  "repositories": [
+    "0a47f621aa46a0035f78c74eaae15d4c"
+  ]
+}

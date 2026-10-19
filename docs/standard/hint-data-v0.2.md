@@ -70,8 +70,22 @@ Optional. It tells how to read a plan's forecast; a forecast is never a measurem
 | `cost_basis` | `observed_comparable_work` (an estimate from observed comparable refactoring work, not a measured cost of this change), `assumption_scenario`, or null (unknown) |
 | `evidence` | `synthetic_fixture` or `project_history` (baseline evidence; it does not validate an effect) |
 | `conditional_on` | every stated qualification: `behavior_transport`, `unseen_transformation`, `feature_extrapolation`, `unseen_task_mix`, `unseen_configuration`, `coordination_unmodeled` |
+| `effect_basis` | optional (draft): which effect distribution supplies the economics, see below; absent means the earlier model-projection reading |
 
 **Semantic rule `forecast_inconsistent`:** the plan has `simulation`; a per-task prediction exists for the objective metric and unit, and the one-time cost uses the same unit; a probability, net interval or break-even needs a known one-time cost (`cost_basis` and `refactoring_cost_estimate`); `heuristic_default` means the default threshold; a scenario cost or synthetic evidence never gives `recommend`; an unseen transformation, configuration or task mix, an extrapolation or unmodeled coordination needs `out_of_distribution: true` and no `recommend`; an L2 or L3 forecast states `behavior_transport`. The interval rule (`interval_order`) also applies to `net_gain_interval`. The break-even keeps its `unbounded` flag; no infinite number is sent.
+
+### Effect basis of a forecast (`ForecastBasis.effect_basis`, draft)
+
+Optional. It names the effect distribution behind `p_net_gain_positive`, `net_gain_interval` and the break-even. It never replaces the plan's `model_tokens` prediction, and it never clears a condition in `conditional_on`.
+
+| `source` | `estimand` | `uncertainty` | Meaning |
+|---|---|---|---|
+| `model_projection` | `model_task_mix_mean_delta` | `model_conditional_interval` | the model's mean paired per-task delta over the sampled task mix; the interval is conditional on the model and is not a prediction for one task |
+| `observed_objective_clustered` | `controlled_task_token_delta` | `uncertainty_of_mean_delta` | an observed controlled comparison: intervention minus baseline, tokens per task, over objective clusters; the interval is the uncertainty of that mean, not a prediction for one task and not a validated effect of a change in production |
+
+An observed comparison also carries `effect` (`point`, `interval` with its level, `unit` equal to the objective unit, `per: task`), `objectives` (the number of objective clusters), `record_refs` (opaque, unique) and `population_ref` (opaque), and `evidence_policy: controlled-effect-v1`. That policy identifies how the comparison is read: equal objective weights, the uncertainty of a mean, the stated population. It does not prove that a comparison was eligible. An observed comparison with an unknown one-time cost is valid; its probability, net value and break-even stay null.
+
+**Semantic rule `effect_basis_inconsistent`:** only the two (`source`, `estimand`, `uncertainty`) combinations above; a model projection carries none of the observed fields; an observed comparison carries all of them; the summary uses the objective unit and its point lies inside its interval. The rules of `forecast_inconsistent` apply unchanged (no numeric economics without a known cost, no `recommend` from a scenario or synthetic evidence). **Limits of the document checks:** they validate the labels, the fields and the internal arithmetic. They cannot show that the opaque records belong to the population or support the summary; that binding is a check of the producer that holds the records. A receiver gives an effect basis no evidential weight by itself.
 
 ## Declared plan application (`ChangeSetPayload.plan_application`)
 

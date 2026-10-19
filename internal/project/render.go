@@ -308,10 +308,36 @@ func renderForecastBasis(w func(string, ...any), fb map[string]any) {
 	w("- One-time cost: %s.\n", cost)
 	ev := map[string]string{"synthetic_fixture": "a synthetic fixture (not project validation)", "project_history": "this project's history (baseline evidence; it does not validate the effect)"}[str(fb["evidence"])]
 	w("- Evidence: %s.\n", ev)
+	if eb, ok := fb["effect_basis"].(map[string]any); ok {
+		renderEffectBasis(w, eb, fb["evidence"] == "synthetic_fixture")
+	}
 	if c := list(fb["conditional_on"]); len(c) > 0 {
 		w("- Conditional on: %s.\n", joinAny(c))
 	}
 	w("\n")
+}
+
+// renderEffectBasis writes which effect distribution supplies a forecast's economics (draft
+// v0.2). A synthetic example says so before any "observed" wording; an observed comparison is
+// the uncertainty of a mean, never a prediction for one task or a validated production effect.
+// The labels confer no evidence: the document checks validate their form only.
+func renderEffectBasis(w func(string, ...any), eb map[string]any, synthetic bool) {
+	switch eb["source"] {
+	case "model_projection":
+		w("- Effect basis: model projection: the model's mean per-task delta over the sampled task mix, with a model-conditional interval (not a prediction for one task).\n")
+	case "observed_objective_clustered":
+		label := "- Effect basis: "
+		if synthetic {
+			label = "- Effect basis (synthetic example, not project evidence): "
+		}
+		e, _ := eb["effect"].(map[string]any)
+		iv, _ := e["interval"].(map[string]any)
+		w("%sobserved controlled comparison over %v objectives: %v %s per task (%v to %v, %v interval); the uncertainty of a mean, "+
+			"not a prediction for one task and not a validated effect of this change in production (policy %s). The model prediction is shown separately.\n",
+			label, eb["objectives"], e["point"], str(e["unit"]), iv["lower"], iv["upper"], iv["level"], str(eb["evidence_policy"]))
+	default:
+		w("- Effect basis: unknown.\n")
+	}
 }
 
 // renderComparisons writes the project-level eval variant comparisons: observations that no

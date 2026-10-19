@@ -364,6 +364,106 @@
     "code": "evidence",
     "level": "schema"
   },
+  "effect-basis-duplicate-records.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "effect-basis-interval-order.json": {
+    "base": "recommendation-findings.json",
+    "code": "interval_order",
+    "level": "semantic"
+  },
+  "effect-basis-model-with-observed-summary.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-observed-without-objectives.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-observed-without-policy.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-observed-without-population.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-observed-without-records.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-observed-without-summary.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-per-attempt.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "effect-basis-point-outside-interval.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-private-policy-version.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "effect-basis-raw-record-name.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "effect-basis-scenario-recommended.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-single-task-interval.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "effect-basis-synthetic-recommended.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-tuple-mismatch.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-unit-mismatch.json": {
+    "base": "recommendation-findings.json",
+    "code": "effect_basis_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-unknown-cost-numeric-net.json": {
+    "base": "recommendation-findings.json",
+    "code": "forecast_inconsistent",
+    "level": "semantic"
+  },
+  "effect-basis-unknown-field.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
+  "effect-basis-zero-objectives.json": {
+    "base": "recommendation-findings.json",
+    "code": "finding",
+    "level": "schema"
+  },
   "effect-not-l4.json": {
     "base": "effect-report.json",
     "code": "evidence",

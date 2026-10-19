@@ -130,3 +130,40 @@ func TestRenderRefusesUnsupportedStoredDecisions(t *testing.T) {
 		}
 	}
 }
+
+// The effect basis of a forecast (draft v0.2): a model projection keeps its conditions, a
+// synthetic observed comparison says "synthetic" before "observed", an observed comparison with
+// an unknown cost keeps unknown economics, and a set without the field renders as before.
+func TestRenderEffectBasis(t *testing.T) {
+	render := func(path string) string {
+		raw, err := os.ReadFile(filepath.Join("..", "..", path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatal(err)
+		}
+		return Render(&Imported{Result: hint.ImportResult{Document: "accepted"}, Doc: doc}, &Current{Names: map[string]string{}}, "x.json")
+	}
+	if md := render("examples/v0.2/recommendation-findings.json"); strings.Contains(md, "Effect basis") {
+		t.Error("a forecast without an effect basis shows one")
+	}
+	md := render("tests/conformance/valid/effect-basis-model.json")
+	for _, want := range []string{"- Effect basis: model projection: the model's mean per-task delta over the sampled task mix, with a model-conditional interval (not a prediction for one task).",
+		"- Conditional on: behavior_transport, coordination_unmodeled."} {
+		if !strings.Contains(md, want) {
+			t.Errorf("model basis: missing %q in\n%s", want, md)
+		}
+	}
+	observed := "- Effect basis (synthetic example, not project evidence): observed controlled comparison over 3 objectives: -1200 tokens per task (-1800 to -600, 0.9 interval); " +
+		"the uncertainty of a mean, not a prediction for one task and not a validated effect of this change in production (policy controlled-effect-v1). The model prediction is shown separately."
+	md = render("tests/conformance/valid/effect-basis-observed-synthetic.json")
+	if !strings.Contains(md, observed) || !strings.Contains(md, "One-time cost: a stated scenario") {
+		t.Errorf("synthetic observed basis with a scenario cost:\n%s", md)
+	}
+	md = render("tests/conformance/valid/effect-basis-observed-unknown-cost.json")
+	if !strings.Contains(md, observed) || !strings.Contains(md, "- Net value over the horizon: unknown.") || !strings.Contains(md, "One-time cost: unknown (so no net value or break-even).") {
+		t.Errorf("observed basis with an unknown cost:\n%s", md)
+	}
+}

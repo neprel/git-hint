@@ -50,6 +50,11 @@ const (
 	// CodeEffortScope: an effort delta whose counter semantics and scope do not belong together,
 	// or a decision that uses an effort delta without whole-task scope (v0.2)
 	CodeEffortScope = "effort_scope_inconsistent"
+	// CodeEffectBasis: a forecast effect basis (v0.2) whose source, estimand and uncertainty do
+	// not belong together, a model projection with observed fields, an observed comparison
+	// without its summary, references, population or policy, or an observed summary in another
+	// unit than the objective or outside its own interval
+	CodeEffectBasis = "effect_basis_inconsistent"
 )
 
 // Canary values of the public research conventions; also used by the negative tests.
@@ -638,6 +643,9 @@ func (c *checker) forecast(m, fb map[string]any, at string) {
 	if (fb["p_net_gain_positive"] != nil || fb["net_gain_interval"] != nil || hasBreakEven) && (fb["cost_basis"] == nil || cost == nil) {
 		bad("cost_basis")
 	}
+	if eb, ok := fb["effect_basis"].(map[string]any); ok && effectBasisProblem(eb, unit) {
+		c.add(CodeEffectBasis, "%s.forecast_basis.effect_basis", at)
+	}
 	if fb["threshold_basis"] == "heuristic_default" && fb["threshold"] != DefaultForecastThreshold {
 		bad("threshold_basis")
 	}
@@ -669,6 +677,41 @@ func (c *checker) forecast(m, fb map[string]any, at string) {
 			bad("decision")
 		}
 	}
+}
+
+// effectBasisTuples are the only (source, estimand, uncertainty) combinations of an effect basis.
+var effectBasisTuples = map[string][2]string{
+	"model_projection":             {"model_task_mix_mean_delta", "model_conditional_interval"},
+	"observed_objective_clustered": {"controlled_task_token_delta", "uncertainty_of_mean_delta"},
+}
+
+// observedFields are the fields that only an observed controlled comparison carries.
+var observedFields = []string{"effect", "objectives", "record_refs", "population_ref", "evidence_policy"}
+
+// effectBasisProblem reports whether a forecast effect basis is internally inconsistent. It checks
+// the labels, the fields and the arithmetic of the summary only: whether the opaque records belong
+// to the population and support the summary is a producer check, not a property of the document.
+// The basis never clears a forecast condition by itself.
+func effectBasisProblem(eb map[string]any, unit string) bool {
+	want, ok := effectBasisTuples[str(eb["source"])]
+	if !ok || str(eb["estimand"]) != want[0] || str(eb["uncertainty"]) != want[1] {
+		return true
+	}
+	observed := eb["source"] == "observed_objective_clustered"
+	for _, f := range observedFields {
+		if _, has := eb[f]; has != observed {
+			return true
+		}
+	}
+	if !observed {
+		return false
+	}
+	e, _ := eb["effect"].(map[string]any)
+	iv, _ := e["interval"].(map[string]any)
+	pt, pok := e["point"].(float64)
+	lo, lok := iv["lower"].(float64)
+	hi, hok := iv["upper"].(float64)
+	return str(e["unit"]) != unit || !pok || !lok || !hok || pt < lo || pt > hi
 }
 
 // DefaultForecastThreshold is the heuristic default decision threshold (a versioned example

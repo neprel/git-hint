@@ -174,7 +174,52 @@ func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M)
 	control := clone(findings)
 	wholeTaskChoice(control)
 	write(filepath.Join(root, "tests", "conformance", "valid", "decision-whole-task-synthetic.json"), reseal(control))
+	// effect bases: a model projection that keeps its legitimate conditions, and two clearly
+	// synthetic observed comparisons, one with a scenario cost and one with an unknown cost
+	model := clone(findings)
+	modelProjection(model)
+	write(filepath.Join(root, "tests", "conformance", "valid", "effect-basis-model.json"), reseal(model))
+	scenario := clone(findings)
+	observedScenario(scenario)
+	write(filepath.Join(root, "tests", "conformance", "valid", "effect-basis-observed-synthetic.json"), reseal(scenario))
+	unknown := clone(findings)
+	observedOn(unknown, 1)
+	write(filepath.Join(root, "tests", "conformance", "valid", "effect-basis-observed-unknown-cost.json"), reseal(unknown))
 	return ctx, findings, declared
+}
+
+// modelProjection labels the refused plan's forecast as a model projection that stays
+// conditional on unmodeled coordination (out of distribution, never recommended).
+func modelProjection(d M) M {
+	p := obj(d, "payload", "plans", 1)
+	p["simulation"].(map[string]any)["out_of_distribution"] = true
+	fb := p["forecast_basis"].(map[string]any)
+	fb["conditional_on"] = A{"behavior_transport", "coordination_unmodeled"}
+	fb["effect_basis"] = M{"source": "model_projection", "estimand": "model_task_mix_mean_delta", "uncertainty": "model_conditional_interval"}
+	return fb
+}
+
+// observedOn gives plan i's forecast an explicitly synthetic observed controlled comparison:
+// the mean delta over three objective clusters with the uncertainty of that mean, kept apart
+// from the plan's model_tokens prediction.
+func observedOn(d M, i int) M {
+	fb := obj(d, "payload", "plans", i, "forecast_basis")
+	fb["evidence"] = "synthetic_fixture"
+	fb["effect_basis"] = M{"source": "observed_objective_clustered", "estimand": "controlled_task_token_delta", "uncertainty": "uncertainty_of_mean_delta",
+		"effect":     M{"point": -1200.0, "interval": M{"lower": -1800, "upper": -600, "level": 0.9}, "unit": "tokens", "per": "task"},
+		"objectives": 3, "record_refs": A{id("record", "controlled-comparison")}, "population_ref": id("population", "controlled-comparison"),
+		"evidence_policy": "controlled-effect-v1"}
+	return fb
+}
+
+// observedScenario is the split plan with a synthetic observed comparison and an assumed
+// (scenario) one-time cost: numeric economics, refused, never recommended.
+func observedScenario(d M) M {
+	p := obj(d, "payload", "plans", 0)
+	p["decision"], p["steps"] = "refuse_uncertain", A{} // a refused plan has no steps
+	fb := observedOn(d, 0)
+	fb["cost_basis"] = "assumption_scenario"
+	return fb
 }
 
 // declaredChangeSet is the change set of the split, declared by the client as the application
@@ -394,6 +439,69 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"forecast-recommend-l2", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
 			obj(d, "payload", "plans", 0, "simulation")["level"] = "L2"
+		}, nil},
+		{"effect-basis-tuple-mismatch", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["estimand"] = "model_task_mix_mean_delta"
+		}, nil},
+		{"effect-basis-model-with-observed-summary", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			e := observedOn(d, 1)["effect_basis"].(M)
+			e["source"], e["estimand"], e["uncertainty"] = "model_projection", "model_task_mix_mean_delta", "model_conditional_interval"
+		}, nil},
+		{"effect-basis-observed-without-summary", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			delete(observedOn(d, 1)["effect_basis"].(M), "effect")
+		}, nil},
+		{"effect-basis-observed-without-records", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			delete(observedOn(d, 1)["effect_basis"].(M), "record_refs")
+		}, nil},
+		{"effect-basis-observed-without-population", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			delete(observedOn(d, 1)["effect_basis"].(M), "population_ref")
+		}, nil},
+		{"effect-basis-observed-without-policy", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			delete(observedOn(d, 1)["effect_basis"].(M), "evidence_policy")
+		}, nil},
+		{"effect-basis-observed-without-objectives", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			delete(observedOn(d, 1)["effect_basis"].(M), "objectives")
+		}, nil},
+		{"effect-basis-unit-mismatch", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["effect"].(M)["unit"] = "seconds"
+		}, nil},
+		{"effect-basis-point-outside-interval", "recommendation-findings.json", "semantic", "effect_basis_inconsistent", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["effect"].(M)["point"] = -2500.0
+		}, nil},
+		{"effect-basis-interval-order", "recommendation-findings.json", "semantic", "interval_order", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["effect"].(M)["interval"] = M{"lower": -600, "upper": -1800, "level": 0.9}
+		}, nil},
+		{"effect-basis-unknown-cost-numeric-net", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			observedOn(d, 1)["p_net_gain_positive"] = 0.5
+		}, nil},
+		{"effect-basis-synthetic-recommended", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			observedOn(d, 0) // the split plan stays recommend
+		}, nil},
+		{"effect-basis-scenario-recommended", "recommendation-findings.json", "semantic", "forecast_inconsistent", func(d M) {
+			observedScenario(d)
+			obj(d, "payload", "plans", 0)["decision"] = "recommend"
+		}, nil},
+		{"effect-basis-zero-objectives", "recommendation-findings.json", "schema", "finding", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["objectives"] = 0
+		}, nil},
+		{"effect-basis-duplicate-records", "recommendation-findings.json", "schema", "finding", func(d M) {
+			e := observedOn(d, 1)["effect_basis"].(M)
+			e["record_refs"] = A{e["record_refs"].(A)[0], e["record_refs"].(A)[0]}
+		}, nil},
+		{"effect-basis-raw-record-name", "recommendation-findings.json", "schema", "finding", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["record_refs"] = A{"controlled comparison of billing"}
+		}, nil},
+		{"effect-basis-private-policy-version", "recommendation-findings.json", "schema", "finding", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["evidence_policy"] = "effect-0.1.0+selection-0.1.0"
+		}, nil},
+		{"effect-basis-per-attempt", "recommendation-findings.json", "schema", "finding", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["effect"].(M)["per"] = "attempt"
+		}, nil},
+		{"effect-basis-single-task-interval", "recommendation-findings.json", "schema", "finding", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["uncertainty"] = "predictive_interval"
+		}, nil},
+		{"effect-basis-unknown-field", "recommendation-findings.json", "schema", "finding", func(d M) {
+			observedOn(d, 1)["effect_basis"].(M)["eligible"] = true
 		}, nil},
 		{"configuration-model-known-without-ref", "activity-context.json", "schema", "source", func(d M) {
 			delete(cfg(d)["model"].(map[string]any), "ref")

@@ -211,6 +211,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			delete(defs, "ContextFeedback")
 			delete(defs, "ProjectComparison")
 			delete(defs, "ForecastBasis")
+			delete(defs, "EffectBasis") // the effect basis of a forecast (draft v0.2)
 			delete(defs["Plan"].(map[string]any)["properties"].(map[string]any), "forecast_basis")
 			props := defs["RecommendationPayload"].(map[string]any)["properties"].(map[string]any)
 			delete(props, "findings")

@@ -1116,6 +1116,72 @@ func TestReportFromFileEqualsAPI(t *testing.T) {
 	}
 }
 
+// The forecast effect basis (draft v0.2) through the real client: a set whose split plan carries
+// a synthetic observed comparison renders the same from the API and from a file, with the
+// synthetic label first; a set whose basis is inconsistent is refused by the document check.
+func TestReportShowsEffectBasis(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tests", "conformance", "valid", "effect-basis-observed-synthetic.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ex map[string]any
+	_ = json.Unmarshal(raw, &ex)
+	src := ex["payload"].(map[string]any)["plans"].([]any)[0].(map[string]any)
+	for _, forged := range []bool{false, true} {
+		shop, _ := setup(t)
+		srv := testkit.NewServer()
+		srv.Mutate = func(d map[string]any) {
+			d["hint_version"] = "0.2.0"
+			p := d["payload"].(map[string]any)
+			for _, pl := range p["plans"].([]any) {
+				pl.(map[string]any)["plan_schema"] = "0.2.0"
+			}
+			dst := p["plans"].([]any)[0].(map[string]any)
+			for _, k := range []string{"predictions", "simulation", "refactoring_cost_estimate", "break_even_horizon", "forecast_basis", "decision", "steps"} {
+				b, _ := json.Marshal(src[k])
+				var v any
+				_ = json.Unmarshal(b, &v)
+				dst[k] = v
+			}
+			if forged { // an observed summary under the model estimand
+				dst["forecast_basis"].(map[string]any)["effect_basis"].(map[string]any)["estimand"] = "model_task_mix_mean_delta"
+			}
+		}
+		res := run(t, shop, "", "recommend", "--yes", "--server", srv.URL)
+		api := filepath.Join(t.TempDir(), "api.md")
+		run(t, shop, "", "plan", "--out", api)
+		ns := func() string {
+			s, _ := store.Open(shop)
+			return s.Cfg.ProjectNamespace
+		}()
+		file := filepath.Join(t.TempDir(), "received.hint.json")
+		if err := os.WriteFile(file, srv.RecommendationFor(ns), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		fromFile := filepath.Join(t.TempDir(), "file.md")
+		run(t, shop, "", "plan", "--from", file, "--out", fromFile)
+		srv.Close()
+		b, _ := os.ReadFile(fromFile)
+		md := string(b)
+		if forged {
+			if !strings.Contains(md, "Document check: **effect_basis_inconsistent**") || strings.Contains(md, "Effect basis") {
+				t.Errorf("forged basis accepted (recommend: %v):\n%s", res, md)
+			}
+			continue
+		}
+		a, _ := os.ReadFile(api)
+		synthetic := "- Effect basis (synthetic example, not project evidence): observed controlled comparison over 3 objectives: -1200 tokens per task"
+		for _, m := range []string{string(a), md} {
+			if !strings.Contains(m, "Document check: **accepted**") || !strings.Contains(m, synthetic) {
+				t.Errorf("missing the synthetic effect basis in\n%s", m)
+			}
+			if strings.Index(m, "synthetic example") > strings.Index(m, "observed controlled comparison") {
+				t.Error("observed wording before the synthetic label")
+			}
+		}
+	}
+}
+
 // G11: HINT_TASK_ID declares the one task of an agent run: every record of the run carries the
 // same opaque task ID as hint_collect derives for the raw value; the source says so; an empty
 // value is undeclared; an invalid value fails before any write; the raw value never leaves.
