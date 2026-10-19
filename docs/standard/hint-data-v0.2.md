@@ -129,6 +129,16 @@ Absent fields mean `unknown`. The Harbor/OpenCode counters pair only with `root_
 
 Compatibility: the fields are additive. The rule intentionally refuses decision claims that earlier drafts allowed without whole-task counters (for example a `CONTEXT_ONLY` choice from root-session counters); such documents are not behaviorally backward compatible.
 
+### Model ledger of an agent run (draft)
+
+A controlled run can route all its model traffic through one bounded gate (a model proxy with an admission token). The gate's sealed account becomes one `USAGE` record of a source with `adapter.name: hint-model-ledger` and `usage_normalization: openai-compat-usage-v1`. Example: [`activity-model-ledger.json`](../../examples/v0.2/activity-model-ledger.json).
+
+- **`correlation.run_ref`** (optional): the opaque reference of the one agent run that produced a record (the eval-report trial reference of the run). The runner derives it once; every record of the run carries it. The ledger record carries it too.
+- **`model_ledger`** (only on `op: USAGE`, which then needs `run_ref`, `task_id` and `task_family_id`): `ledger_ref`; `revision` (a request after the seal gives a new revision with a higher number; the seal time never changes); `state` `complete`/`incomplete` with `reasons`; `counts` (all required: `admitted`, the terminal states `complete`, `usage_partial`, `missing_usage`, `usage_conflict`, `unreadable`, `truncated`, `error`, `cancelled`, `unknown`, and `late`, `rejected_limit`); `components` (provider sums of `prompt`, `completion`, `cached`, `reasoning`, null when no request reported one) with `component_coverage`; `model_check` (`requested_model_observed`: every request named the selected model — not proof of the weights served); `bypass` (`enforced` only with an enforced run-wide egress boundary); `scope` (`isolated_container` only when every process of the run was inside one container); `sealed_at`; `binding` (`run_ref`, `task_id`, `task_family_id`, `configuration_digest` = the digest of the run's canonical configuration without `declared`, `unit_ref`, `attempt_ref`, all in the project-scoped eval-report domains).
+- **Meaning.** The ledger certifies the bounded model-traffic scope of one run only. It says nothing about tool events or behavioral coverage. The provider components are descriptive (`openai-compat-usage-v1` maps nothing): the canonical `usage.input_tokens` and `usage.output_tokens` of a ledger record stay unknown.
+
+**Semantic rule `ledger_inconsistent`:** `admitted` is the sum of the terminal states; coverage is within `admitted`, and a component is null exactly when its coverage is 0; `state: complete` exactly when `admitted > 0`, every admitted request is complete, prompt and completion coverage equal `admitted`, `model_check: requested_model_observed`, `scope: isolated_container`, `bypass: enforced`, `late` and `rejected_limit` are 0 and `reasons` is empty; an incomplete state has reasons; the canonical usage is unknown; the source's normalization is `openai-compat-usage-v1`; the correlation equals the binding; one revision has one body, and all revisions of a ledger have one binding and one seal time.
+
 ## Versions
 
 - The CLI and the server accept `0.1` and `0.2`. A v0.1 document cannot carry a context measurement or findings.

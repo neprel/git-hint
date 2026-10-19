@@ -218,6 +218,10 @@
             "call_ref": {
               "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId",
               "description": "The opaque identity of one model call, shared by its MODEL_CALL record and its terminal USAGE record; set only when the source gives an exact call identity (draft v0.2, C7B-E)."
+            },
+            "run_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId",
+              "description": "The opaque reference of the one agent run that produced the record (the eval-report trial reference of the run); every record of the run carries it, and a model ledger binds to it (draft v0.2)."
             }
           },
           "dependentRequired": {
@@ -689,6 +693,9 @@
         },
         "collection": {
           "$ref": "#/$defs/Collection"
+        },
+        "model_ledger": {
+          "$ref": "#/$defs/ModelLedger"
         }
       },
       "required": [
@@ -1008,6 +1015,32 @@
               "correlation"
             ]
           }
+        },
+        {
+          "if": {
+            "required": [
+              "model_ledger"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "const": "USAGE"
+              },
+              "correlation": {
+                "required": [
+                  "run_ref",
+                  "task_id",
+                  "task_family_id"
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "correlation",
+              "usage"
+            ]
+          }
         }
       ]
     },
@@ -1260,6 +1293,277 @@
             }
           }
         }
+      ]
+    },
+    "ModelLedger": {
+      "description": "The sealed account of one agent run's model traffic at one revision (draft v0.2), on that run's USAGE record. It certifies the bounded model-traffic scope only (never absent tool events or behavioral coverage). Components are provider usage as reported, labeled by the source's usage normalization; they are never canonical model tokens. model_check requested_model_observed means every request named the selected model, not that those weights were served.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ledger_ref": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "incomplete"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "bypass_not_enforced",
+              "scope_not_isolated",
+              "late_requests",
+              "no_requests",
+              "rejected_limit",
+              "usage_partial",
+              "missing_usage",
+              "usage_conflict",
+              "unreadable",
+              "truncated",
+              "error",
+              "cancelled",
+              "unknown",
+              "model_mismatch",
+              "model_unverified",
+              "model_not_observed"
+            ]
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "admitted": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "late": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "rejected_limit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "complete": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "usage_partial": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "missing_usage": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "usage_conflict": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unreadable": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "error": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cancelled": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "admitted",
+            "late",
+            "rejected_limit",
+            "complete",
+            "usage_partial",
+            "missing_usage",
+            "usage_conflict",
+            "unreadable",
+            "truncated",
+            "error",
+            "cancelled",
+            "unknown"
+          ]
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prompt": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completion": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cached": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reasoning": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "prompt",
+            "completion",
+            "cached",
+            "reasoning"
+          ]
+        },
+        "component_coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prompt": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "completion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cached": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reasoning": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "prompt",
+            "completion",
+            "cached",
+            "reasoning"
+          ]
+        },
+        "model_check": {
+          "type": "string",
+          "enum": [
+            "requested_model_observed",
+            "mismatch",
+            "unverified",
+            "not_observed"
+          ]
+        },
+        "bypass": {
+          "type": "string",
+          "enum": [
+            "enforced",
+            "observed_no_bypass",
+            "unverified"
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "isolated_container",
+            "restricted"
+          ]
+        },
+        "sealed_at": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+        },
+        "binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "run_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "task_id": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "task_family_id": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "configuration_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            },
+            "unit_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "attempt_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            }
+          },
+          "required": [
+            "run_ref",
+            "task_id",
+            "task_family_id",
+            "configuration_digest",
+            "unit_ref",
+            "attempt_ref"
+          ]
+        }
+      },
+      "required": [
+        "ledger_ref",
+        "revision",
+        "state",
+        "reasons",
+        "counts",
+        "components",
+        "component_coverage",
+        "model_check",
+        "bypass",
+        "scope",
+        "sealed_at",
+        "binding"
       ]
     }
   }

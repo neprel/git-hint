@@ -11,7 +11,8 @@
 - Draft model calls (C7B-E): `op: MODEL_CALL` with `request_kind` and `correlation.call_ref`, `request_kind` on the terminal `USAGE`, the typed `collection` closure on a closing `SESSION` record, allowlisted `sources[].usage_normalization`. Semantic rules `call_link_conflict` and `collection_inconsistent`. Field names `correlation.call_ref`, `request_kind`, `collection`.
 - Draft counter provenance on every `effort_delta` (`counter_semantics`, `scope`) and the semantic rule `effort_scope_inconsistent`. Additive fields; the rule intentionally refuses decisions that use effort deltas without whole-task scope, which earlier drafts allowed.
 - Draft `ForecastBasis.effect_basis` (optional): which effect distribution supplies the forecast economics — a model projection or an observed controlled comparison with its per-task summary, objective count, opaque record and population references and the public policy `controlled-effect-v1` — and the semantic rule `effect_basis_inconsistent`. Additive; absent means the earlier model-projection reading. The labels confer no evidence.
-- The export policy lists `context`, `collection` and `request_kind` as observation fields.
+- Draft model ledger: `correlation.run_ref`, `Observation.model_ledger` on a USAGE record of a `hint-model-ledger` source, the descriptive normalization `openai-compat-usage-v1`, and the semantic rule `ledger_inconsistent`. The canonical usage of a ledger record stays unknown.
+- The export policy lists `context`, `collection`, `request_kind` and `model_ledger` as observation fields.
 - Everything else is unchanged; v0.1 documents stay valid v0.1 documents.
 - Conformance: the "unsupported minor version" fixture now uses `0.3.0`, because `0.2` is supported.
 

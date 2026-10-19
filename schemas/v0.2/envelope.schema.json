@@ -90,6 +90,7 @@
                   "otlp-receiver",
                   "watcher",
                   "shell-parser",
+                  "hint-model-ledger",
                   "other"
                 ]
               },

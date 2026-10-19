@@ -137,6 +137,9 @@ func (n *Normalizer) modelObs(op, raw, at string, id string) Observation {
 		if n.TaskFamilyID != "" {
 			o.Correlation["task_family_id"] = n.TaskFamilyID
 		}
+		if n.RunRef != "" {
+			o.Correlation["run_ref"] = n.RunRef
+		}
 		o.Missing = slices.DeleteFunc(o.Missing, func(s string) bool { return s == "correlation.task_id" })
 	}
 	return o

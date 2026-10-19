@@ -34,6 +34,9 @@ type Normalizer struct {
 	// TaskFamilyID is the declared family of that task (HINT_TASK_FAMILY, FamilyRef); empty:
 	// not declared.
 	TaskFamilyID string
+	// RunRef is the opaque reference of the agent run (HINT_RUN_REF, from the runner); empty:
+	// the run is not bound to a model ledger.
+	RunRef string
 	// OnStats receives the counter lines of the plugin (hook "hint.stats"), if set.
 	OnStats func(line []byte)
 	// ModelCalls maps the model-call events (MODEL_CALL, USAGE, session closure; draft v0.2)
@@ -53,6 +56,7 @@ type SourceOptions struct {
 	AgentVersion   string
 	TaskDeclared   bool           // HINT_TASK_ID: every record of the run carries the task
 	FamilyDeclared bool           // HINT_TASK_FAMILY: and its declared family
+	RunDeclared    bool           // HINT_RUN_REF: and the opaque reference of the run
 	Configuration  *Configuration // the canonical effective configuration, if built
 	// ModelCalls: the plugin forwards the model-call events of a checked OpenCode version
 	// (UsageAgentVersion): the source reports usage under UsageNormalization (draft v0.2).
@@ -71,6 +75,9 @@ func OpenCodeSource(key []byte, o SourceOptions) Source {
 	parts := []string{"opencode-plugin", o.AgentVersion, Version, mode}
 	if o.FamilyDeclared {
 		parts = append(parts, "declared-family")
+	}
+	if o.RunDeclared {
+		parts = append(parts, "declared-run")
 	}
 	if o.Configuration != nil {
 		parts = append(parts, "configuration", o.Configuration.Digest())
@@ -91,6 +98,9 @@ func OpenCodeSource(key []byte, o SourceOptions) Source {
 	}
 	if o.FamilyDeclared {
 		s.Capabilities = append(s.Capabilities, "correlation.task_family_id")
+	}
+	if o.RunDeclared {
+		s.Capabilities = append(s.Capabilities, "correlation.run_ref")
 	}
 	if o.ModelCalls {
 		s.Capabilities = append(s.Capabilities, "usage", "request_kind", "correlation.call_ref", "collection")
@@ -357,6 +367,9 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 				o.Correlation["task_id"] = n.TaskID
 				if n.TaskFamilyID != "" {
 					o.Correlation["task_family_id"] = n.TaskFamilyID
+				}
+				if n.RunRef != "" {
+					o.Correlation["run_ref"] = n.RunRef
 				}
 				o.Missing = slices.DeleteFunc(o.Missing, func(s string) bool { return s == "correlation.task_id" })
 			}

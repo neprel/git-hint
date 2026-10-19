@@ -418,7 +418,9 @@
         "correlation.task_family_id",
         "correlation.call_ref",
         "request_kind",
-        "collection"
+        "collection",
+        "correlation.run_ref",
+        "model_ledger"
       ]
     },
     "Agent": {
@@ -1115,9 +1117,10 @@
     "UsageNormalization": {
       "type": "string",
       "enum": [
-        "opencode-2.0.26:tokeninfo-v1"
+        "opencode-2.0.26:tokeninfo-v1",
+        "openai-compat-usage-v1"
       ],
-      "description": "A supported, versioned usage normalization of harness-reported token counters (draft v0.2, C7B-E): opencode-2.0.26:tokeninfo-v1 = input non-cached, output generated total (visible + disjoint reasoning), reasoning a subset, cache separate."
+      "description": "A supported, versioned usage normalization of harness-reported token counters (draft v0.2, C7B-E): opencode-2.0.26:tokeninfo-v1 = input non-cached, output generated total (visible + disjoint reasoning), reasoning a subset, cache separate. openai-compat-usage-v1 = the OpenAI-compatible provider usage components as reported (descriptive: no mapping to canonical tokens; the canonical usage of such a record stays unknown)."
     }
   }
 }

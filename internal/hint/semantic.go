@@ -1,6 +1,7 @@
 package hint
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"regexp"
@@ -55,6 +56,11 @@ const (
 	// without its summary, references, population or policy, or an observed summary in another
 	// unit than the objective or outside its own interval
 	CodeEffectBasis = "effect_basis_inconsistent"
+	// CodeLedger: a model ledger record (v0.2) whose counts, coverage, components or state do
+	// not agree, whose canonical usage is known, whose correlation differs from its binding, whose
+	// source is not a descriptive ledger source, or a second body, binding or seal time for the
+	// same ledger revision or ledger in one document
+	CodeLedger = "ledger_inconsistent"
 )
 
 // Canary values of the conformance suite; also used by the negative tests.
@@ -350,9 +356,18 @@ func (c *checker) activity(payload map[string]any) {
 	closed := map[string]bool{}   // source, session, collection ref
 	calls := map[string]bool{}    // source, session, call ref, op
 	kinds := map[string]string{}  // source, session, call ref -> request kind
+	norms := map[string]string{}  // source -> usage normalization
+	for _, s := range list(c.doc["sources"]) {
+		m, _ := s.(map[string]any)
+		norms[str(m["source_id"])] = str(m["usage_normalization"])
+	}
+	ledgers := map[string]string{} // ledger ref (+ revision) -> canonical body, binding and seal time
 	for i, o := range list(payload["observations"]) {
 		m, _ := o.(map[string]any)
 		c.modelCall(m, i, closed, calls, kinds)
+		if l, ok := m["model_ledger"].(map[string]any); ok && ledgerProblem(m, l, norms, ledgers) {
+			c.add(CodeLedger, "payload.observations[%d].model_ledger", i)
+		}
 		// one task declares one family; a second family for the same task is a conflict
 		if corr, _ := m["correlation"].(map[string]any); str(corr["task_family_id"]) != "" {
 			task, fam := str(corr["task_id"]), str(corr["task_family_id"])
@@ -718,6 +733,76 @@ func effectBasisProblem(eb map[string]any, metric, unit string) bool {
 	hi, hok := iv["upper"].(float64)
 	return str(e["unit"]) != "tokens" || !pok || !lok || !hok || pt < lo || pt > hi
 }
+
+// ledgerEntryStates are the terminal states of admitted requests; their counts add up to admitted.
+var ledgerEntryStates = []string{"complete", "usage_partial", "missing_usage", "usage_conflict", "unreadable", "truncated", "error", "cancelled", "unknown"}
+
+// ledgerProblem checks one model ledger record against itself, its record and the earlier
+// ledger records of the document (fail closed: a missing or non-integer count is a problem).
+func ledgerProblem(m, l map[string]any, norms, seen map[string]string) bool {
+	counts, _ := l["counts"].(map[string]any)
+	n := func(k string) (int, bool) {
+		v, ok := counts[k].(float64)
+		return int(v), ok && v >= 0 && v == float64(int(v))
+	}
+	admitted, ok := n("admitted")
+	sum := 0
+	for _, k := range ledgerEntryStates {
+		v, okk := n(k)
+		ok = ok && okk
+		sum += v
+	}
+	late, ok1 := n("late")
+	rejected, ok2 := n("rejected_limit")
+	complete, _ := n("complete")
+	if !ok || !ok1 || !ok2 || sum != admitted {
+		return true
+	}
+	cov, _ := l["component_coverage"].(map[string]any)
+	comps, _ := l["components"].(map[string]any)
+	for _, k := range []string{"prompt", "completion", "cached", "reasoning"} {
+		c, okc := cov[k].(float64)
+		_, known := comps[k].(float64)
+		if !okc || c < 0 || int(c) > admitted || known != (c > 0) {
+			return true
+		}
+	}
+	full := admitted > 0 && complete == admitted && int(num(cov["prompt"])) == admitted && int(num(cov["completion"])) == admitted &&
+		l["model_check"] == "requested_model_observed" && l["scope"] == "isolated_container" && l["bypass"] == "enforced" && late == 0 && rejected == 0
+	reasons := list(l["reasons"])
+	if (l["state"] == "complete") != (full && len(reasons) == 0) || (l["state"] == "incomplete" && len(reasons) == 0) {
+		return true
+	}
+	// the canonical usage of a ledger record stays unknown (the provider usage is descriptive)
+	if u, _ := m["usage"].(map[string]any); u != nil {
+		for _, k := range []string{"input_tokens", "output_tokens"} {
+			if q, _ := u[k].(map[string]any); q == nil || q["state"] == "known" {
+				return true
+			}
+		}
+	}
+	if norms[str(m["source_id"])] != "openai-compat-usage-v1" {
+		return true
+	}
+	corr, _ := m["correlation"].(map[string]any)
+	b, _ := l["binding"].(map[string]any)
+	if str(corr["run_ref"]) != str(b["run_ref"]) || str(corr["task_id"]) != str(b["task_id"]) || str(corr["task_family_id"]) != str(b["task_family_id"]) {
+		return true
+	}
+	body, _ := json.Marshal(l)
+	ref, rev := str(l["ledger_ref"]), fmt.Sprint(num(l["revision"]))
+	fixed, _ := json.Marshal([]any{l["binding"], l["sealed_at"]})
+	if prev, ok := seen[ref+"\x00"+rev]; ok && prev != string(body) {
+		return true // a second body for one revision
+	}
+	if prev, ok := seen[ref]; ok && prev != string(fixed) {
+		return true // a revision with another binding or seal time
+	}
+	seen[ref+"\x00"+rev], seen[ref] = string(body), string(fixed)
+	return false
+}
+
+func num(v any) float64 { f, _ := v.(float64); return f }
 
 // DefaultForecastThreshold is the heuristic default decision threshold (a versioned example
 // value, not a policy).

@@ -419,7 +419,8 @@ func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 		// v0.2 fields: a context measurement, a declared task family, a source configuration,
 		// a model call (MODEL_CALL, request kind, call identity, collector closure, normalization)
 		if o.Context != nil || slices.Contains(o.Missing, "context") || o.Correlation["task_family_id"] != "" || srcs[o.SourceID].Configuration != nil ||
-			o.Op == "MODEL_CALL" || o.RequestKind != "" || o.Collection != nil || o.Correlation["call_ref"] != "" || srcs[o.SourceID].UsageNormalization != "" {
+			o.Op == "MODEL_CALL" || o.RequestKind != "" || o.Collection != nil || o.Correlation["call_ref"] != "" || srcs[o.SourceID].UsageNormalization != "" ||
+			o.ModelLedger != nil || o.Correlation["run_ref"] != "" {
 			return version.DraftVersion, nil
 		}
 	}
@@ -700,7 +701,8 @@ func sourceFor(src activity.Source, ver string) activity.Source {
 		return src
 	}
 	src.Capabilities = slices.DeleteFunc(slices.Clone(src.Capabilities), func(c string) bool {
-		return c == "context" || c == "correlation.task_family_id" || c == "request_kind" || c == "correlation.call_ref" || c == "collection"
+		return c == "context" || c == "correlation.task_family_id" || c == "request_kind" || c == "correlation.call_ref" || c == "collection" ||
+			c == "correlation.run_ref" || c == "model_ledger"
 	})
 	src.Configuration = nil
 	src.UsageNormalization = ""

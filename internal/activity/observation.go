@@ -36,8 +36,10 @@ type Observation struct {
 	RequestKind string `json:"request_kind,omitempty"`
 	// Collection is the collector closure of a session on its closing SESSION record (draft v0.2).
 	Collection *Collection `json:"collection,omitempty"`
-	Missing    []string    `json:"missing"`
-	Provenance Provenance  `json:"provenance"`
+	// ModelLedger is the sealed account of one run's model traffic on its USAGE record (draft v0.2).
+	ModelLedger *ModelLedger `json:"model_ledger,omitempty"`
+	Missing     []string     `json:"missing"`
+	Provenance  Provenance   `json:"provenance"`
 }
 
 // Usage is the token use of one model call (hint-data usage; cache and reasoning are separate

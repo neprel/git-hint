@@ -34,9 +34,12 @@ func cmdAdapter(e *Env, args []string) int {
 		return adapterInstall(e, args[2:])
 	case len(args) >= 1 && args[0] == "opencode":
 		return adapterOpenCode(e, args[1:])
+	case len(args) >= 1 && args[0] == "ledger":
+		return adapterLedger(e, args[1:])
 	}
 	fmt.Fprintln(e.Stderr, "usage: git hint adapter install opencode [--force]   [writes .opencode/plugins/hint-adapter.ts]")
 	fmt.Fprintln(e.Stderr, "       git hint adapter opencode --project <dir>      [internal: started by the plugin]")
+	fmt.Fprintln(e.Stderr, "       git hint adapter ledger                         [internal: one sealed model ledger on stdin, from the runner]")
 	return 2
 }
 
@@ -121,6 +124,12 @@ func adapterOpenCode(e *Env, args []string) int {
 	if rawFamily != "" && !project.ValidTaskID(rawFamily) {
 		return fail(e, errors.New("HINT_TASK_FAMILY is not a usable family label (1-200 bytes of printable text); nothing was written"))
 	}
+	// HINT_RUN_REF: the frozen opaque run reference that the runner derived once (RunRef); it is
+	// written verbatim, never derived here, and only with a declared task
+	runRef := os.Getenv("HINT_RUN_REF")
+	if runRef != "" && (!activity.ValidRunRef(runRef) || !declared) {
+		return fail(e, errors.New("HINT_RUN_REF must be a 32-hex run reference of a run with HINT_TASK_ID; nothing was written"))
+	}
 	root := os.Getenv("HINT_OPENCODE_SESSION")
 	if root != "" && !project.ValidTaskID(root) {
 		return fail(e, errors.New("HINT_OPENCODE_SESSION is not a usable session ID (1-200 bytes of printable text); nothing was written"))
@@ -152,7 +161,7 @@ func adapterOpenCode(e *Env, args []string) int {
 	// model calls only for the OpenCode version whose events were checked (07B-E §30)
 	modelCalls := *modelCallsFlag && *agentVersion == activity.UsageAgentVersion
 	src := activity.OpenCodeSource(s.Key(), activity.SourceOptions{AgentVersion: *agentVersion, TaskDeclared: declared,
-		FamilyDeclared: rawFamily != "", Configuration: cfg, ModelCalls: modelCalls})
+		FamilyDeclared: rawFamily != "", RunDeclared: runRef != "", Configuration: cfg, ModelCalls: modelCalls})
 	if err := project.RegisterSource(s, src); err != nil {
 		return fail(e, err)
 	}
@@ -188,6 +197,7 @@ func adapterOpenCode(e *Env, args []string) int {
 		if rawFamily != "" {
 			n.TaskFamilyID = activity.FamilyRef(s.Key(), rawFamily)
 		}
+		n.RunRef = runRef
 	}
 	n.OnStats = func(line []byte) {
 		statsLines++

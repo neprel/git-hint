@@ -79,7 +79,7 @@ func contextPolicy(pol M) M {
 	p := clone(pol)
 	p["hint_version"] = "0.2.0"
 	f := obj(p, "payload", "fields")
-	f["Observation"] = append(f["Observation"].([]any), "context", "collection", "request_kind")
+	f["Observation"] = append(f["Observation"].([]any), "context", "collection", "request_kind", "model_ledger")
 	if plan, ok := f["Plan"].([]any); ok {
 		f["Plan"] = append(plan, "forecast_basis")
 	}
@@ -170,6 +170,7 @@ func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M)
 	write(ex("recommendation-findings.json"), findings)
 	write(ex("change-set-declared.json"), declared)
 	write(ex("activity-model-call.json"), modelCallDoc(act))
+	write(ex("activity-model-ledger.json"), ledgerDoc(act))
 	// a positive control for the effort rule: an explicitly synthetic complete whole-task choice
 	control := clone(findings)
 	wholeTaskChoice(control)

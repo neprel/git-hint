@@ -32,7 +32,7 @@ const DraftVersion = "0.2.0"
 // DraftFields are the draft v0.2 parts whose presence makes an exported package v0.2.
 var DraftFields = []string{"observation context measurement", "declared task family", "source configuration",
 	"model call (MODEL_CALL, request_kind, correlation.call_ref)", "collector closure (collection)", "usage normalization",
-	"declared plan application"}
+	"declared plan application", "model ledger (model_ledger, correlation.run_ref)"}
 
 // standardVersion is the SemVer pattern of the HINT data standard (common.schema.json).
 var standardVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|dev)(\.(0|[1-9][0-9]*))?)?$`)

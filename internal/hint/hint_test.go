@@ -170,7 +170,8 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			fn := v2["$defs"].(map[string]any)["FieldName"].(map[string]any)
 			// "context" (missing context coverage), "correlation.task_family_id" and the model-call
 			// fields "correlation.call_ref", "request_kind", "collection" (C7B-E) are v0.2 entries
-			v02only := map[any]bool{"context": true, "correlation.task_family_id": true, "correlation.call_ref": true, "request_kind": true, "collection": true}
+			v02only := map[any]bool{"context": true, "correlation.task_family_id": true, "correlation.call_ref": true, "request_kind": true, "collection": true,
+				"correlation.run_ref": true, "model_ledger": true} // the model ledger channel (draft v0.2)
 			var keep []any
 			for _, x := range fn["enum"].([]any) {
 				if !v02only[x] {
@@ -185,11 +186,15 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			o := v2["$defs"].(map[string]any)["Observation"].(map[string]any)
 			delete(o["properties"].(map[string]any), "context")
 			all := o["allOf"].([]any)
-			// the four model-call conditions (C7B-E) precede the context condition, the last entry
-			o["allOf"] = all[:len(all)-5]
+			// the four model-call conditions (C7B-E), the context condition and the model ledger
+			// condition are the last six entries
+			o["allOf"] = all[:len(all)-6]
 			corr := o["properties"].(map[string]any)["correlation"].(map[string]any)
 			delete(corr["properties"].(map[string]any), "task_family_id") // the declared task family (C7B-E)
 			delete(corr["properties"].(map[string]any), "call_ref")       // the model-call identity (C7B-E)
+			delete(corr["properties"].(map[string]any), "run_ref")        // the run binding of a model ledger (draft v0.2)
+			delete(o["properties"].(map[string]any), "model_ledger")
+			delete(v2["$defs"].(map[string]any), "ModelLedger")
 			delete(corr, "dependentRequired")
 			delete(o["properties"].(map[string]any), "request_kind")
 			delete(o["properties"].(map[string]any), "collection")
@@ -222,6 +227,14 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			src := v2["properties"].(map[string]any)["sources"].(map[string]any)["items"].(map[string]any)
 			delete(src["properties"].(map[string]any), "configuration")       // the canonical configuration identity (C7B-E)
 			delete(src["properties"].(map[string]any), "usage_normalization") // the usage normalization (C7B-E)
+			name := src["properties"].(map[string]any)["adapter"].(map[string]any)["properties"].(map[string]any)["name"].(map[string]any)
+			var names []any
+			for _, x := range name["enum"].([]any) {
+				if x != "hint-model-ledger" { // the model ledger source (draft v0.2)
+					names = append(names, x)
+				}
+			}
+			name["enum"] = names
 		case "repository.schema.json":
 			defs := v2["$defs"].(map[string]any)
 			delete(defs["ChangeSetPayload"].(map[string]any)["properties"].(map[string]any), "plan_application")
@@ -244,7 +257,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 						items := obs["items"].(map[string]any)
 						var keep []any
 						for _, x := range items["enum"].([]any) {
-							if x != "context" && x != "collection" && x != "request_kind" {
+							if x != "context" && x != "collection" && x != "request_kind" && x != "model_ledger" {
 								keep = append(keep, x)
 							}
 						}

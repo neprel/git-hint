@@ -654,6 +654,121 @@
     "code": "interval_order",
     "level": "semantic"
   },
+  "ledger-admitted-mismatch.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-binding-other-task.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-boolean-count.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "ledger-canonical-usage-known.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-complete-partial-completion.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-complete-watched-egress.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-complete-with-late.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-complete-without-requests.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-component-without-coverage.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-fractional-count.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "ledger-in-v01-document.json": {
+    "base": "activity-model-ledger.json",
+    "code": "version",
+    "level": "schema"
+  },
+  "ledger-incomplete-without-reason.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-missing-count.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "ledger-model-verified-wording.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "ledger-negative-count.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "ledger-on-read.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "ledger-plugin-source.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-raw-run-name.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "ledger-revision-new-seal-time.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-second-body-same-revision.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "ledger-unknown-reason.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "ledger-without-attempt.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "ledger-without-run-ref.json": {
+    "base": "activity-model-ledger.json",
+    "code": "observation",
+    "level": "schema"
+  },
   "matched-without-confidence.json": {
     "base": "change-set.json",
     "code": "change",
