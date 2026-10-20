@@ -1,7 +1,9 @@
 package runner
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -186,5 +188,56 @@ func TestDockerRunnerIOOracleUnknownAndDeadline(t *testing.T) {
 	slow := ioRun(t, d, ioTaskDir(t, upper, "sleep 3; "+upper, 5, 8, nil), "nop")
 	if slow.Outcome() != "timeout" || slow.TrustOver([]string{"B1"}) != TrustUnknown {
 		t.Fatalf("shared deadline: %+v", slow)
+	}
+}
+
+// C7BJ-5: the attach stream is read strictly; it may end only at a frame boundary.
+func TestDemux(t *testing.T) {
+	frame := func(kind byte, p string) string {
+		h := []byte{kind, 0, 0, 0, 0, 0, 0, 0}
+		binary.BigEndian.PutUint32(h[4:], uint32(len(p)))
+		return string(h) + p
+	}
+	for _, c := range []struct {
+		name, in, out string
+		ok            bool
+	}{
+		{"clean", frame(1, "OK\n") + frame(2, "noise") + frame(1, "x"), "OK\nx", true},
+		{"empty", "", "", true},
+		{"cut header", frame(1, "OK\n") + "\x01\x00\x00", "", false},
+		{"cut body", frame(1, "OK\n") + frame(1, "abcdef")[:10], "", false},
+		{"system error frame", frame(3, "boom"), "", false},
+	} {
+		var out bytes.Buffer
+		err := demux(&out, strings.NewReader(c.in))
+		if (err == nil) != c.ok || (c.ok && out.String() != c.out) {
+			t.Errorf("%s: %v %q", c.name, err, out.String())
+		}
+	}
+}
+
+// C7BJ-6 on the engine: a reference that exits nonzero gives no verdict, even when the
+// candidate matches it; C7BJ-7: the entry runs as 65534 without groups or capabilities,
+// with no-new-privileges and without any HINT variable (the base tool checks itself).
+func TestDockerRunnerIOReferenceExitAndPrivileges(t *testing.T) {
+	d := dockerOrSkip(t)
+	defer d.Close()
+	exit3 := upper + "exit 3\n"
+	if tr := ioRun(t, d, ioTaskDir(t, exit3, exit3, 5, 120, nil), "nop"); tr.Outcome() != "verifier_error" || tr.TrustOver([]string{"B1"}) != TrustUnknown {
+		t.Fatalf("reference exit 3: %+v", tr)
+	}
+	self := `ok=1
+[ "$(id -u)" = 65534 ] || ok=0
+[ "$(id -g)" = 65534 ] || ok=0
+[ "$(id -G)" = 65534 ] || ok=0
+grep -Eq '^CapEff:[[:space:]]+0+$' /proc/self/status || ok=0
+grep -Eq '^CapBnd:[[:space:]]+0+$' /proc/self/status || ok=0
+grep -Eq '^NoNewPrivs:[[:space:]]+1$' /proc/self/status || ok=0
+env | grep -q '^HINT' && ok=0
+[ -O /app/tool.sh ] || ok=0
+[ "$ok" = 1 ] && echo OK || echo BAD
+`
+	if tr := ioRun(t, d, ioTaskDir(t, self, "echo OK\n", 5, 120, nil), "nop"); tr.Outcome() != "passed" {
+		t.Fatalf("the entry is not unprivileged: %+v", tr)
 	}
 }

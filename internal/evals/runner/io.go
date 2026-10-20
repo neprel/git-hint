@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,7 +17,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
@@ -136,13 +136,14 @@ func readIOTask(taskDir string) (*ioTask, error) {
 
 // caseRun is what the runner captured of one run.
 type caseRun struct {
-	out       []byte
-	status    int64
-	timedOut  bool
-	truncated bool
+	out         []byte
+	status      int64
+	timedOut    bool
+	truncated   bool
+	inputFailed bool // the input was not delivered completely
 }
 
-func (c caseRun) usable() bool { return !c.timedOut && !c.truncated }
+func (c caseRun) usable() bool { return !c.timedOut && !c.truncated && !c.inputFailed }
 
 // errIOVerdict marks a B1 trial without a verdict: the reference could not be established
 // (an oracle failure is never a candidate result).
@@ -186,7 +187,9 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 			if err := deadline(); err != nil {
 				return 0, prov, err
 			}
-			if err != nil || !r.usable() {
+			// a failed reference run is no expectation (C7BJ-6): it must exit 0 with a complete
+			// stream, its input delivered, within its limit
+			if err != nil || !r.usable() || r.status != 0 {
 				return 0, prov, errIOVerdict{fmt.Sprintf("reference run of case %s failed", id)}
 			}
 			if k > 0 && (r.status != first.status || !bytes.Equal(r.out, first.out)) {
@@ -232,14 +235,20 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 	return reward, prov, nil
 }
 
-// caseScript runs the entry on exactly the frozen tree: the tree arrives under /hint/app
-// and replaces the image's /app before the entry starts.
-const caseScript = `rm -rf /app && mv /hint/app /app && cd /app && exec "$@"`
+// caseScript runs the entry on exactly the frozen tree, unprivileged (C7BJ-7): as root it
+// only replaces the image's /app with the tree that arrived under /hint/app and hands it to
+// the unprivileged user; then the entry is executed as uid/gid 65534 with no supplementary
+// groups and no capabilities (inheritable and bounding sets cleared; no-new-privileges is
+// set on the container). An image without setpriv cannot run a B1 case.
+const caseScript = `rm -rf /app && mv /hint/app /app && chown -R 65534:65534 /app && cd /app && ` +
+	`exec setpriv --reuid=65534 --regid=65534 --clear-groups --inh-caps=-all --bounding-set=-all -- env HOME=/tmp "$@"`
 
 // runCase runs the entry once in a fresh container on one frozen tree with the input on
 // stdin, and captures stdout (at most 1 MiB; more is truncation) and the exit status
-// through the engine API. stderr is drained and dropped. An engine failure is an error;
-// the run's own timeout or truncation is recorded in the result.
+// through the engine API. stderr is drained and dropped. The I/O goroutines are always
+// stopped and joined before the result is read (C7BJ-5): an engine failure or a broken
+// output stream is an error (no result); an input that was not fully delivered, the run's
+// timeout or truncation is recorded in the result and makes it unusable.
 func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, input []byte, limit time.Duration, lim taskLimits) (caseRun, error) {
 	cmd := append([]string{"sh", "-c", caseScript, "sh"}, entry...)
 	c, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
@@ -261,37 +270,81 @@ func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, 
 	if err != nil {
 		return caseRun{}, err
 	}
-	defer att.Close()
 	out := &capWriter{max: maxIOBytes}
-	done := make(chan struct{})
+	readErr := make(chan error, 1)
 	go func() {
-		_, _ = stdcopy.StdCopy(out, io.Discard, att.Reader)
-		close(done)
+		readErr <- demux(out, att.Reader)
 	}()
+	wrote := make(chan error, 1)
 	go func() {
-		_, _ = att.Conn.Write(input)
-		_ = att.CloseWrite()
+		_, err := att.Conn.Write(input)
+		if cerr := att.CloseWrite(); err == nil {
+			err = cerr
+		}
+		wrote <- err
 	}()
 	var r caseRun
-	err = d.runToEnd(ctx, c.ID, limit, "case")
+	runErr := d.runToEnd(ctx, c.ID, limit, "case")
 	var ee exitError
 	var te timeoutError
 	switch {
-	case err == nil:
-	case errors.As(err, &ee):
+	case runErr == nil:
+	case errors.As(runErr, &ee):
 		r.status = ee.code
-	case errors.As(err, &te):
+	case errors.As(runErr, &te):
 		r.timedOut = true
-	default:
-		return caseRun{}, err
 	}
-	select { // the stream ends when the container stopped; a stream that does not end is not trusted
-	case <-done:
+	// the container has stopped (or failed): the stream must end on its own; if it does not
+	// within the bound, the connection is closed; both goroutines are joined either way
+	var rerr error
+	select {
+	case rerr = <-readErr:
 	case <-time.After(5 * time.Second):
-		r.truncated = true
+		att.Close()
+		<-readErr
+		rerr = errors.New("the output stream did not end")
 	}
-	r.out, r.truncated = out.buf.Bytes(), r.truncated || out.over
+	att.Close()
+	werr := <-wrote
+	if runErr != nil && !r.timedOut && !errors.As(runErr, &ee) {
+		return caseRun{}, runErr
+	}
+	if rerr != nil {
+		return caseRun{}, fmt.Errorf("incomplete output stream: %w", rerr)
+	}
+	r.inputFailed = werr != nil
+	r.out, r.truncated = bytes.Clone(out.buf.Bytes()), out.over
 	return r, nil
+}
+
+// demux reads the engine's multiplexed attach stream strictly: stdout frames go to stdout,
+// stderr frames are dropped; the stream may end only at a frame boundary. A cut header or
+// body, an unknown stream type or a system-error frame is an error (stdcopy treats an EOF
+// inside a frame as the end).
+func demux(stdout io.Writer, r io.Reader) error {
+	var hdr [8]byte
+	for {
+		n, err := io.ReadFull(r, hdr[:])
+		if n == 0 && err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("cut frame header: %w", err)
+		}
+		size := int64(binary.BigEndian.Uint32(hdr[4:]))
+		var w io.Writer
+		switch hdr[0] {
+		case 1:
+			w = stdout
+		case 2:
+			w = io.Discard
+		default:
+			return fmt.Errorf("unexpected stream type %d", hdr[0])
+		}
+		if m, err := io.CopyN(w, r, size); err != nil || m != size {
+			return fmt.Errorf("cut frame body: %v", err)
+		}
+	}
 }
 
 // capWriter keeps at most max bytes and records any excess.
