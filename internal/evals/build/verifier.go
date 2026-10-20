@@ -396,14 +396,28 @@ func (v verifierPlan) gateArchive() []extra {
 // 3 and the report on fd 4 (output to the logs only); every nobody process stopped; then
 // the check passes only with exit status 0 and exactly the expected report: one END line
 // per gate, one line per required test with an accepted state, nothing else.
+//
+// Go C2 keeps the whole existing suite as a veto first (C7BJ-3): "go test ./..." of the
+// repository, before any gate file exists, must exit 0 (also with no required test), so a
+// build failure, an unlisted failing test or a failing example still fails C2; its output
+// is never evidence of a pass.
 func (v verifierPlan) runCheck(check string, refs []TestRef, accepted []string) string {
-	if len(refs) == 0 {
-		return "echo \"CHECK " + check + " PASS\"\n" // no required test
-	}
 	hc := "/var/lib/hint-check/" + check
 	out := hc + ".out"
+	veto := v.Lang == "go" && check == "C2"
+	if len(refs) == 0 && !veto {
+		return "echo \"CHECK " + check + " PASS\"\n" // no required test
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "r=PASS\n: > %s.report\nchmod 600 %s.report\nhead -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n' > %s.nonce\nchmod 600 %s.nonce\n: > %s\n", hc, hc, hc, hc, out)
+	fmt.Fprintf(&b, "r=PASS\n: > %s\n", out)
+	if veto {
+		fmt.Fprintf(&b, "run_as %s >>%s 2>&1 || r=FAIL\nkillnobody\n", shq("cd "+Workdir+" && go test -count=1 ./..."), out)
+	}
+	if len(refs) == 0 {
+		fmt.Fprintf(&b, "cp %s /logs/verifier/%s.txt\n[ \"$r\" = PASS ] || ok=0\necho \"CHECK %s $r\"\n", out, strings.ToLower(check), check)
+		return b.String()
+	}
+	fmt.Fprintf(&b, ": > %s.report\nchmod 600 %s.report\nhead -c 16 /dev/urandom | od -An -tx1 | tr -d ' \\n' > %s.nonce\nchmod 600 %s.nonce\n", hc, hc, hc, hc)
 	switch v.Lang {
 	case "go":
 		fmt.Fprintf(&b, "cp -R /tests/gate/%s/. %s/ && chown -R 65534:65534 %s || r=FAIL\n", check, Workdir, Workdir)

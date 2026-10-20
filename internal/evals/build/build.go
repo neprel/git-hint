@@ -475,7 +475,9 @@ func instruction(in Input, lang string) string {
 
 var goPackage = regexp.MustCompile(`(?m)^package\s+([A-Za-z_][A-Za-z0-9_]*)`)
 
-var goTestFunc = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(t \*testing\.T\)`)
+// goTestFunc finds the test functions that go test runs: func TestX(<any name> *testing.T)
+// where X does not start with a lower-case letter (C7BJ-3: the parameter name is free).
+var goTestFunc = regexp.MustCompile(`(?m)^func (Test(?:[^a-z\s(][A-Za-z0-9_]*)?)\(\s*[A-Za-z_][A-Za-z0-9_]*\s+\*\s*testing\.T\s*\)`)
 
 // joinTar concatenates the entries of two HINT tar archives.
 func joinTar(a, b []byte) ([]byte, error) {

@@ -276,3 +276,64 @@ func pyImage(t *testing.T, rec map[string]any) string {
 	}
 	return image
 }
+
+// C7BJ-3: Go C2 keeps the whole existing suite as a veto. A regression caught only by a
+// test the list does not name (another package, an Example), by a test with a free
+// parameter name (now listed) or a build failure fails C2; the reference passes.
+func TestVerifierC2VetoGo(t *testing.T) {
+	needDocker(t)
+	l := lib(t)
+	goMod := "module shop\n\ngo 1.26\n"
+	old := "package shop\n\nimport \"testing\"\n\nfunc TestNoDiscount(x *testing.T) {\n\tif Total(10, 0) != 10 {\n\t\tx.Fatal(\"total\")\n\t}\n}\n"
+	example := "package shop\n\nimport \"fmt\"\n\nfunc ExampleTotal() {\n\tfmt.Println(Total(10, 0))\n\t// Output: 10\n}\n"
+	other := "package other\n\nfunc Value() int { return 0 }\n"
+	// an aliased import: the list regex does not see this test; only the veto runs it
+	otherTest := "package other\n\nimport tst \"testing\"\n\nfunc TestValue(t *tst.T) {\n\tif Value() != 0 {\n\t\tt.Fatal()\n\t}\n}\n"
+	base := map[string]string{"go.mod": goMod, "cart.go": bug, "cart_test.go": old, "example_test.go": example, "other/other.go": other, "other/other_test.go": otherTest}
+	result := map[string]string{"discount_test.go": newTest, "cart.go": fix}
+	for k, v := range base {
+		if result[k] == "" {
+			result[k] = v
+		}
+	}
+	in := input(t, l)
+	in.Base = mkTree(t, l, base)
+	in.Result = mkTree(t, l, result)
+	b, err := Build(l, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp := untar(t, l, b.Record["verifier"].(map[string]any)["archive"].(string))["gate/C2.expect"]
+	if !strings.Contains(exp, "cart_test.go::TestNoDiscount") || strings.Contains(exp, "TestValue") {
+		t.Fatalf("required C2 tests: %q", exp)
+	}
+	image := b.Record["environment"].(map[string]any)["image"].(string)
+	with := func(extra map[string]string) map[string]string {
+		m := map[string]string{}
+		for k, v := range base {
+			m[k] = v
+		}
+		m["cart.go"] = fix
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	for _, c := range []struct {
+		name string
+		app  map[string]string
+		c2   string
+	}{
+		{"reference", with(nil), "PASS"},
+		{"unlisted-package-regression", with(map[string]string{"other/other.go": "package other\n\nfunc Value() int { return 1 }\n"}), "FAIL"},
+		{"example-regression", with(map[string]string{"cart.go": "package shop\n\nfunc Total(p, d int) int {\n\tif d == 0 {\n\t\treturn p + 1\n\t}\n\treturn p - d\n}\n"}), "FAIL"},
+		{"build-failure-without-tests", with(map[string]string{"broken/broken.go": "package broken\n\nfunc Broken( {\n"}), "FAIL"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			checks, tests, reward := runVerifier(t, l, image, b.Record, c.app)
+			if checks["C2"] != c.c2 || (c.c2 == "FAIL") != (reward == "0") {
+				t.Fatalf("checks %v tests %v reward %q", checks, tests, reward)
+			}
+		})
+	}
+}
