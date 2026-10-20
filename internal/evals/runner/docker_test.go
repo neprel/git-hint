@@ -158,10 +158,11 @@ func TestReadLimitsOfAnExportedTask(t *testing.T) {
 	if err != nil || l.agent != 120*time.Second || l.verifier != 60*time.Second || l.lan || l.cpus != s.CPUs || l.memoryMB != int64(s.MemoryMB) {
 		t.Fatalf("limits %+v %v", l, err)
 	}
-	s.Mode, s.LANHost = LANModel, "host.docker.internal"
-	os.WriteFile(filepath.Join(dir, "task.toml"), []byte(taskTOML("hint/x-v1", 1, "x", s)), 0o644)
+	// a task with an agent allowlist (the former Harbor LAN format) is recognized and refused
+	allow := strings.Replace(taskTOML("hint/x-v1", 1, "x", s), "[agent]\n", "[agent]\nnetwork_mode = \"allowlist\"\n", 1)
+	os.WriteFile(filepath.Join(dir, "task.toml"), []byte(allow), 0o644)
 	if l, _ := readLimits(dir); !l.lan {
-		t.Fatal("a LAN task is not recognized")
+		t.Fatal("an allowlist task is not recognized")
 	}
 }
 
@@ -291,5 +292,24 @@ func TestDockerRunnerRefusals(t *testing.T) {
 	}
 	if _, err := d.Run(ctx, syntheticTask(t, solveFixed, 120), RunOptions{Agent: "opencode", JobsDir: jobs, JobName: "live"}); err == nil {
 		t.Fatal("a live agent ran without the model gate")
+	}
+}
+
+// The verifier's own network record reaches the job (the isolation check reads it); a record
+// that is not one of the two exact values is dropped (missing evidence, never a pass).
+func TestDockerVerifierNetworkRecord(t *testing.T) {
+	d := dockerOrSkip(t)
+	defer d.Close()
+	for rec, want := range map[string]string{"HINT_VERIFIER_NET=blocked": "HINT_VERIFIER_NET=blocked\n", "HINT_VERIFIER_NET=maybe": ""} {
+		task := syntheticTask(t, solveFixed, 120)
+		os.WriteFile(filepath.Join(task, "tests", "test.sh"), []byte("#!/bin/sh\nmkdir -p /logs/verifier\necho CHECK C1 FAIL\necho 0 > /logs/verifier/reward.txt\necho "+rec+" > /logs/verifier/network.txt\n"), 0o755)
+		jobs := t.TempDir()
+		if _, err := d.Run(context.Background(), task, RunOptions{Agent: "nop", JobsDir: jobs, JobName: "net"}); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := os.ReadFile(filepath.Join(jobs, "net", "net__1", "verifier", "network.txt"))
+		if string(b) != want {
+			t.Fatalf("%s: record %q", rec, b)
+		}
 	}
 }

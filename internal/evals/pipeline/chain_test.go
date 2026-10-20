@@ -33,7 +33,7 @@ func TestTaskBoundChainArtifacts(t *testing.T) {
 	s, l := validatedProject(t)
 	dir := s.Root
 	p := evals.Enabled(nil)
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	p.Export = "results"
 	s.Cfg.Evals = &p
 	if err := s.SaveConfig(); err != nil {

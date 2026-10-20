@@ -1,13 +1,12 @@
-// Package runner exports eval versions as Harbor task directories and runs them through
-// the external Harbor CLI with HINT's fixed safety settings.
+// Package runner exports eval versions as task directories and runs them in HINT's built-in
+// container runner (docker.go) with fixed safety settings.
 //
 // The HINT manifest stays authoritative: the task directory is generated from it, and its
 // round trip is checked by digests. Settings that HINT always applies:
 //   - separate verifier container (in a shared container the agent could write the reward);
-//   - no network for the task container at run time (HINT's compose file sets
-//     network_mode "none"; image builds still have network for pinned setup);
-//   - process limit and no-new-privileges;
-//   - Harbor telemetry off, no upload flags, an empty private working directory.
+//   - no network for the task container at run time (a live agent reaches only HINT's model
+//     gate; image builds still have network for pinned setup);
+//   - process limit and no-new-privileges.
 package runner
 
 import (
@@ -29,10 +28,8 @@ import (
 	"github.com/neprel/git-hint/internal/evals/safefs"
 )
 
-// Settings are the limits and the network mode written into a task.
+// Settings are the limits written into a task.
 type Settings struct {
-	Mode            string // Offline or LANModel
-	LANHost         string // the only host the agent may reach in LANModel mode
 	AgentSeconds    int
 	VerifierSeconds int
 	BuildSeconds    int
@@ -52,7 +49,7 @@ type Task struct {
 	Canary string
 }
 
-// Export writes the Harbor task directory of one eval version into dir (empty or absent).
+// Export writes the task directory of one eval version into dir (empty or absent).
 func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Task, error) {
 	if s.AgentSeconds <= 0 {
 		s = DefaultSettings
@@ -103,12 +100,9 @@ func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Ta
 		}
 		return os.WriteFile(p, data, mode)
 	}
-	// instruction: the canary comment first (Harbor strips leading canary comments)
+	// instruction: the canary comment first
 	if err := w("instruction.md", []byte("<!-- canary "+t.Canary+" -->\n"+string(instr)), 0o644); err != nil {
 		return nil, err
-	}
-	if s.Mode == LANModel && s.LANHost == "" {
-		return nil, errors.New("LAN model mode needs the proxy host")
 	}
 	if err := w("task.toml", []byte(taskTOML(t.Name, version, evalID, s)), 0o644); err != nil {
 		return nil, err
@@ -230,13 +224,9 @@ func contextManifest(dir string) (string, error) {
 }
 
 func taskTOML(name string, version int, evalID string, s Settings) string {
-	// the verifier runs the agent's code with the hidden tests: it gets no network in every
-	// mode (its image build keeps network for dependency setup)
+	// the verifier runs the agent's code with the hidden tests: it gets no network (its image
+	// build keeps network for dependency setup)
 	agentNet, verifierNet := "", "network_mode = \"no-network\"\n"
-	if s.Mode == LANModel {
-		// setup (agent install) keeps the baseline; the agent reaches only the proxy host
-		agentNet = fmt.Sprintf("network_mode = \"allowlist\"\nallowed_hosts = [%q]\n", s.LANHost)
-	}
 	return fmt.Sprintf(`schema_version = "1.4"
 artifacts = ["/app"]
 
@@ -265,19 +255,8 @@ storage_mb = 4096
 `, name, version, evalID, s.VerifierSeconds, verifierNet, s.AgentSeconds, agentNet, s.BuildSeconds, s.CPUs, s.MemoryMB)
 }
 
-// The task container gets no network at run time (network_mode "none" in HINT's compose
-// file); "public" in task.toml only keeps Harbor from adding its own egress sidecar.
+// The task container gets no network at run time (network_mode "none").
 func compose(s Settings) string {
-	if s.Mode == LANModel {
-		// Harbor's egress sidecar controls the network; the task container joins the
-		// sidecar's network namespace, so it cannot carry host entries of its own
-		return fmt.Sprintf(`services:
-  main:
-    pids_limit: %d
-    security_opt:
-      - "no-new-privileges:true"
-`, s.Pids)
-	}
 	return fmt.Sprintf(`services:
   main:
     network_mode: "none"

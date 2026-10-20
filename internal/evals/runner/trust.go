@@ -9,8 +9,8 @@ import (
 // Result trust (07B-J §11-§12): how far a verdict is independent of the candidate code.
 // same_process: the checks ran inside the process of the code under test (the generated
 // verifier, gate-v1); process_separated: the verdict came from an evaluator that never
-// loaded or executed candidate code. unknown: no runner statement (legacy results, Harbor
-// jobs) or anything incomplete. Only the runner writes the value; nothing raises it.
+// loaded or executed candidate code. unknown: no runner statement (legacy results, including
+// former Harbor jobs) or anything incomplete. Only the runner writes the value; nothing raises it.
 const (
 	TrustUnknown          = "unknown"
 	TrustSameProcess      = "same_process"

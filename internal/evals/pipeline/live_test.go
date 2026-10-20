@@ -79,40 +79,37 @@ func TestLiveRequirementMap(t *testing.T) {
 }
 
 // TestLiveOpenCodeTrial runs one OpenCode trial of the validated synthetic bug fix through
-// Harbor and HINT's counting proxy: 1 eval x 1 attempt, at most 40 model requests
-// (retries included: the proxy counts every request) and 900 seconds, no trial retry
-// (Harbor's default). Set HINT_HARBOR too; HINT_LIVE_OPENCODE_VERSION picks a pinned
-// OpenCode (default runner.OpenCodeVersion).
+// the built-in runner and HINT's counting proxy behind the gate: 1 eval x 1 attempt, at most
+// 40 model requests (retries included: the proxy counts every request) and 900 seconds, no
+// trial retry. Set HINT_DOCKER_TESTS=1 too; HINT_OPENCODE_TGZ is a local copy of the pinned
+// OpenCode archive (else the pinned archive is fetched once).
 func TestLiveOpenCodeTrial(t *testing.T) {
 	m := liveModel(t)
-	if os.Getenv("HINT_HARBOR") == "" {
-		t.Skip("set HINT_HARBOR")
+	if os.Getenv("HINT_DOCKER_TESTS") != "1" {
+		t.Skip("set HINT_DOCKER_TESTS=1")
 	}
 	ctx := context.Background()
-	h, err := runner.FindHarbor(ctx)
+	h, err := runner.FindDocker(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer h.Close()
 	s, l := validatedProject(t)
 	p := evals.Enabled(nil)
 	p.Model = m
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor", MaxTrialsPerRun: 1, MaxSecondsPerTrial: 900, MaxRequestsPerTrial: 40, CPUs: 2, MemoryMB: 2048}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker", MaxTrialsPerRun: 1, MaxSecondsPerTrial: 900, MaxRequestsPerTrial: 40, CPUs: 2, MemoryMB: 2048}
 	s.Cfg.Evals = &p
-	version := runner.OpenCodeVersion
-	if v := os.Getenv("HINT_LIVE_OPENCODE_VERSION"); v != "" {
-		version = v // a pinned 2.x runs through HINT's Harbor adapter
-	}
-	lv, err := runner.StartLive(runner.LiveConfig{BaseURL: m.BaseURL, Model: m.Model, KeyEnv: m.KeyEnv, AgentVersion: version})
+	lv, err := runner.StartLive(runner.LiveConfig{BaseURL: m.BaseURL, Model: m.Model, KeyEnv: m.KeyEnv, AgentVersion: runner.DockerOpenCodeVersion})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer lv.Close()
 	start := time.Now()
-	rep, err := RunSuite(ctx, s, h, h.Version, SuiteOptions{Agent: "opencode", Attempts: 1, Arm: "baseline", Live: lv}, time.Now())
+	rep, err := RunSuite(ctx, s, h, runner.DockerRunnerSemver, SuiteOptions{Agent: "opencode", Attempts: 1, Arm: "baseline", Live: lv, OpenCodeTgz: os.Getenv("HINT_OPENCODE_TGZ")}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("harbor %s: trials %d outcomes %v model requests %v kept %d wall %s", h.Version, rep.Trials, rep.Outcomes, deref(rep.Requests), rep.Kept, time.Since(start).Round(time.Second))
+	t.Logf("hint-docker %s: trials %d outcomes %v model requests %v kept %d wall %s", runner.DockerRunnerSemver, rep.Trials, rep.Outcomes, deref(rep.Requests), rep.Kept, time.Since(start).Round(time.Second))
 	names, _ := l.Manifests("trial")
 	for _, n := range names {
 		var tr map[string]any

@@ -430,3 +430,34 @@ func TestPlanBindingInReportsIsAllowlisted(t *testing.T) {
 		t.Fatalf("plan binding %v", got)
 	}
 }
+
+// A stored trial of a former Harbor run stays readable and is reported unchanged: its runner
+// name stays harbor (no new trial gets it; suites.RecordTrial refuses it).
+func TestStoredHarborTrialIsReportedUnchanged(t *testing.T) {
+	l, names := seeded(t)
+	var rec map[string]any
+	if err := l.Manifest("trial", names[0], &rec); err != nil {
+		t.Fatal(err)
+	}
+	if rec["runner"].(map[string]any)["name"] != "hint-docker" {
+		t.Fatalf("a new trial: %v", rec["runner"])
+	}
+	rec["runner"].(map[string]any)["name"] = "harbor" // as an earlier client stored it
+	rec["trial_id"] = "tr-00000000000000aa"
+	old, err := l.PutManifest("trial", rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, used, err := Builder{Key: fixedKey, Namespace: fixedNS}.Build(l, []string{old}, time.Date(2026, 10, 18, 9, 41, 7, 0, time.UTC))
+	if err != nil || len(used) != 1 {
+		t.Fatalf("%v %v", used, err)
+	}
+	var m map[string]any
+	json.Unmarshal(b, &m)
+	if got := m["trials"].([]any)[0].(map[string]any)["runner"].(map[string]any)["name"]; got != "harbor" {
+		t.Fatalf("runner %v", got)
+	}
+	if _, err := suites.RecordTrial(l, suites.TrialInput{RunnerName: "harbor", Suite: "s", Eval: "e@1", Attempt: 1, Arm: "baseline", Agent: "oracle", Started: time.Now()}, runner.Trial{Name: "x"}); err == nil {
+		t.Fatal("a new harbor trial was written")
+	}
+}

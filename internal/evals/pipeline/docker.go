@@ -18,35 +18,49 @@ import (
 
 // RunnerIdentity names the runner of a pass and its version.
 type RunnerIdentity struct {
-	Name    string // harbor or hint-docker
+	Name    string // hint-docker
 	Version string
 }
 
-// SelectRunner is the one runner factory of eval run, the qualification worker and the MCP
-// tool: the policy's runner, by default the built-in container runner (docker; it needs only
-// a Docker engine). An explicit "harbor" selects the transitional developer harness (Harbor
-// and Python), kept only for comparison. An unknown runner or an unavailable engine is an
-// error; there is no fallback to another runner. close releases it.
-func SelectRunner(ctx context.Context, p *evals.Policy) (qualify.Runner, RunnerIdentity, func(), error) {
+// Targeter resolves the OpenCode target of an exported task before a live run (the built-in
+// runner; test runners implement it too).
+type Targeter interface {
+	PreflightTarget(ctx context.Context, taskDir string) (string, error)
+}
+
+// ErrHarborRemoved refuses an explicit legacy policy runner "harbor": git-hint no longer runs
+// Harbor. The policy is not rewritten and nothing falls back to another runner.
+var ErrHarborRemoved = errors.New("this project's eval policy selects the Harbor runner, which git-hint no longer runs; select the built-in runner with: git hint eval on --runner docker")
+
+// CheckRunner checks the policy's runner before any work: docker or a missing field is the
+// built-in runner; an explicit harbor is refused with ErrHarborRemoved; any other value is
+// unknown. It starts no process.
+func CheckRunner(p *evals.Policy) error {
 	name := ""
 	if p != nil && p.Run != nil {
 		name = p.Run.Runner
 	}
 	switch name {
-	case "docker", "": // the built-in runner is the default; a missing field never means Harbor
-		d, err := runner.FindDocker(ctx)
-		if err != nil {
-			return nil, RunnerIdentity{}, nil, err
-		}
-		return d, RunnerIdentity{Name: "hint-docker", Version: runner.DockerRunnerSemver}, func() { d.Close() }, nil
-	case "harbor": // explicit only: the transitional developer harness (Harbor and Python)
-		h, err := runner.FindHarbor(ctx)
-		if err != nil {
-			return nil, RunnerIdentity{}, nil, err
-		}
-		return h, RunnerIdentity{Name: "harbor", Version: h.Version}, func() {}, nil
+	case "docker", "": // a missing field never means Harbor
+		return nil
+	case "harbor":
+		return ErrHarborRemoved
 	}
-	return nil, RunnerIdentity{}, nil, fmt.Errorf("unknown eval runner %q", name)
+	return fmt.Errorf("unknown eval runner %q", name)
+}
+
+// SelectRunner is the one runner factory of eval run, the qualification worker and the MCP
+// tool: the built-in container runner (it needs only a Docker engine), after CheckRunner. An
+// unavailable engine is an error; there is no fallback. close releases it.
+func SelectRunner(ctx context.Context, p *evals.Policy) (qualify.Runner, RunnerIdentity, func(), error) {
+	if err := CheckRunner(p); err != nil {
+		return nil, RunnerIdentity{}, nil, err
+	}
+	d, err := runner.FindDocker(ctx)
+	if err != nil {
+		return nil, RunnerIdentity{}, nil, err
+	}
+	return d, RunnerIdentity{Name: "hint-docker", Version: runner.DockerRunnerSemver}, func() { d.Close() }, nil
 }
 
 // jobResult is the container runner's result.json of a pass's single trial.

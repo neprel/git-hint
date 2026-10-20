@@ -111,7 +111,7 @@ func TestVariantRefusals(t *testing.T) {
 	}
 	// a variant arm never runs a baseline, and a baseline arm never runs a variant
 	p := evals.Enabled(nil)
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	if _, err := RunSuite(context.Background(), s, &e2eRunner{}, "0.23.0", SuiteOptions{Agent: "oracle", Arm: "refactor", Evals: []string{base}}, variantNow); err == nil || !strings.Contains(err.Error(), "needs a variant") {
 		t.Fatalf("label-only refactor arm: %v", err)
@@ -153,7 +153,7 @@ func TestRefactorVariantComparison(t *testing.T) {
 	s, l := validatedProject(t)
 	base := baselineRef(t, l)
 	p := evals.Enabled(nil)
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	nb := evaltest.Tree(t, l, refactoredShop("// Package shop sells things.\n"+evaltest.GoBug))
 	v, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: nb}, variantNow)
@@ -220,7 +220,7 @@ func TestRefactorVariantWithoutReference(t *testing.T) {
 	s, l := validatedProject(t)
 	base := baselineRef(t, l)
 	p := evals.Enabled(nil)
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	// the refactoring renamed Total's parameters: the fix's context no longer matches
 	moved := "package shop\n\n// Total returns the price after the discount.\nfunc Total(p, d int) int { return p }\n"
@@ -285,19 +285,20 @@ func untarAll(t *testing.T, b []byte) map[string][]byte {
 	return out
 }
 
-// TestHarborRefactorComparison is the E14 check through the real Harbor CLI with no
-// model: the synthetic bug fix is qualified, a refactor variant with a ported reference
-// is qualified, nop and oracle run on both arms, and the comparison pairs them by
-// objective; a refactor whose change does not port ends needs_review. Set HINT_HARBOR.
-func TestHarborRefactorComparison(t *testing.T) {
-	if os.Getenv("HINT_HARBOR") == "" {
-		t.Skip("set HINT_HARBOR to the harbor executable")
+// TestEngineRefactorComparison is the E14 check through the built-in runner on a Docker
+// engine with no model: the synthetic bug fix is qualified, a refactor variant with a ported
+// reference is qualified, nop and oracle run on both arms, and the comparison pairs them by
+// objective; a refactor whose change does not port ends needs_review. Set HINT_DOCKER_TESTS=1.
+func TestEngineRefactorComparison(t *testing.T) {
+	if os.Getenv("HINT_DOCKER_TESTS") != "1" {
+		t.Skip("set HINT_DOCKER_TESTS=1 to run against the local engine")
 	}
 	ctx := context.Background()
-	h, err := runner.FindHarbor(ctx)
+	h, err := runner.FindDocker(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer h.Close()
 	t.Setenv("HINT_KEY_DIR", t.TempDir())
 	dir := t.TempDir()
 	testkit.Git(t, dir, "init", "-q")
@@ -306,7 +307,7 @@ func TestHarborRefactorComparison(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := evals.Enabled(nil)
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor", MaxTrialsPerRun: 40}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker", MaxTrialsPerRun: 40}
 	s.Cfg.Evals = &p
 	l := library.Open(s, 0)
 	rec := evaltest.GoBugFix(t, l)
@@ -318,7 +319,10 @@ func TestHarborRefactorComparison(t *testing.T) {
 	}
 	start := time.Now()
 	if q := Qualify(ctx, s, h, time.Now()); q.States["validated"] != 1 {
-		t.Fatalf("baseline %+v", q)
+		names, _ := l.Manifests("eval")
+		var last map[string]any
+		l.Manifest("eval", names[len(names)-1], &last)
+		t.Fatalf("baseline %+v: %v %v", q, last["reasons"], last["qualification"])
 	}
 	base := fmt.Sprintf("%s@3", rec["eval_id"])
 	ok, err := MakeVariant(l, base, VariantInput{Arm: "refactor", Base: evaltest.Tree(t, l, refactoredShop("// Package shop sells things.\n"+evaltest.GoBug))}, time.Now())
@@ -344,12 +348,12 @@ func TestHarborRefactorComparison(t *testing.T) {
 		t.Logf("  refactor %-20v %v", c.(map[string]any)["name"], c.(map[string]any)["status"])
 	}
 	for _, run := range []struct{ arm, ref, agent string }{{"baseline", base, "nop"}, {"baseline", base, "oracle"}, {"refactor", variant, "nop"}, {"refactor", variant, "oracle"}} {
-		rep, err := RunSuite(ctx, s, h, h.Version, SuiteOptions{Agent: run.agent, Arm: run.arm, Evals: []string{run.ref}}, time.Now())
+		rep, err := RunSuite(ctx, s, h, runner.DockerRunnerSemver, SuiteOptions{Agent: run.agent, Arm: run.arm, Evals: []string{run.ref}}, time.Now())
 		if err != nil || rep.Trials != 1 {
 			t.Fatalf("%v: %+v %v", run, rep, err)
 		}
 	}
-	if _, err := RunSuite(ctx, s, h, h.Version, SuiteOptions{Agent: "oracle", Arm: "refactor", Evals: []string{bad.Ref}}, time.Now()); err == nil {
+	if _, err := RunSuite(ctx, s, h, runner.DockerRunnerSemver, SuiteOptions{Agent: "oracle", Arm: "refactor", Evals: []string{bad.Ref}}, time.Now()); err == nil {
 		t.Fatal("a variant without a reference ran")
 	}
 	rows, _ := Compare(l, "")
@@ -362,7 +366,7 @@ func TestHarborRefactorComparison(t *testing.T) {
 	if len(rows) != 4 {
 		t.Fatalf("rows %d", len(rows))
 	}
-	t.Logf("harbor %s: %s", h.Version, time.Since(start).Round(time.Second))
+	t.Logf("hint-docker %s: %s", runner.DockerRunnerSemver, time.Since(start).Round(time.Second))
 }
 
 // G10-9: a variant belongs to the exact baseline version, its digest, the arm and the
@@ -418,7 +422,7 @@ func TestReportVariantPairs(t *testing.T) {
 	scenario := func(name string, run func(s *store.Store, l *library.Library, base, variant string)) map[string]any {
 		s, l := validatedProject(t)
 		p := evals.Enabled(nil)
-		p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+		p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 		s.Cfg.Evals = &p
 		base := baselineRef(t, l)
 		v, err := MakeVariant(l, base, VariantInput{Arm: "context_only", Context: []ContextFile{{Path: "AGENTS.md", Data: []byte("Run go test ./... before you finish.\n")}}}, variantNow)

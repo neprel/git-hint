@@ -100,7 +100,7 @@ func TestPolicyDeniesByDefault(t *testing.T) {
 
 func TestPolicyPermissionsAreSeparate(t *testing.T) {
 	p := Enabled([]string{"opencode"})
-	p.Run = &Run{Use: "docker", Runner: "harbor"}
+	p.Run = &Run{Use: "docker", Runner: "docker"}
 	if err := p.Check(OpExecute, ""); err != nil {
 		t.Fatal(err)
 	}

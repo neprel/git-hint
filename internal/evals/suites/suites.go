@@ -208,7 +208,8 @@ type TrialInput struct {
 	PlanBinding map[string]any
 	// ModelCheck is the proxy's check of the model field of every forwarded request
 	ModelCheck string
-	// RunnerName is the runner that ran the trial: harbor (empty) or hint-docker
+	// RunnerName is the runner that ran the trial: hint-docker (empty: hint-docker; stored
+	// harbor trials stay readable, but no new one is written)
 	RunnerName string
 	// ObservedConfig are digests of the effective launch configuration (kind, sha256 digest);
 	// nil: not observed (unknown), empty: observed none
@@ -217,6 +218,13 @@ type TrialInput struct {
 
 // RecordTrial stores one trial (every attempt, whatever its outcome).
 func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, error) {
+	switch in.RunnerName {
+	case "":
+		in.RunnerName = "hint-docker"
+	case "hint-docker":
+	default: // stored harbor trials stay readable; no new one is written
+		return "", fmt.Errorf("a new trial needs the built-in runner, not %q", in.RunnerName)
+	}
 	h := sha256.Sum256([]byte(strings.Join([]string{in.Suite, in.Eval, fmt.Sprint(in.Attempt), in.Arm, in.Agent, in.Model, in.Started.UTC().Format(time.RFC3339Nano), t.Name}, "\x00")))
 	checks := []any{}
 	ids := make([]string, 0, len(t.Checks))
@@ -270,7 +278,7 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 	}
 	rec := map[string]any{
 		"record": "trial", "manifest_version": 1, "trial_id": "tr-" + hex.EncodeToString(h[:8]), "suite_id": in.Suite, "eval": in.Eval,
-		"attempt": in.Attempt, "arm": in.Arm, "agent": agent, "runner": map[string]any{"name": orHarbor(in.RunnerName), "version": in.RunnerVersion},
+		"attempt": in.Attempt, "arm": in.Arm, "agent": agent, "runner": map[string]any{"name": in.RunnerName, "version": in.RunnerVersion},
 		"started_at": in.Started.UTC().Format(time.RFC3339), "outcome": outcome, "checks": checks,
 		"counters": map[string]any{"requests": count(in.Requests), "retries": count(in.Retries), "input_tokens": count(t.InputTokens),
 			"output_tokens": count(t.OutputTokens), "cache_tokens": count(t.CacheTokens), "wall_seconds": sec(t.WallSeconds), "agent_seconds": sec(t.AgentSeconds)},
@@ -323,11 +331,4 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 		rec["artifacts"] = arts
 	}
 	return l.PutManifest("trial", rec)
-}
-
-func orHarbor(name string) string {
-	if name == "" {
-		return "harbor"
-	}
-	return name
 }

@@ -17,7 +17,6 @@ import (
 	"github.com/neprel/git-hint/internal/evals/build"
 	"github.com/neprel/git-hint/internal/evals/evaltest"
 	"github.com/neprel/git-hint/internal/evals/library"
-	"github.com/neprel/git-hint/internal/evals/qualify"
 	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/testkit"
@@ -152,7 +151,7 @@ const e2eMapping = `{"requirements": [{"source": "R1", "quote": "Total ignores t
 func TestSessionWithoutMappingNeedsReview(t *testing.T) {
 	s, env := e2eProject(t)
 	p := evals.Enabled([]string{"opencode"})
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	Run(context.Background(), s, env)
 	l := library.Open(s, 0)
@@ -183,7 +182,7 @@ func TestSessionWithoutMappingNeedsReview(t *testing.T) {
 func TestUserMappingFileToValidated(t *testing.T) {
 	s, env := e2eProject(t)
 	p := evals.Enabled([]string{"opencode"})
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	Run(context.Background(), s, env)
 	l := library.Open(s, 0)
@@ -235,7 +234,7 @@ func TestModelContextNeedsReview(t *testing.T) {
 	srv, calls := mappingServer(t, `{"requirements": [{"source": "R1", "quote": "Fix Total so it subtracts the discount from the price.", "tests": ["discount_test.go::TestDiscount"]}], "context": ["Total ignores the discount."]}`)
 	p := evals.Enabled([]string{"opencode"})
 	p.Model = &evals.Model{Use: "lan", BaseURL: srv.URL + "/v1", Model: "local-coder", KeyEnv: "HINT_TEST_MODEL_KEY"}
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	Run(context.Background(), s, env)
 	q := Qualify(context.Background(), s, &e2eRunner{}, env.Now())
@@ -278,16 +277,8 @@ func TestSessionToQualifiedEval(t *testing.T) {
 	if q := Qualify(context.Background(), s, &e2eRunner{}, env.Now()); q.Blocked == "" {
 		t.Fatal("qualification ran without the execution permission")
 	}
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
-	var rn qualify.Runner = &e2eRunner{}
-	if os.Getenv("HINT_HARBOR") != "" {
-		h, err := runner.FindHarbor(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		rn = h
-	}
-	q := Qualify(context.Background(), s, rn, env.Now())
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
+	q := Qualify(context.Background(), s, &e2eRunner{}, env.Now())
 	if q.Qualified != 1 || q.States["validated"] != 1 {
 		t.Fatalf("qualify %+v", q)
 	}
@@ -309,7 +300,7 @@ func TestSessionToQualifiedEval(t *testing.T) {
 		}
 	}
 	// a second qualification run finds nothing to do
-	if q := Qualify(context.Background(), s, rn, env.Now().Add(time.Minute)); q.Qualified != 0 {
+	if q := Qualify(context.Background(), s, &e2eRunner{}, env.Now().Add(time.Minute)); q.Qualified != 0 {
 		t.Fatalf("repeat %+v", q)
 	}
 }

@@ -110,6 +110,10 @@ Linux). git-hint has a built-in container runner: it builds the task images, run
 attempt in fresh containers with resource limits, freezes the agent's final tree, and checks
 it in a separate container without network. Nothing else is installed: no Harbor, no Python.
 Without a Docker engine, evals stay `packaged`; there is no other runner to fall back to.
+A policy that still selects the Harbor runner of earlier development builds is refused, with
+the command that selects the built-in runner: `git hint eval on --runner docker`. HINT does
+not change the policy for you. Trials and reports stored by such runs stay readable as they
+are.
 
 A live OpenCode run gets network only to your local model, through HINT's model gate. The
 runner installs a pinned OpenCode build into each attempt: it downloads the pinned archive

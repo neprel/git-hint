@@ -63,6 +63,9 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 		if o.Live == nil {
 			return rep, fmt.Errorf("a live agent needs the counting model proxy")
 		}
+		if _, ok := r.(Targeter); !ok {
+			return rep, fmt.Errorf("a live agent needs the built-in container runner")
+		}
 	}
 	if o.Attempts <= 0 {
 		o.Attempts = 1
@@ -124,9 +127,12 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 	// the container runner (07B-J §23): the OpenCode target is part of the run's configuration
 	// (A); it is resolved for every member before anything is planned, and a suite of several
 	// targets is refused (no target is picked silently)
-	docker, isDocker := r.(*runner.Docker)
 	var target, launch string
-	if isDocker && o.Agent == "opencode" {
+	if o.Agent == "opencode" {
+		docker := r.(Targeter)
+		if err := os.MkdirAll(s.Path("cache"), 0o700); err != nil {
+			return rep, err
+		}
 		targets := map[string]bool{}
 		for _, m := range sr["members"].([]any) {
 			var rec map[string]any
@@ -173,11 +179,8 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 	if o.Agent == "opencode" && o.Live != nil {
 		m := workunits.Manifest{RunID: job, Suite: suite, Agent: o.Agent, AgentVersion: o.Live.AgentVersion, Arm: o.Arm, Attempts: o.Attempts,
 			RunnerVersion: runnerVersion, ModelLabel: o.Live.ModelLabel, MaxRequests: lim.TrialRequests, MaxSeconds: lim.TrialSeconds,
-			LaunchDigest: runner.LaunchDigest(runner.RunOptions{Agent: o.Agent, AgentArgs: o.Live.AgentArgs(nil), Env: o.Live.AgentEnv(&runner.Counter{}), Model: o.Live.Model()}),
-			CreatedAt:    now.UTC().Format(time.RFC3339)}
-		if isDocker {
-			m.AgentVersion, m.RunnerVersion, m.LaunchDigest, m.Harness = runner.DockerOpenCodeVersion, runner.DockerRunnerSemver, launch, "hint-docker"
-		}
+			LaunchDigest: launch, Harness: "hint-docker", CreatedAt: now.UTC().Format(time.RFC3339)}
+		m.AgentVersion = runner.DockerOpenCodeVersion
 		manifest = m
 		for _, mm := range sr["members"].([]any) {
 			ref := mm.(map[string]any)["eval"].(string)
@@ -215,14 +218,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			if err := os.MkdirAll(work, 0o700); err != nil {
 				return rep, err
 			}
-			mode := runner.Offline
-			if o.Live != nil && !isDocker { // the container runner's gate replaces the LAN allowlist
-				mode = runner.LANModel
-			}
-			settings.Mode, settings.LANHost = mode, ""
-			if o.Live != nil && !isDocker {
-				settings.LANHost = o.Live.ContainerHost
-			}
+			// no network for the task: a live agent reaches the model only through the gate
 			if _, err := runner.Export(l, rec, work+"/task", settings); err != nil {
 				return rep, err
 			}
@@ -230,11 +226,8 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			var counter *runner.Counter
 			if o.Live != nil {
 				counter = o.Live.NewTrial(lim.TrialRequests)
-				ro.AgentArgs, ro.Env, ro.Model = o.Live.AgentArgs(counter), o.Live.AgentEnv(counter), o.Live.Model()
-				if isDocker {
-					ro.Attempts, ro.Live, ro.Counter, ro.ExpectTarget = 1, o.Live, counter, target
-					ro.OpenCode = &runner.OpenCodeSource{Version: runner.DockerOpenCodeVersion, CacheDir: s.Path("cache", "evals", "opencode"), TgzFile: o.OpenCodeTgz}
-				}
+				ro.Env, ro.Attempts, ro.Live, ro.Counter, ro.ExpectTarget = o.Live.AgentEnv(counter), 1, o.Live, counter, target
+				ro.OpenCode = &runner.OpenCodeSource{Version: runner.DockerOpenCodeVersion, CacheDir: s.Path("cache", "evals", "opencode"), TgzFile: o.OpenCodeTgz}
 			}
 			started := time.Now()
 			trials, err := r.Run(ctx, work+"/task", ro)
@@ -242,35 +235,26 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				trials = []runner.Trial{{Name: "trial", Exception: "RunnerError", Checks: map[string]string{}}}
 			}
 			b := bind[ref]
-			runnerName := ""
-			if isDocker {
-				runnerName = "hint-docker"
-			}
-			in := suites.TrialInput{RunnerName: runnerName, RunID: job, Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
+			in := suites.TrialInput{RunnerName: "hint-docker", RunID: job, Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
 				Started: started, MaxSeconds: lim.TrialSeconds, Objective: b.Objective, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, EvalDigest: b.EvalDigest,
 				ContextPolicy: "disabled", PlanBinding: b.PlanBinding} // HINT delivers no managed context in eval trials yet
 			var reqs, retries int64
 			if counter != nil {
 				reqs, retries = counter.Requests(), counter.Retries()
 				in.Requests, in.Retries, in.MaxRequests = &reqs, &retries, lim.TrialRequests
-				in.AgentVersion, in.Model = o.Live.AgentVersion, o.Live.ModelLabel
+				in.AgentVersion, in.Model = runner.DockerOpenCodeVersion, o.Live.ModelLabel
 				in.ModelCheck = counter.ModelCheck()
-				// the launch HINT constructed and enforces (agent arguments, model selection,
-				// environment names; the per-trial proxy URL and the dummy key value are not
-				// configuration): one setting_override digest
-				in.ObservedConfig = []map[string]string{{"kind": "setting_override", "digest": runner.LaunchDigest(ro)}}
-				if isDocker { // (A) of the target the attempt actually installed; not launched: the frozen one
-					got := target
-					if t := jobAgentTarget(work); t != "" {
-						got = t
-					}
-					a, err := runner.DockerLaunchDigest(runner.DockerOpenCodeVersion, o.Live.ModelLabel, got)
-					if err != nil {
-						return rep, err
-					}
-					in.ObservedConfig = []map[string]string{{"kind": "setting_override", "digest": a}}
-					in.AgentVersion = runner.DockerOpenCodeVersion
+				// the launch HINT constructed and enforces, (A) of the target the attempt actually
+				// installed (not launched: the frozen one): one setting_override digest
+				got := target
+				if t := jobAgentTarget(work); t != "" {
+					got = t
 				}
+				a, err := runner.DockerLaunchDigest(runner.DockerOpenCodeVersion, o.Live.ModelLabel, got)
+				if err != nil {
+					return rep, err
+				}
+				in.ObservedConfig = []map[string]string{{"kind": "setting_override", "digest": a}}
 				if counter.LimitHit() {
 					in.Stop = "request_limit"
 				}
@@ -294,7 +278,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				if err := workunits.Record(s, l, job, ref, name); err != nil {
 					return rep, err
 				}
-				if isDocker && handOverLedger(s, work, manifest, name, job, ref, a, b.Objective, str(m.(map[string]any)["task_family"])) != nil {
+				if handOverLedger(s, work, manifest, name, job, ref, a, b.Objective, str(m.(map[string]any)["task_family"])) != nil {
 					rep.LedgersNotWritten++
 				}
 			}

@@ -83,8 +83,8 @@ func (o openCodeCmd) Output(ctx context.Context, dir, name string, args ...strin
 // proxy, under a request limit, a time limit and loopback-only egress; then the HINT
 // pipeline imports the session and snapshots, proposes the episode and packages the eval
 // as collect does; the test acts as the user for the requirement mapping (the policy has
-// no model); real Harbor qualifies. Set HINT_LIVE_PROSPECTIVE=1, HINT_OPENCODE_TGZ (the
-// npm tarball), HINT_LIVE_MODEL_URL, HINT_LIVE_MODEL, HINT_LOCAL_MODEL_KEY, HINT_HARBOR and
+// no model); the built-in runner qualifies. Set HINT_LIVE_PROSPECTIVE=1, HINT_OPENCODE_TGZ (the
+// npm tarball), HINT_LIVE_MODEL_URL, HINT_LIVE_MODEL, HINT_LOCAL_MODEL_KEY and
 // HINT_LIVE_OUT.
 func TestLiveProspectiveCapture(t *testing.T) {
 	if os.Getenv("HINT_LIVE_PROSPECTIVE") == "" {
@@ -134,7 +134,7 @@ func TestLiveProspectiveCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := evals.Enabled([]string{"opencode"})
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"} // no model: no direct model call
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"} // no model: no direct model call
 	s.Cfg.Evals = &p
 	if err := s.SaveConfig(); err != nil {
 		t.Fatal(err)
@@ -292,11 +292,12 @@ func TestLiveProspectiveCapture(t *testing.T) {
 		return
 	}
 
-	// qualification through real Harbor
-	h, err := runner.FindHarbor(context.Background())
+	// qualification through the built-in runner
+	h, err := runner.FindDocker(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer h.Close()
 	qStart := time.Now()
 	q := Qualify(context.Background(), s, h, idle)
 	summary["qualification_seconds"] = time.Since(qStart).Round(time.Second).Seconds()

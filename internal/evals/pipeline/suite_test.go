@@ -51,7 +51,7 @@ func TestRunSuiteRecordsEveryAttempt(t *testing.T) {
 	if _, err := RunSuite(context.Background(), s, &e2eRunner{}, "0.23.0", SuiteOptions{Agent: "oracle"}, time.Now()); err == nil {
 		t.Fatal("a suite ran without the execution permission")
 	}
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	if _, err := RunSuite(context.Background(), s, &e2eRunner{}, "0.23.0", SuiteOptions{Agent: "opencode"}, time.Now()); err == nil || !strings.Contains(err.Error(), "local model") {
 		t.Fatalf("a live agent ran without the model policy: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestDraftedVerifier(t *testing.T) {
 func TestRunSuiteKeepsRunResults(t *testing.T) {
 	s, l := validatedProject(t)
 	p := evals.Enabled(nil)
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	rep, err := RunSuite(context.Background(), s, &e2eRunner{agentLog: 100}, "0.23.0", SuiteOptions{Agent: "oracle"}, time.Now())
 	if err != nil || rep.Trials != 1 || rep.Kept != 0 {
@@ -210,7 +210,7 @@ func TestQualifyKeepsRunResults(t *testing.T) {
 	srv, _ := mappingServer(t, e2eMapping)
 	p := evals.Enabled([]string{"opencode"})
 	p.Model = &evals.Model{Use: "lan", BaseURL: srv.URL + "/v1", Model: "local-coder", KeyEnv: "HINT_TEST_MODEL_KEY"}
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	Run(context.Background(), s, env)
 	if q := Qualify(context.Background(), s, &e2eRunner{agentLog: 10}, env.Now()); q.Qualified != 1 || q.Kept != 0 {

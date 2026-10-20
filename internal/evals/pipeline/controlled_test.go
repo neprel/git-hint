@@ -18,8 +18,9 @@ import (
 	"github.com/neprel/git-hint/internal/evals/workunits"
 )
 
-// liveRunner is a fake Harbor run of a live agent: per attempt it sends one model request
-// through HINT's proxy (the URL from the runner environment) and returns a scripted result.
+// liveRunner is a fake built-in runner of a live agent: per attempt it sends one model
+// request through HINT's proxy (the URL from the agent environment) and returns a scripted
+// result.
 type liveRunner struct {
 	model   string         // the model field the agent sends
 	results []runner.Trial // per attempt, in order
@@ -43,6 +44,11 @@ func (r *liveRunner) Run(_ context.Context, task string, o runner.RunOptions) ([
 	r.n++
 	t.Name = fmt.Sprintf("%s-%d", o.JobName, r.n)
 	return []runner.Trial{t}, nil
+}
+
+// PreflightTarget resolves a fixed pinned OpenCode target (no engine).
+func (r *liveRunner) PreflightTarget(context.Context, string) (string, error) {
+	return "linux-arm64", nil
 }
 
 func i64(v int64) *int64 { return &v }
@@ -78,7 +84,7 @@ func TestControlledUnitsOfALiveRun(t *testing.T) {
 	lv, stop := liveProject(t)
 	defer stop()
 	p := evals.Enabled([]string{"opencode"})
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor", MaxTrialsPerRun: 2} // stops after two attempts
+	p.Run = &evals.Run{Use: "docker", Runner: "docker", MaxTrialsPerRun: 2} // stops after two attempts
 	p.Model = &evals.Model{Use: "lan", BaseURL: "http://192.168.1.2/v1", Model: "local-coder", KeyEnv: "HINT_TEST_LAN_KEY"}
 	s.Cfg.Evals = &p
 	pass, fail := 1.0, 0.0

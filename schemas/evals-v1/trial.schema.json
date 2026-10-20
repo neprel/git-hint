@@ -239,7 +239,7 @@
     "result_trust": {
       "$ref": "urn:hint:local:evals:v1:common#/$defs/ResultTrust",
       "x-hint-class": "reportable",
-      "description": "The runner's trust of this trial over the eval's required checks (07B-J); absent in older trials, read as unknown."
+      "description": "The runner's trust of this trial over the eval's required checks; absent in older trials, read as unknown."
     },
     "outcome": {
       "type": "string",

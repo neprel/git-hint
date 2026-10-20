@@ -16,7 +16,7 @@ import (
 func TestQualifyLeavesB1PackagedWithoutTheContainerRunner(t *testing.T) {
 	s, env := e2eProject(t)
 	p := evals.Enabled([]string{"opencode"})
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	l := library.Open(s, 0)
 	base := evaltest.Tree(t, l, map[string]string{"go.mod": "module shop\n\ngo 1.26\n", "tool.sh": "cat\n"})

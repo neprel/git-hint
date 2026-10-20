@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,12 +108,5 @@ func TestReadJob(t *testing.T) {
 	}
 	if !ts[4].Tampered || ts[4].Outcome() != "verifier_error" {
 		t.Fatalf("t5 %s", ts[4].Outcome())
-	}
-}
-
-func TestMissingHarborFailsWithoutFallback(t *testing.T) {
-	t.Setenv("HINT_HARBOR", filepath.Join(t.TempDir(), "no-harbor"))
-	if _, err := FindHarbor(context.Background()); err == nil {
-		t.Fatal("a missing runner was accepted")
 	}
 }

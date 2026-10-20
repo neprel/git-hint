@@ -19,7 +19,7 @@ func TestMeasureStorage(t *testing.T) {
 	}
 	s, env := e2eProject(t)
 	p := evals.Enabled([]string{"opencode"})
-	p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
 	s.Cfg.Evals = &p
 	l := library.Open(s, 0)
 	u0, _ := l.Usage()

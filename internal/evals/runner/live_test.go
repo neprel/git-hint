@@ -60,9 +60,9 @@ func TestModelProxy(t *testing.T) {
 	if code := post(strings.Replace(base, c.token, "unknown", 1) + "/chat/completions"); code != http.StatusForbidden {
 		t.Fatalf("unknown trial %d", code)
 	}
-	for _, v := range append(lv.AgentArgs(c), lv.AgentEnv(c)...) {
+	for _, v := range lv.AgentEnv(c) {
 		if strings.Contains(v, "lan-secret-word") {
-			t.Fatal("the key reached the runner arguments or environment")
+			t.Fatal("the key reached the agent environment")
 		}
 	}
 	if _, err := StartLive(LiveConfig{BaseURL: up.URL + "/v1", Model: "m", KeyEnv: "HINT_TEST_NO_SUCH_KEY"}); err == nil {
@@ -115,18 +115,6 @@ func TestProxyChecksTheModelOfEveryRequest(t *testing.T) {
 	// the upstream receives every body unchanged
 	if bodies[0] != ok || bodies[len(bodies)-1] != `{"messages":[]}` {
 		t.Fatalf("forwarded bodies changed: %q", bodies)
-	}
-}
-
-func TestLaunchDigestIgnoresPerTrialValues(t *testing.T) {
-	a := RunOptions{Agent: "opencode", AgentArgs: []string{"version=2.0.26"}, Model: "openai/local-coder",
-		Env: []string{"OPENAI_BASE_URL=http://h:1/t/aaa", "OPENAI_API_KEY=hint-proxy"}}
-	b := a
-	b.Env = []string{"OPENAI_API_KEY=other", "OPENAI_BASE_URL=http://h:1/t/bbb"}
-	c := a
-	c.Model = "openai/other"
-	if LaunchDigest(a) != LaunchDigest(b) || LaunchDigest(a) == LaunchDigest(c) || !strings.HasPrefix(LaunchDigest(a), "sha256:") {
-		t.Fatal("the launch digest depends on per-trial values or ignores the model")
 	}
 }
 

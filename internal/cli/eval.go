@@ -114,8 +114,17 @@ func evalOn(e *Env, args []string) int {
 	fs := flags(e, "eval on", evalEffects)
 	agents := fs.String("agent", "opencode", "agents whose sessions are collected: opencode, claude-code, codex (comma separated)")
 	run := fs.String("run", "", "allow container runs: docker")
-	runnerName := fs.String("runner", "", "container runner: docker (built in, the default; needs only a Docker engine) or harbor (transitional developer harness; needs Harbor 0.23 and Python)")
+	runnerName := fs.String("runner", "", "container runner: docker (built in, the default; needs only a Docker engine)")
 	if fs.Parse(args) != nil || fs.NArg() != 0 {
+		return 2
+	}
+	switch *runnerName { // checked before anything is read or written
+	case "", "docker":
+	case "harbor":
+		fmt.Fprintln(e.Stderr, "git hint: git-hint no longer runs Harbor; the built-in runner is: git hint eval on --runner docker")
+		return 2
+	default:
+		fmt.Fprintf(e.Stderr, "git hint: --runner accepts docker only\n")
 		return 2
 	}
 	var list []string
@@ -161,17 +170,12 @@ func evalOn(e *Env, args []string) int {
 		fmt.Fprintf(e.Stderr, "git hint: --run accepts docker only\n")
 		return 2
 	}
-	switch *runnerName {
-	case "":
-	case "harbor", "docker":
+	if *runnerName != "" {
 		if p.Run == nil {
 			fmt.Fprintf(e.Stderr, "git hint: --runner needs container runs (--run docker)\n")
 			return 2
 		}
 		p.Run.Runner = *runnerName
-	default:
-		fmt.Fprintf(e.Stderr, "git hint: --runner accepts harbor or docker\n")
-		return 2
 	}
 	if err := evals.ValidateValue("policy", p); err != nil {
 		return fail(e, fmt.Errorf("the eval policy is not valid: %w", err))
@@ -517,6 +521,9 @@ func evalWorker(e *Env, _ []string) int {
 	if err != nil {
 		return fail(e, err)
 	}
+	if err := pipeline.CheckRunner(s.Cfg.Evals); err != nil { // before the lock file
+		return fail(e, err)
+	}
 	lockp := s.Path("state", "evals", "worker.lock")
 	if err := s.CheckPath(lockp); err != nil {
 		return fail(e, err)
@@ -582,6 +589,10 @@ func evalRun(e *Env, args []string) int {
 	if err := p.Check(evals.OpExecute, ""); err != nil {
 		return fail(e, err)
 	}
+	// an explicit legacy runner is refused before any variant, runner or model step
+	if err := pipeline.CheckRunner(p); err != nil {
+		return fail(e, err)
+	}
 	ctx := context.Background()
 	evalsToRun := fs.Args()
 	if len(with) > 0 {
@@ -594,9 +605,6 @@ func evalRun(e *Env, args []string) int {
 		}
 		evalsToRun = refs
 	}
-	if p.Run != nil && p.Run.Runner == "harbor" {
-		fmt.Fprintln(e.Stderr, "git hint: this project's policy selects the transitional Harbor harness (developer comparison only); the built-in runner is: git hint eval on --runner docker")
-	}
 	h, ident, closeRunner, err := pipeline.SelectRunner(ctx, p)
 	if err != nil {
 		return fail(e, err)
@@ -607,7 +615,7 @@ func evalRun(e *Env, args []string) int {
 		if err := p.Check(evals.OpModel, ""); err != nil {
 			return fail(e, err)
 		}
-		lv, err := runner.StartLive(runner.LiveConfig{BaseURL: p.Model.BaseURL, Model: p.Model.Model, KeyEnv: p.Model.KeyEnv, AgentVersion: runner.OpenCodeVersion})
+		lv, err := runner.StartLive(runner.LiveConfig{BaseURL: p.Model.BaseURL, Model: p.Model.Model, KeyEnv: p.Model.KeyEnv, AgentVersion: runner.DockerOpenCodeVersion})
 		if err != nil {
 			return fail(e, err)
 		}

@@ -33,11 +33,11 @@ import (
 // names the gate and a dummy key.
 
 // DockerOpenCodeVersion is the OpenCode version the container runner installs (v2, pinned
-// below); the Harbor path keeps OpenCodeVersion.
+// below).
 const DockerOpenCodeVersion = "2.0.26"
 
 // OpenCodePins are the SHA-512 values (hex) of cli-<target>-<version>.tgz from the npm
-// registry's dist.integrity (the same pins as the Harbor agent class).
+// registry's dist.integrity.
 var OpenCodePins = map[string]map[string]string{
 	"2.0.22": {
 		"linux-x64":        "0e5575aa01030e756aa5358c3eabfbb421c2717a1dcd904568c7318ec898758e84e601c7d90ebc25f6ac564b324359eeea6d7cf3b59028684eb1ea44fa82b263",

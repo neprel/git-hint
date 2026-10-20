@@ -205,8 +205,10 @@ func TestEvalReportFileAndConsentedUpload(t *testing.T) {
 		t.Fatal(err)
 	}
 	reward := 1.0
-	suites.RecordTrial(l, suites.TrialInput{Suite: suite, Eval: fmt.Sprintf("%s@2", rec["eval_id"]), Attempt: 1, Arm: "baseline", Agent: "oracle",
-		RunnerVersion: "0.23.0", Started: time.Now(), MaxSeconds: 600}, runner.Trial{Name: "a", Reward: &reward, Checks: map[string]string{"C1": "pass"}})
+	if _, err := suites.RecordTrial(l, suites.TrialInput{Suite: suite, Eval: fmt.Sprintf("%s@2", rec["eval_id"]), Attempt: 1, Arm: "baseline", Agent: "oracle",
+		RunnerVersion: "0.23.0", Started: time.Now(), MaxSeconds: 600}, runner.Trial{Name: "a", Reward: &reward, Checks: map[string]string{"C1": "pass"}}); err != nil {
+		t.Fatal(err)
+	}
 
 	var got [][]byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

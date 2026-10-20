@@ -57,7 +57,7 @@ const ReferenceRuns = 3
 // MaxNearMisses bounds the partial-reference trials.
 const MaxNearMisses = 3
 
-// Runner runs a task directory (runner.Harbor in production).
+// Runner runs a task directory (runner.Docker in production).
 type Runner interface {
 	Run(ctx context.Context, taskDir string, o runner.RunOptions) ([]runner.Trial, error)
 }

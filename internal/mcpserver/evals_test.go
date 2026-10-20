@@ -81,13 +81,14 @@ func TestEvalToolsHoldNoTextAndObeyTheRules(t *testing.T) {
 }
 
 // The MCP tool uses the same runner factory: with the default runner and no engine it reports
-// the runner as unavailable, and Harbor is never called.
+// the runner as unavailable; an explicit legacy harbor policy is refused; Harbor is never called.
 func TestEvalRunToolUsesTheBuiltInRunner(t *testing.T) {
 	shop, _ := project_(t)
 	marker := filepath.Join(t.TempDir(), "harbor-called")
 	fake := filepath.Join(t.TempDir(), "harbor")
 	os.WriteFile(fake, []byte("#!/bin/sh\ntouch "+marker+"\necho harbor 0.23.0\n"), 0o755)
 	t.Setenv("HINT_HARBOR", fake)
+	t.Setenv("PATH", filepath.Dir(fake)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("DOCKER_HOST", "tcp://127.0.0.1:1")
 	s, err := store.Open(shop)
 	if err != nil {
@@ -103,6 +104,23 @@ func TestEvalRunToolUsesTheBuiltInRunner(t *testing.T) {
 	cs := session(t, mcpserver.Options{Dir: shop})
 	if _, msg := call(t, cs, "hint_eval_run", map[string]any{"agent": "oracle"}); !strings.Contains(msg, "runner_unavailable") {
 		t.Fatalf("hint_eval_run: %q", msg)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("Harbor was called")
+	}
+	// an explicit legacy harbor policy is refused with runner_removed and the migration
+	// command; the policy is not rewritten; Harbor is not called
+	s, _ = store.Open(shop)
+	s.Cfg.Evals.Run.Runner = "harbor"
+	if err := s.SaveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	cs = session(t, mcpserver.Options{Dir: shop})
+	if _, msg := call(t, cs, "hint_eval_run", map[string]any{"agent": "oracle"}); !strings.Contains(msg, "runner_removed") || !strings.Contains(msg, "git hint eval on --runner docker") {
+		t.Fatalf("hint_eval_run with harbor: %q", msg)
+	}
+	if s, _ = store.Open(shop); s.Cfg.Evals.Run.Runner != "harbor" {
+		t.Fatal("the explicit choice was rewritten")
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("Harbor was called")

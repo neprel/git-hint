@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -238,20 +241,22 @@ func dockerArch(t *testing.T, d *runner.Docker) string {
 	return a
 }
 
-// harborMarker installs a fake Harbor that records any call, and an unreachable engine.
+// harborMarker installs a fake Harbor (PATH and the former HINT_HARBOR) that records any
+// call, and an unreachable engine.
 func harborMarker(t *testing.T) string {
 	t.Helper()
 	marker := filepath.Join(t.TempDir(), "harbor-called")
 	fake := filepath.Join(t.TempDir(), "harbor")
 	os.WriteFile(fake, []byte("#!/bin/sh\ntouch "+marker+"\necho harbor 0.23.0\n"), 0o755)
 	t.Setenv("HINT_HARBOR", fake)
+	t.Setenv("PATH", filepath.Dir(fake)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("DOCKER_HOST", "tcp://127.0.0.1:1")
 	return marker
 }
 
 // The default runner is the built-in one: a new policy records docker; a legacy policy
-// without the field uses docker; Harbor is never called for them (eval run and the worker);
-// an explicit harbor choice is honored with a notice; an unknown runner is refused.
+// without the field uses docker; Harbor is never called (eval run and the worker); an
+// unknown runner is refused; an explicit legacy harbor choice is refused, not rewritten.
 func TestDefaultRunnerIsBuiltIn(t *testing.T) {
 	shop, _ := setup(t)
 	var spawned []string
@@ -290,9 +295,61 @@ func TestDefaultRunnerIsBuiltIn(t *testing.T) {
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("unknown runner: Harbor was called")
 	}
-	set("harbor") // explicit: honored, with a notice
-	r := runEval(t, shop, &spawned, "eval", "run", "--agent", "oracle")
-	if _, err := os.Stat(marker); err != nil || !strings.Contains(r.stderr, "transitional Harbor") {
-		t.Fatalf("explicit harbor: %+v", r)
+	// an explicit legacy harbor policy is refused with the migration command: eval run, the
+	// worker and eval on --runner harbor change nothing, spawn nothing and never call Harbor;
+	// eval on --run docker does not rewrite the explicit choice
+	set("harbor")
+	before, n := hintTree(t, shop), len(spawned)
+	for _, args := range [][]string{{"eval", "run", "--agent", "oracle"}, {"eval", "run", "--agent", "opencode"}, {"eval", "__qualify"}} {
+		r := runEval(t, shop, &spawned, args...)
+		if r.code == 0 || !strings.Contains(r.stderr, "git hint eval on --runner docker") {
+			t.Fatalf("explicit harbor %v: %+v", args, r)
+		}
 	}
+	if r := runEval(t, shop, &spawned, "eval", "on", "--runner", "harbor"); r.code != 2 || !strings.Contains(r.stderr, "git hint eval on --runner docker") {
+		t.Fatalf("eval on --runner harbor: %+v", r)
+	}
+	if hintTree(t, shop) != before || len(spawned) != n {
+		t.Fatal("a refused harbor policy changed the project or spawned a process")
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("explicit harbor: Harbor was called")
+	}
+	must(t, runEval(t, shop, &spawned, "eval", "on", "--run", "docker"))
+	if s, _ := store.Open(shop); s.Cfg.Evals.Run.Runner != "harbor" {
+		t.Fatalf("the explicit choice was rewritten: %+v", s.Cfg.Evals.Run)
+	}
+	must(t, runEval(t, shop, &spawned, "eval", "on", "--runner", "docker")) // the migration
+	if s, _ := store.Open(shop); s.Cfg.Evals.Run.Runner != "docker" {
+		t.Fatalf("migration: %+v", s.Cfg.Evals.Run)
+	}
+	check("migrated")
+}
+
+// hintTree is a digest of every file below the project's .hint directory (path, mode, bytes).
+func hintTree(t *testing.T, root string) string {
+	t.Helper()
+	h := sha256.New()
+	err := filepath.WalkDir(filepath.Join(root, ".hint"), func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(h, "%s %v\n", p, info.Mode())
+		if d.Type().IsRegular() {
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			h.Write(b)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }

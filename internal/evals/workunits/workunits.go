@@ -47,7 +47,7 @@ type Manifest struct {
 	RunnerVersion string   `json:"runner_version"`
 	ModelLabel    string   `json:"model_label"`
 	LaunchDigest  string   `json:"launch_digest"`
-	Harness       string   `json:"harness,omitempty"` // harbor (empty) or hint-docker
+	Harness       string   `json:"harness,omitempty"` // hint-docker; empty only in stored manifests of former Harbor runs
 	MaxRequests   int      `json:"max_requests"`
 	MaxSeconds    int      `json:"max_seconds"`
 	Members       []Member `json:"members"`

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -15,23 +14,10 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-)
-
-// OpenCodeVersion is the OpenCode release that Harbor installs in the task container
-// (npm opencode-ai, released 2026-09-30, MIT). Harbor installs agents from npm only; the
-// newest npm release at least two weeks old is pinned. It can differ from the user's own
-// OpenCode, and trials record it.
-const OpenCodeVersion = "1.18.34"
-
-// Network modes of an exported task.
-const (
-	Offline  = ""          // no network at run time
-	LANModel = "lan-model" // the agent reaches only HINT's model proxy
 )
 
 // Counter counts the model requests of one trial, stops them at the limit and keeps the
@@ -196,39 +182,14 @@ func (lv *Live) BaseURL(c *Counter) string {
 	return fmt.Sprintf("http://%s:%d/t/%s", lv.ContainerHost, lv.port, c.token)
 }
 
-// AgentArgs are the Harbor --ak values for OpenCode: pinned version and a configuration
-// overlay without auto-update or sharing.
-func (lv *Live) AgentArgs(c *Counter) []string {
-	cfg, _ := json.Marshal(map[string]any{"autoupdate": false, "share": "disabled"})
-	return []string{"version=" + lv.AgentVersion, "opencode_config=" + string(cfg)}
-}
-
 // AgentEnv is the runner environment for one trial: the proxy URL and a dummy key (the
 // real key stays in the proxy).
 func (lv *Live) AgentEnv(c *Counter) []string {
 	return []string{"OPENAI_BASE_URL=" + lv.BaseURL(c), "OPENAI_API_KEY=hint-proxy"}
 }
 
-// Model is the Harbor model argument.
-func (lv *Live) Model() string { return "openai/" + lv.model }
-
 // ErrNoLive is returned when a live trial is requested without a proxy.
 var ErrNoLive = errors.New("live trials need the model proxy")
-
-// LaunchDigest is the digest of the effective launch configuration of a live trial: the agent
-// arguments, the model selection and the names of the environment variables (values such as
-// the per-trial proxy URL and the dummy key are not configuration and never enter it).
-func LaunchDigest(ro RunOptions) string {
-	var names []string
-	for _, e := range ro.Env {
-		n, _, _ := strings.Cut(e, "=")
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	b, _ := json.Marshal(map[string]any{"agent": ro.Agent, "agent_args": ro.AgentArgs, "env_names": names, "model": ro.Model})
-	h := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(h[:])
-}
 
 // maxCheckedBody bounds the request body that the model check reads (larger bodies are
 // forwarded unread and count as unverified).

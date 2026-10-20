@@ -136,7 +136,7 @@ func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 		return nil, err
 	}
 	if lim.lan {
-		return nil, fmt.Errorf("%w: LAN model tasks need the model gate, which the container runner does not have yet", ErrUnavailable)
+		return nil, fmt.Errorf("%w: a task with an agent network allowlist is refused (a live agent reaches the model only through HINT's gate)", ErrUnavailable)
 	}
 	agentID, agentTag, agentCtx, err := d.build(ctx, filepath.Join(taskDir, "environment"), "agent")
 	if err != nil {
@@ -447,21 +447,38 @@ func (d *Docker) verifierPhase(ctx context.Context, lim taskLimits, img, artifac
 	if runErr != nil {
 		return 0, nil, runErr
 	}
-	res, err := d.cli.CopyFromContainer(ctx, cid, client.CopyFromContainerOptions{SourcePath: "/logs/verifier/reward.txt"})
+	b, err := d.readSmall(ctx, cid, "/logs/verifier/reward.txt")
 	if err != nil {
 		return 0, nil, fmt.Errorf("no reward file")
 	}
-	defer res.Content.Close()
-	tr := tar.NewReader(res.Content)
-	if _, err := tr.Next(); err != nil {
-		return 0, nil, fmt.Errorf("unreadable reward file")
-	}
-	b, _ := io.ReadAll(io.LimitReader(tr, 64))
 	v, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64)
 	if err != nil {
 		return 0, nil, fmt.Errorf("unreadable reward value")
 	}
+	// the generated verifier's own network record (the isolation check reads it); only the
+	// two exact records are kept, anything else stays absent (missing evidence)
+	if n, err := d.readSmall(ctx, cid, "/logs/verifier/network.txt"); err == nil {
+		switch rec := strings.TrimSpace(string(n)); rec {
+		case "HINT_VERIFIER_NET=blocked", "HINT_VERIFIER_NET=reachable":
+			_ = os.WriteFile(filepath.Join(dir, "verifier", "network.txt"), []byte(rec+"\n"), 0o600)
+		}
+	}
 	return v, checks, nil
+}
+
+// readSmall reads the first 64 bytes of one regular file of a stopped container.
+func (d *Docker) readSmall(ctx context.Context, cid, path string) ([]byte, error) {
+	res, err := d.cli.CopyFromContainer(ctx, cid, client.CopyFromContainerOptions{SourcePath: path})
+	if err != nil {
+		return nil, err
+	}
+	defer res.Content.Close()
+	tr := tar.NewReader(res.Content)
+	h, err := tr.Next()
+	if err != nil || h.Typeflag != tar.TypeReg {
+		return nil, fmt.Errorf("unreadable %s", path)
+	}
+	return io.ReadAll(io.LimitReader(tr, 64))
 }
 
 type limitWriter struct {

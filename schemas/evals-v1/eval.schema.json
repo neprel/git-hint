@@ -67,7 +67,7 @@
       "type": "object", "additionalProperties": false, "x-hint-class": "sensitive",
       "properties": {
         "archive": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "description": "The hidden tests directory (cli-file-v1: io/spec.json and io/inputs only); never in the agent image."},
-        "kind": {"type": "string", "enum": ["generated-tests-v1", "cli-file-v1"], "description": "07B-J: generated-tests-v1 (absent: the default) runs generated or existing tests in the candidate's process (same_process); cli-file-v1 compares the declared command's stdout and exit status with the stored reference on declared cases, process-separated (finite reference-equivalence, not universal correctness)."},
+        "kind": {"type": "string", "enum": ["generated-tests-v1", "cli-file-v1"], "description": "generated-tests-v1 (absent: the default) runs generated or existing tests in the candidate's process (same_process); cli-file-v1 compares the declared command's stdout and exit status with the stored reference on declared cases, process-separated (finite reference-equivalence, not universal correctness)."},
         "checks": {
           "type": "array", "minItems": 1,
           "items": {

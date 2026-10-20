@@ -18,6 +18,7 @@ These notes describe changes that are not released yet. They name no version, an
   - The local model can propose links; they are labeled as an estimate.
   - `git hint eval map ID` prints an editable mapping file; `--apply FILE` checks it against that exact eval version and stores a new version. Only you can confirm that a sentence states no requirement.
 - **Qualification** (needs only a Docker engine; git-hint's built-in container runner, no Harbor or Python).
+  - A policy that selects the Harbor runner of earlier development builds is refused with the migration command `git hint eval on --runner docker`; the policy is not changed for you, and stored Harbor trials and reports stay readable.
   - Disposable containers: the agent's container has no network (a live agent reaches only your local model through HINT's gate); the agent's final tree is frozen and checked by a separate verifier without network.
   - The starting state must fail and the reference must pass, three times.
   - Partial references must fail, and each requirement's tests must discriminate.
