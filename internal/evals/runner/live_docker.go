@@ -66,6 +66,9 @@ type liveResult struct {
 	final    bool     // every per-attempt path (agent, gate, networks, listener) is gone
 	teardown []string // what could not be torn down
 	err      error
+	// opencode attempts: the installed binary's provenance and the capture of its output
+	agentBinary map[string]any
+	output      map[string]string
 }
 
 // livePhase runs one live attempt. Order (C7BJ-16): the agent runs; the ledger is sealed
@@ -93,6 +96,24 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		return res
 	}
 	refuse := func(err error) liveResult { return finish(gateRefused(err)) }
+	cmd := o.agentCmd
+	var install []byte
+	if o.Agent == "opencode" { // target and binary first: nothing is set up for a refused install
+		bin, err := d.openCodeBinaryFor(ctx, *o.OpenCode, img)
+		if err != nil {
+			return finish(agentInstallError{err})
+		}
+		res.agentBinary = bin.prov
+		instr, err := taskInstruction(taskDir)
+		if err != nil {
+			return finish(agentInstallError{err})
+		}
+		if install, err = openCodeFiles(bin.data, o.Counter, o.Live.model); err != nil {
+			return finish(agentInstallError{err})
+		}
+		cmd = openCodeArgv(o.Live.model, instr)
+		res.agentBinary["launch_digest"] = openCodeLaunchDigest(o.Live.model, instr, bin.prov)
+	}
 	gateImg, err := d.gateImage(ctx)
 	if err != nil {
 		return refuse(err)
@@ -121,7 +142,7 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	h := g.agentHost()
 	pids := int64(1024)
 	h.Resources = container.Resources{NanoCPUs: int64(lim.cpus * 1e9), Memory: lim.memoryMB << 20, PidsLimit: &pids}
-	id, err := d.create(ctx, &container.Config{Image: img, User: "65534:65534", WorkingDir: "/app", Cmd: o.agentCmd, Env: gateEnv(o.Counter)}, h)
+	id, err := d.create(ctx, &container.Config{Image: img, User: "65534:65534", WorkingDir: "/app", Cmd: cmd, Entrypoint: []string{}, Env: gateEnv(o.Counter)}, h)
 	if err != nil {
 		return refuse(err)
 	}
@@ -134,12 +155,20 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	if _, err := d.cli.CopyToContainer(ctx, id, client.CopyToContainerOptions{DestinationPath: "/", Content: bytes.NewReader(repo)}); err != nil {
 		return finish(err)
 	}
+	if install != nil {
+		if _, err := d.cli.CopyToContainer(ctx, id, client.CopyToContainerOptions{DestinationPath: "/", Content: bytes.NewReader(install)}); err != nil {
+			return finish(agentInstallError{err})
+		}
+	}
 	bypass := d.Bypass(ctx, g, id)
 	if bypass != BypassEnforced {
 		return refuse(errors.New("the inspected topology is not the probed policy"))
 	}
 	runErr := d.runToEnd(ctx, id, lim.agent, "agent")
 	o.Counter.Seal(5*time.Second, bypass, ScopeIsolatedContainer) // revoke admission and drain; not the final account
+	if o.Agent == "opencode" {
+		res.output = d.saveOutput(ctx, id, filepath.Join(filepath.Dir(artifact), "opencode"))
+	}
 	if runErr != nil {
 		return finish(runErr)
 	}
@@ -192,6 +221,47 @@ func ownedTree(repo string) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// agentInstallError is an attempt whose agent could not be installed (no launch).
+type agentInstallError struct{ err error }
+
+func (a agentInstallError) Error() string {
+	return "the agent could not be installed: " + a.err.Error()
+}
+
+// saveOutput writes the agent's stdout and stderr separately (each complete and at most
+// 8 MiB) next to the artifact and says for each whether it is complete; a partial or
+// unavailable stream is never written as if it were complete.
+func (d *Docker) saveOutput(ctx context.Context, id, base string) map[string]string {
+	st := map[string]string{"stdout": "unavailable", "stderr": "unavailable"}
+	if os.MkdirAll(filepath.Dir(base), 0o700) != nil {
+		return st
+	}
+	logs, err := d.cli.ContainerLogs(ctx, id, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	if err != nil {
+		return st
+	}
+	defer logs.Close()
+	out, errb := &capWriter{max: 8 << 20}, &capWriter{max: 8 << 20}
+	if err := demux(out, errb, logs); err != nil {
+		st["stdout"], st["stderr"] = "incomplete", "incomplete"
+		return st
+	}
+	for name, w := range map[string]*capWriter{"stdout": out, "stderr": errb} {
+		if w.over {
+			st[name] = "truncated"
+			continue
+		}
+		file := base + ".txt"
+		if name == "stderr" {
+			file = base + ".stderr.txt"
+		}
+		if os.WriteFile(file, w.buf.Bytes(), 0o600) == nil {
+			st[name] = "complete"
+		}
+	}
+	return st
 }
 
 type gateRefusal struct{ err error }

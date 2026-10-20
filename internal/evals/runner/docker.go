@@ -113,7 +113,9 @@ func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 			return nil, errors.New("a live attempt needs the proxy, its counter and one attempt")
 		}
 	case "opencode":
-		return nil, fmt.Errorf("%w: the container runner does not run live agents yet (the model gate is not built)", ErrUnavailable)
+		if o.Live == nil || o.Counter == nil || o.OpenCode == nil || o.Attempts != 1 {
+			return nil, fmt.Errorf("%w: a live opencode attempt needs the model proxy, its counter, the pinned OpenCode and one attempt", ErrUnavailable)
+		}
 	default:
 		return nil, fmt.Errorf("agent %q is not allowed", o.Agent)
 	}
@@ -213,8 +215,14 @@ func (d *Docker) trial(ctx context.Context, taskDir, dir, name string, o RunOpti
 	artifact := filepath.Join(dir, "agent", "final.tar")
 	var digest string
 	var err error
-	if o.Agent == "test-agent" {
+	if o.Agent == "test-agent" || o.Agent == "opencode" {
 		lr := d.livePhase(ctx, taskDir, o, lim, im.agent, artifact)
+		if lr.agentBinary != nil {
+			r.Container["agent_binary"] = lr.agentBinary
+		}
+		if lr.output != nil {
+			r.Container["agent_output"] = lr.output
+		}
 		digest, err = lr.digest, lr.err
 		// the ledger as read after the teardown; never the seal-time snapshot (C7BJ-16)
 		r.Container["ledger"], r.Container["ledger_final"] = lr.ledger, lr.final

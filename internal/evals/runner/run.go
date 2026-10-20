@@ -124,8 +124,9 @@ type RunOptions struct {
 	Env       []string // extra environment for the runner (never credentials in arguments)
 	Timeout   time.Duration
 	// the container runner's live attempts: the model proxy and this attempt's counter
-	Live    *Live
-	Counter *Counter
+	Live     *Live
+	Counter  *Counter
+	OpenCode *OpenCodeSource // the pinned OpenCode of a live opencode attempt
 	// agentCmd is the agent command of the internal test agent ("test-agent"): the opencode
 	// installation is not wired into the container runner yet
 	agentCmd []string
