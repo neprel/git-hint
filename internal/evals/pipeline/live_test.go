@@ -132,6 +132,7 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	}
 	summary := map[string]any{"runner": "hint-docker " + runner.DockerRunnerSemver, "opencode": runner.DockerOpenCodeVersion, "trials": rep.Trials, "outcomes": rep.Outcomes,
 		"model_requests": deref(rep.Requests), "ledgers_not_written": rep.LedgersNotWritten, "wall_seconds": time.Since(start).Round(time.Second).Seconds()}
+	sess := liveSession{Trials: rep.Trials, Stop: rep.Stopped, Requests: rep.Requests, MaxRequests: maxRequests, LedgersNotWritten: rep.LedgersNotWritten}
 	var outputs [][]byte
 	names, _ := l.Manifests("trial")
 	for _, n := range names {
@@ -139,6 +140,7 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 		if l.Manifest("trial", n, &tr) != nil {
 			continue
 		}
+		sess.Outcome, _ = tr["outcome"].(string)
 		summary["trial"] = map[string]any{"outcome": tr["outcome"], "checks": tr["checks"], "counters": tr["counters"], "budget": tr["budget"], "agent": tr["agent"], "runner": tr["runner"], "result_trust": tr["result_trust"]}
 		if arts, ok := tr["artifacts"].([]any); ok && len(arts) == 1 {
 			if a, err := l.GetObject(arts[0].(string)); err == nil {
@@ -154,8 +156,10 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	}
 	var ledgers []any
 	for _, o := range obs {
-		if o.ModelLedger != nil {
-			ledgers = append(ledgers, map[string]any{"state": o.ModelLedger.State, "bypass": o.ModelLedger.Bypass, "reasons": o.ModelLedger.Reasons})
+		if m := o.ModelLedger; m != nil {
+			ledgers = append(ledgers, map[string]any{"state": m.State, "bypass": m.Bypass, "reasons": m.Reasons, "counts": m.Counts})
+			sess.Ledgers++
+			sess.LedgerState, sess.LedgerBypass, sess.LedgerReasons, sess.CompleteResponses = m.State, m.Bypass, m.Reasons, m.Counts["complete"]
 		}
 	}
 	summary["ledgers"] = ledgers
@@ -163,27 +167,25 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	revs, _ := workunits.Unreported(s)
 	doc, _, rerr := report.Builder{Key: s.Key(), Namespace: s.Cfg.ProjectNamespace, WorkUnits: revs}.Build(l, names, time.Now())
 	summary["report_error"] = fmt.Sprint(rerr)
+	sess.ReportErr = rerr
 	outputs = append(outputs, doc)
 	b, _ := json.MarshalIndent(summary, "", "  ")
 	outputs = append(outputs, b)
 	// the key never appears in an output (the value is not printed)
 	if key := os.Getenv(m.KeyEnv); key != "" {
 		for _, o := range outputs {
-			if bytes.Contains(o, []byte(key)) {
-				t.Fatal("the model key appears in an output")
-			}
+			sess.KeyFound = sess.KeyFound || bytes.Contains(o, []byte(key))
 		}
 	}
+	// the series continues (macOS before Linux) only on a verified session, never on a test
+	// PASS alone; the actual result is kept either way
+	verr := sess.verdict()
+	summary["series_may_continue"], summary["verdict"] = verr == nil, fmt.Sprint(verr)
+	b, _ = json.MarshalIndent(summary, "", "  ")
 	liveOut(t, "opencode-trial-summary.json", b)
 	t.Logf("summary:\n%s", b)
-	if rep.Trials != 1 || rep.Requests == nil || *rep.Requests > maxRequests {
-		t.Fatalf("limits: %+v", rep)
-	}
-	if rerr != nil || len(ledgers) != 1 || rep.LedgersNotWritten != 0 {
-		t.Errorf("chain: report %v, ledgers %d, not written %d", rerr, len(ledgers), rep.LedgersNotWritten)
-	}
-	if rep.Outcomes["infrastructure_error"] > 0 || rep.Outcomes["verifier_error"] > 0 {
-		t.Errorf("the trial did not run as a measurement: %v", rep.Outcomes)
+	if verr != nil {
+		t.Fatalf("the session did not verify the chain; stop the series: %v", verr)
 	}
 }
 
