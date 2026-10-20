@@ -120,9 +120,15 @@ func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 	if err != nil {
 		return nil, fmt.Errorf("%w: agent image: %v", ErrUnavailable, err)
 	}
-	verImg, verCtx, err := d.build(ctx, filepath.Join(taskDir, "tests"), "verifier")
+	iot, err := readIOTask(taskDir)
 	if err != nil {
-		return nil, fmt.Errorf("%w: verifier image: %v", ErrUnavailable, err)
+		return nil, err
+	}
+	var verImg, verCtx string
+	if iot == nil { // a B1 task has no verifier image: the runner compares on the host
+		if verImg, verCtx, err = d.build(ctx, filepath.Join(taskDir, "tests"), "verifier"); err != nil {
+			return nil, fmt.Errorf("%w: verifier image: %v", ErrUnavailable, err)
+		}
 	}
 	job := filepath.Join(o.JobsDir, o.JobName)
 	if err := os.MkdirAll(job, 0o700); err != nil {
@@ -130,7 +136,7 @@ func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 	}
 	for a := 1; a <= o.Attempts; a++ {
 		name := fmt.Sprintf("%s__%d", o.JobName, a)
-		d.trial(ctx, taskDir, filepath.Join(job, name), name, o.Agent, lim, images{agentImg, agentCtx, verImg, verCtx})
+		d.trial(ctx, taskDir, filepath.Join(job, name), name, o.Agent, lim, images{agentImg, agentCtx, verImg, verCtx}, iot)
 	}
 	return ReadJob(job)
 }
@@ -164,7 +170,7 @@ func stamp() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 // trial runs one attempt; every failure is recorded as the trial's exception, never as a
 // pass.
-func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, lim taskLimits, im images) {
+func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, lim taskLimits, im images, iot *ioTask) {
 	_ = os.MkdirAll(filepath.Join(dir, "verifier"), 0o700)
 	r := trialResult{TrialName: name, StartedAt: stamp(), Container: map[string]any{"runner": DockerRunnerVersion, "engine": d.Version,
 		"agent_image": im.agent, "agent_context": im.agentCtx, "verifier_image": im.verifier, "verifier_context": im.verifierCtx}}
@@ -193,6 +199,26 @@ func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, li
 		return
 	}
 	r.Container["final_tree"] = digest
+	if iot != nil {
+		reward, prov, err := d.ioPhase(ctx, taskDir, iot, lim, im.agent, artifact, dir)
+		r.Container["io"] = prov
+		if err != nil { // no verdict: never a pass, and no trust statement
+			var te timeoutError
+			if errors.As(err, &te) {
+				fail("VerifierTimeoutError")
+			} else {
+				fail("VerifierRewardError")
+			}
+			r.Container["error"] = err.Error()
+			r.Container["result_trust"], r.Container["check_trust"] = TrustUnknown, map[string]string{}
+			return
+		}
+		// the verdict came from the runner on captured bytes; no candidate or reference code
+		// ran where it was made (07B-J §14)
+		r.Container["result_trust"], r.Container["check_trust"] = TrustProcessSeparated, map[string]string{"B1": TrustProcessSeparated}
+		r.VerifierResult = &verifierResult{Rewards: map[string]float64{"reward": reward}}
+		return
+	}
 	reward, checks, err := d.verifierPhase(ctx, lim, im.verifier, artifact, dir)
 	// trust from the topology that ran: the verifier container executes the candidate's code
 	// together with every check it prints (07B-J §11.3)

@@ -202,9 +202,10 @@ func baseEnv() []string {
 	return env
 }
 
-var checkLine = regexp.MustCompile(`^CHECK (C[1-9][0-9]{0,2}) (PASS|FAIL)$`)
+// check IDs: C<n> (generated verifier) and B<n> (process-separated behavior checks, B1)
+var checkLine = regexp.MustCompile(`^CHECK ([CB][1-9][0-9]{0,2}) (PASS|FAIL)$`)
 
-var testLine = regexp.MustCompile(`^TEST (C[1-9][0-9]{0,2}) ([A-Za-z0-9._/+-]+::[A-Za-z_][A-Za-z0-9_]*) (PASS|FAIL)$`)
+var testLine = regexp.MustCompile(`^TEST ([CB][1-9][0-9]{0,2}) ([A-Za-z0-9._/+-]+::[A-Za-z_][A-Za-z0-9_]*) (PASS|FAIL)$`)
 
 // ReadJob reads every trial of a job directory.
 func ReadJob(jobDir string) ([]Trial, error) {
