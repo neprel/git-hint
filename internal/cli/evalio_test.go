@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/pipeline"
@@ -150,4 +152,87 @@ func mustLink(t *testing.T, target string) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// C7BJ-10: the identity of a declaration is canonical: an identical retry at another time,
+// also with other JSON formatting of the entry, finds the existing eval and writes nothing;
+// after eval map the retry keeps the mapped version and does not claim R1 is unmapped; a
+// changed limit, request or family is another declaration; the old record stays unchanged.
+func TestEvalDeclareIORetryAndIdentity(t *testing.T) {
+	shop, _ := setup(t)
+	var spawned []string
+	must(t, runEval(t, shop, &spawned, "eval", "on"))
+	base, refRev := declareRepo(t, shop)
+	dir := t.TempDir()
+	w := func(name, s string) string {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte(s), 0o644)
+		return p
+	}
+	req, other := w("request.txt", "tool.sh must print its input in upper case.\n"), w("other.txt", "tool.sh must shout its input.\n")
+	in := w("c.in", "hi\n")
+	at := func(d time.Duration, entry, reqFile string, extra ...string) result {
+		a := append([]string{"eval", "declare-io", "--base", base, "--reference", refRev, "--entry", entry, "--case", "c=" + in, "--request", reqFile}, extra...)
+		var out, errb bytes.Buffer
+		home := filepath.Join(shop, ".test-home")
+		env := &Env{Dir: shop, Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb, Now: func() time.Time { return time.Now().Add(d) },
+			Spawn: func(a ...string) error { spawned = append(spawned, strings.Join(a, " ")); return nil },
+			EvalEnv: func() pipeline.Env {
+				return pipeline.Env{Home: home, DataHome: filepath.Join(home, "data"), Cmd: &noAgents{}, Now: time.Now}
+			}}
+		return result{Run(a, env), out.String(), errb.String()}
+	}
+	s, _ := store.Open(shop)
+	l := library.Open(s, 0)
+	manifests := func() []string { n, _ := l.Manifests("eval"); return n }
+	must(t, at(0, `["sh","tool.sh"]`, req))
+	names := manifests()
+	if len(names) != 1 {
+		t.Fatalf("evals %v", names)
+	}
+	first := names[0]
+	var firstRec map[string]any
+	l.Manifest("eval", first, &firstRec)
+	firstBytes, _ := json.Marshal(firstRec)
+	r := must(t, at(time.Hour, ` [ "sh" ,  "tool.sh" ] `, req))
+	if !strings.Contains(r.stdout, "exists already: eval "+first) || len(manifests()) != 1 {
+		t.Fatalf("retry: %s %v", r.stdout, manifests())
+	}
+	// map R1, then retry: the mapped version stays the latest, and R1 is not called unmapped
+	id, _, _ := strings.Cut(first, "@")
+	out := must(t, runEval(t, shop, &spawned, "eval", "map", id)).stdout
+	var f pipeline.MapFile
+	json.Unmarshal([]byte(out), &f)
+	f.Requirements[0].Quote, f.Requirements[0].Tests = "tool.sh must print its input in upper case", []string{"cases/c::output"}
+	mf := filepath.Join(t.TempDir(), "map.json")
+	mb, _ := json.Marshal(f)
+	os.WriteFile(mf, mb, 0o600)
+	must(t, runEval(t, shop, &spawned, "eval", "map", id, "--apply", mf))
+	r = must(t, at(2*time.Hour, `["sh","tool.sh"]`, req))
+	if !strings.Contains(r.stdout, "exists already: eval "+id+"@2") || strings.Contains(r.stdout, "not linked") || len(manifests()) != 2 {
+		t.Fatalf("retry after map: %s %v", r.stdout, manifests())
+	}
+	// semantic changes are other declarations
+	ids := map[string]bool{id: true}
+	for name, rr := range map[string]result{
+		"limit":   at(0, `["sh","tool.sh"]`, req, "--case-seconds", "11"),
+		"request": at(0, `["sh","tool.sh"]`, other),
+		"family":  at(0, `["sh","tool.sh"]`, req, "--family", "feature"),
+		"argv":    at(0, `["sh","./tool.sh"]`, req),
+	} {
+		if rr.code != 0 || strings.Contains(rr.stdout, "exists already") {
+			t.Fatalf("%s: %+v", name, rr)
+		}
+		for _, n := range manifests() {
+			ids[strings.SplitN(n, "@", 2)[0]] = true
+		}
+	}
+	if len(ids) != 5 {
+		t.Fatalf("eval IDs %v", ids)
+	}
+	var now map[string]any
+	l.Manifest("eval", first, &now)
+	if b, _ := json.Marshal(now); !bytes.Equal(b, firstBytes) {
+		t.Fatal("the first record changed")
+	}
 }

@@ -35,6 +35,23 @@ type InputIO struct {
 	Now         time.Time
 }
 
+// IODeclarationDigest is the canonical identity of a declaration: the decoded argv, both
+// trees, the ordered cases with the digests of their bytes, the request, the family and the
+// case limit. Neither JSON formatting nor the time enters it (C7BJ-10).
+func IODeclarationDigest(in InputIO) string {
+	cases := make([]any, 0, len(in.Cases))
+	for _, c := range in.Cases {
+		cases = append(cases, []any{c.ID, library.Digest(c.Input)})
+	}
+	b, _ := json.Marshal([]any{"cli-file-v1-declaration", in.Entry, in.Base, in.Result, cases, library.Digest([]byte(in.Request)),
+		orDefault(in.Family, "bug_fix"), in.CaseSeconds})
+	return library.Digest(b)
+}
+
+// IOEvalID is the eval ID of a declaration: the same declaration always has the same ID; any
+// semantic change gives another.
+func IOEvalID(in InputIO) string { return "ev-" + short(IODeclarationDigest(in)) }
+
 // BuildIO packages a declared cli-file-v1 eval. Its only check is B1: the command's stdout
 // and exit status on each case equal the stored reference's (finite reference-equivalence,
 // not universal correctness). The verifier archive holds only io/spec.json and io/inputs;
@@ -144,7 +161,7 @@ func BuildIO(l *library.Library, in InputIO) (*Built, error) {
 		map[string]any{"req_id": "R2", "kind": "behavior", "origin": "result_state", "text": refText, "evidence": []any{}, "checks": []any{"B1"}, "mapping": "construction"},
 	}
 	rec := map[string]any{
-		"record": "eval", "manifest_version": 1, "eval_id": "ev-" + short(in.EpisodeID, in.Base, in.Result, "cli-file-v1"), "version": 1, "previous": nil,
+		"record": "eval", "manifest_version": 1, "eval_id": IOEvalID(in), "version": 1, "previous": nil,
 		"created_at": in.Now.UTC().Format(time.RFC3339), "episode_id": in.EpisodeID, "family": orDefault(in.Family, "bug_fix"),
 		"repositories": []any{map[string]any{"repo": in.Repo, "base_tree": in.Base, "base_archive": baseArc, "result_tree": in.Result}},
 		"instruction":  instrD, "requirements": reqs,

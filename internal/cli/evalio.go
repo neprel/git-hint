@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,15 +96,26 @@ func evalDeclareIO(e *Env, args []string) int {
 	if err != nil || strings.TrimSpace(string(req)) == "" {
 		return fail(e, errors.New("--request: a readable, nonempty file of at most 64 KiB is needed"))
 	}
-	h := sha256.New()
-	fmt.Fprintf(h, "declare-io\x00%s\x00%s\x00%s\x00", baseTree, refTree, *entry)
-	for _, c := range ioCases {
-		fmt.Fprintf(h, "%s\x00%d\x00", c.ID, len(c.Input))
-		h.Write(c.Input)
+	in := build.InputIO{Family: *family, Repo: filepath.Base(s.Root), Base: baseTree, Result: refTree, Request: string(req),
+		RequestAt: map[string]any{"source": library.Digest(req), "record": "declare-io"}, Entry: argv, Cases: ioCases, CaseSeconds: *secs, Now: e.Now()}
+	in.EpisodeID = "ep-" + strings.TrimPrefix(build.IOEvalID(in), "ev-") // the declaration is its own episode
+	// an identical declaration (same canonical identity) is the existing eval: nothing is
+	// written again and its later versions (mapped, qualified) stay as they are (C7BJ-10)
+	id := build.IOEvalID(in)
+	for _, r := range latestEvals(l) {
+		if strings.HasPrefix(r.Ref, id+"@") {
+			var rec map[string]any
+			if err := l.Manifest("eval", r.Ref, &rec); err != nil {
+				return fail(e, err)
+			}
+			fmt.Fprintf(e.Stdout, "This declaration exists already: eval %s (%v); nothing was written.\n", r.Ref, rec["state"])
+			if unmappedRequest(rec) {
+				fmt.Fprintln(e.Stdout, "The request (R1) is not linked to a check yet: link it with git hint eval map before the eval can be validated.")
+			}
+			return 0
+		}
 	}
-	b, err := build.BuildIO(l, build.InputIO{EpisodeID: "ep-" + hex.EncodeToString(h.Sum(nil))[:16], Family: *family, Repo: filepath.Base(s.Root),
-		Base: baseTree, Result: refTree, Request: string(req), RequestAt: map[string]any{"source": library.Digest(req), "record": "declare-io"},
-		Entry: argv, Cases: ioCases, CaseSeconds: *secs, Now: e.Now()})
+	b, err := build.BuildIO(l, in)
 	if err != nil {
 		var r *build.Refusal
 		if errors.As(err, &r) {
@@ -124,6 +133,17 @@ func evalDeclareIO(e *Env, args []string) int {
 	fmt.Fprintln(e.Stdout, "The request (R1) is not linked to a check yet: link it with git hint eval map before the eval can be validated.")
 	fmt.Fprintln(e.Stdout, "Only the container runner qualifies this eval; until it replaces the current runner, the eval stays packaged (runner_unsupported).")
 	return 0
+}
+
+// unmappedRequest says whether a request or correction requirement of rec has no check.
+func unmappedRequest(rec map[string]any) bool {
+	reqs, _ := rec["requirements"].([]any)
+	for _, r := range reqs {
+		if m, _ := r.(map[string]any); m != nil && m["mapping"] == "none" && (m["origin"] == "request" || m["origin"] == "correction") {
+			return true
+		}
+	}
+	return false
 }
 
 // revTree resolves a revision of the repository to its tree read-only and stores the
