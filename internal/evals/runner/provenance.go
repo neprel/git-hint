@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -48,10 +49,17 @@ func (d *Docker) resolveImage(ctx context.Context, ref string) (image, error) {
 }
 
 // create creates a container and checks that the engine created it from exactly the
-// requested image ID.
+// requested image ID, with no access to the host (noHostAccess) both as requested and as the
+// engine reports it.
 func (d *Docker) create(ctx context.Context, cfg *container.Config, host *container.HostConfig) (string, error) {
 	if !strings.HasPrefix(cfg.Image, "sha256:") {
 		return "", fmt.Errorf("a container must be created by image ID, not %q", cfg.Image)
+	}
+	if err := noHostAccess(host); err != nil {
+		return "", err
+	}
+	if host.CgroupnsMode.IsHost() { // requested only: an engine on cgroup v1 reports host by default
+		return "", errors.New("a container sharing the host cgroup namespace")
 	}
 	c, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{Config: cfg, HostConfig: host})
 	if err != nil {
@@ -62,7 +70,46 @@ func (d *Docker) create(ctx context.Context, cfg *container.Config, host *contai
 		d.remove(c.ID)
 		return "", fmt.Errorf("the container does not use the recorded image %s", cfg.Image)
 	}
+	if ins.Container.HostConfig != nil {
+		if err := noHostAccess(ins.Container.HostConfig); err != nil {
+			d.remove(c.ID)
+			return "", err
+		}
+	}
 	return c.ID, nil
+}
+
+// noHostAccess is the host boundary every container of the runner shares (07B-H Q9): no host
+// paths (binds, mounts, devices), no privileged mode, no added capabilities, no host or shared
+// namespaces (network, PID, IPC, UTS, user namespace), no published ports, an explicit
+// network (none or a HINT network, never the default bridge or the host), no-new-privileges,
+// and no disabled confinement (seccomp, AppArmor, SELinux labels). Capabilities that a
+// container keeps by default and the user inside the container are set per container kind.
+func noHostAccess(h *container.HostConfig) error {
+	if h == nil {
+		return errors.New("a container without a host configuration")
+	}
+	n := string(h.NetworkMode)
+	switch {
+	case h.Privileged, len(h.CapAdd) > 0:
+		return errors.New("a container with added privileges")
+	case len(h.Binds) > 0, len(h.Mounts) > 0, len(h.Devices) > 0, len(h.Tmpfs) > 0, len(h.VolumesFrom) > 0, h.VolumeDriver != "":
+		return errors.New("a container with host paths, volumes or devices")
+	case len(h.PortBindings) > 0, h.PublishAllPorts:
+		return errors.New("a container with published ports")
+	case n == "" || n == "default" || n == "bridge" || n == "host" || strings.HasPrefix(n, "container:"):
+		return fmt.Errorf("a container on network %q", n)
+	case h.PidMode != "", h.IpcMode.IsHost(), h.IpcMode.IsContainer(), h.UTSMode != "", h.UsernsMode != "":
+		return errors.New("a container sharing a namespace")
+	case !slices.Contains(h.SecurityOpt, "no-new-privileges:true"):
+		return errors.New("a container without no-new-privileges")
+	}
+	for _, o := range h.SecurityOpt {
+		if strings.Contains(o, "unconfined") || o == "label=disable" || o == "label:disable" {
+			return fmt.Errorf("a container with confinement disabled (%s)", o)
+		}
+	}
+	return nil
 }
 
 // pinnedFrom returns the FROM references of a Dockerfile; each must name a digest.

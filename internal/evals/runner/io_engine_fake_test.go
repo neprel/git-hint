@@ -102,7 +102,7 @@ func fakeEngine(t *testing.T, broken bool, status int64) (*Docker, *string) {
 			mu.Lock()
 			img := images[id]
 			mu.Unlock()
-			fmt.Fprintf(w, `{"Id":%q,"Image":%q,"HostConfig":{"NetworkMode":"none"},"NetworkSettings":{"Networks":{"none":{}}}}`, id, img)
+			fmt.Fprintf(w, `{"Id":%q,"Image":%q,"HostConfig":{"NetworkMode":"none","SecurityOpt":["no-new-privileges:true"]},"NetworkSettings":{"Networks":{"none":{}}}}`, id, img)
 			return
 		}
 		if strings.HasSuffix(p, "/logs") {
