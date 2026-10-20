@@ -15,7 +15,7 @@ The server writes each client name, client version and protocol version to `.hin
 
 ## 2. Tools
 
-Tool input and output schemas use one `type` per property (no nullable type lists), so clients that map tool schemas onto a single-type dialect accept every tool; an optional input is omitted, not sent as `null`. Every tool description starts with its side effect. Every result carries `side_effect` (`none`, `local_write` or `network_upload`) and, where it applies, `schema_version` and snapshot digests.
+Tool input and output schemas use one `type` per property (no nullable type lists). This improves compatibility with clients that map tool schemas onto a single-type dialect; it does not guarantee that every client accepts every tool. An optional input is omitted, not sent as `null`. Every tool description starts with its side effect. Every result carries `side_effect` (`none`, `local_write` or `network_upload`) and, where it applies, `schema_version` and snapshot digests.
 
 | Tool | Input | Result | Side effect |
 |---|---|---|---|
