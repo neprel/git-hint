@@ -68,9 +68,12 @@ func MapDraft(l *library.Library, ref string) (MapFile, error) {
 		ids[m["text"].(string)] = m["req_id"].(string)
 		f.Sources[m["req_id"].(string)] = string(b)
 	}
-	f.Tests = append(build.C1Tests(rec), "C2")
-	if len(build.C1Tests(rec)) == 0 {
-		f.Tests = []string{"C1", "C2"}
+	f.Tests = build.C1Tests(rec)
+	if build.PrimaryCheck(rec) == "C1" { // a cli-file-v1 eval offers only its declared cases
+		f.Tests = append(f.Tests, "C2")
+		if len(build.C1Tests(rec)) == 0 {
+			f.Tests = []string{"C1", "C2"}
+		}
 	}
 	drafted := map[string]bool{}
 	for _, r := range rec["requirements"].([]any) {

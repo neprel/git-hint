@@ -87,12 +87,14 @@ func Unmapped(rec map[string]any) []string {
 	return out
 }
 
-// C1Tests returns the test IDs that check C1 of rec runs.
+// C1Tests returns the test IDs that the primary check of rec runs (C1, or B1 for a
+// cli-file-v1 eval).
 func C1Tests(rec map[string]any) []string {
 	var out []string
+	primary := PrimaryCheck(rec)
 	for _, c := range rec["verifier"].(map[string]any)["checks"].([]any) {
 		m := c.(map[string]any)
-		if m["check_id"] == "C1" {
+		if m["check_id"] == primary {
 			ts, _ := m["tests"].([]any)
 			for _, t := range ts {
 				out = append(out, t.(string))
@@ -100,6 +102,15 @@ func C1Tests(rec map[string]any) []string {
 		}
 	}
 	return out
+}
+
+// PrimaryCheck is the check that requested behavior links to: C1 (hidden or generated
+// tests), or B1 for a cli-file-v1 eval (the declared cases).
+func PrimaryCheck(rec map[string]any) string {
+	if v, _ := rec["verifier"].(map[string]any); v["kind"] == "cli-file-v1" {
+		return "B1"
+	}
+	return "C1"
 }
 
 // ApplyMapping replaces the unmapped request and correction requirements of rec by the
@@ -119,9 +130,10 @@ func ApplyMapping(l *library.Library, rec map[string]any, m Mapping) ([]any, err
 	for _, t := range C1Tests(rec) {
 		tests[t] = true
 	}
+	primary := PrimaryCheck(rec)
 	// whole checks: C2 (existing tests: kept behavior), C1 when it has no test functions
-	// (the API check of a refactoring)
-	whole := map[string]bool{"C2": true, "C1": len(tests) == 0}
+	// (the API check of a refactoring); a cli-file-v1 eval has only B1 and its cases
+	whole := map[string]bool{"C2": primary == "C1", "C1": primary == "C1" && len(tests) == 0}
 	type source struct {
 		req  map[string]any
 		text string
@@ -184,7 +196,7 @@ func ApplyMapping(l *library.Library, rec map[string]any, m Mapping) ([]any, err
 				continue
 			}
 			if !tests[t] {
-				return nil, fmt.Errorf("%w: test %q is not run by C1", ErrMapping, t)
+				return nil, fmt.Errorf("%w: test %q is not run by %s", ErrMapping, t, primary)
 			}
 		}
 		quotes[ln.Source] = append(quotes[ln.Source], q)
@@ -211,7 +223,7 @@ func ApplyMapping(l *library.Library, rec map[string]any, m Mapping) ([]any, err
 			ts = append(ts, t)
 		}
 		r := map[string]any{"kind": "behavior", "origin": src["origin"], "text": d, "evidence": src["evidence"],
-			"checks": []any{"C1"}, "tests": ts, "mapping": m.By, "source": src["text"]}
+			"checks": []any{primary}, "tests": ts, "mapping": m.By, "source": src["text"]}
 		switch {
 		case len(ts) == 0:
 			// an atomic requirement that no test verifies stays without a check

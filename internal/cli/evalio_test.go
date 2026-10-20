@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/pipeline"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/testkit"
 )
@@ -69,6 +72,31 @@ func TestEvalDeclareIO(t *testing.T) {
 	}
 	if found == nil {
 		t.Fatal("no cli-file-v1 eval stored")
+	}
+	// eval map offers the declared cases and links the request to B1
+	out := must(t, runEval(t, shop, &spawned, "eval", "map", found["eval_id"].(string))).stdout
+	var f pipeline.MapFile
+	if err := json.Unmarshal([]byte(out), &f); err != nil || strings.Join(f.Tests, ",") != "cases/lower::output,cases/mixed::output" {
+		t.Fatalf("map tests: %v %s", err, out)
+	}
+	f.Requirements[0].Quote, f.Requirements[0].Tests = "tool.sh must print its input in upper case", []string{"cases/lower::output", "cases/mixed::output"}
+	mf := filepath.Join(t.TempDir(), "map.json")
+	mb, _ := json.Marshal(f)
+	os.WriteFile(mf, mb, 0o600)
+	must(t, runEval(t, shop, &spawned, "eval", "map", found["eval_id"].(string), "--apply", mf))
+	var v2 map[string]any
+	if l.Manifest("eval", found["eval_id"].(string)+"@2", &v2) != nil {
+		t.Fatal("no mapped version")
+	}
+	linked := false
+	for _, r := range v2["requirements"].([]any) {
+		m := r.(map[string]any)
+		if m["origin"] == "request" && fmt.Sprint(m["checks"]) == "[B1]" && m["mapping"] == "user" {
+			linked = true
+		}
+	}
+	if !linked {
+		t.Fatalf("requirements %v", v2["requirements"])
 	}
 	show := must(t, runEval(t, shop, &spawned, "eval", "show", found["eval_id"].(string))).stdout
 	if !strings.Contains(show, "finite reference-equivalence") {

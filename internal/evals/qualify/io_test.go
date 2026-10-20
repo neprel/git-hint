@@ -119,6 +119,21 @@ func TestQualifyIOOnTheEngine(t *testing.T) {
 	if res.State == "validated" {
 		t.Errorf("validated with an unmapped request: %+v", res) // R1 stays unmapped until a user links it
 	}
+	// once the user links the request to the declared cases, the same eval is validated
+	reqs, err := build.ApplyMapping(l, rec, build.Mapping{By: "user", Links: []build.Link{{Source: "R1",
+		Quote: "tool.sh must print its input in upper case", Tests: []string{"cases/lower::output", "cases/mixed::output"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped := map[string]any{}
+	for k, v := range rec {
+		mapped[k] = v
+	}
+	mapped["requirements"] = reqs
+	res, err = Run(context.Background(), l, d, mapped, Options{Work: t.TempDir(), Settings: runner.DefaultSettings})
+	if err != nil || res.State != "validated" || res.ResultTrust != runner.TrustProcessSeparated {
+		t.Fatalf("mapped: %v %+v", err, res)
+	}
 }
 
 func ioEvalWith(t *testing.T, l *library.Library, base map[string]string, cases []build.IOCase) map[string]any {
