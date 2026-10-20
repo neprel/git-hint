@@ -45,7 +45,7 @@ func verifierFake(t *testing.T, files map[string][]byte) (float64, error, string
 			fmt.Fprint(w, `{"Id":"v1"}`)
 		case strings.HasSuffix(p, "/json") && r.Method == "GET":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"Id":"v1","Image":%q}`, img)
+			fmt.Fprintf(w, `{"Id":"v1","Image":%q,"HostConfig":{"NetworkMode":"none","SecurityOpt":["no-new-privileges:true"]},"Mounts":[]}`, img)
 		case strings.HasSuffix(p, "/archive") && r.Method == "PUT":
 			w.WriteHeader(200)
 		case strings.HasSuffix(p, "/archive"):

@@ -65,16 +65,23 @@ func (d *Docker) create(ctx context.Context, cfg *container.Config, host *contai
 	if err != nil {
 		return "", err
 	}
+	refuse := func(why error) (string, error) { // removed before any start; a failed removal is reported
+		return "", errors.Join(why, d.removeErr(c.ID))
+	}
 	ins, err := d.cli.ContainerInspect(ctx, c.ID, client.ContainerInspectOptions{})
 	if err != nil || ins.Container.Image != cfg.Image {
-		d.remove(c.ID)
-		return "", fmt.Errorf("the container does not use the recorded image %s", cfg.Image)
+		return refuse(fmt.Errorf("the container does not use the recorded image %s", cfg.Image))
 	}
-	if ins.Container.HostConfig != nil {
-		if err := noHostAccess(ins.Container.HostConfig); err != nil {
-			d.remove(c.ID)
-			return "", err
-		}
+	// the engine's own report is the evidence: a missing host configuration is unknown (refused);
+	// actual mounts include volumes the image declares (VOLUME), which no requested field shows
+	if ins.Container.HostConfig == nil {
+		return refuse(errors.New("the engine reported no host configuration for the container"))
+	}
+	if err := noHostAccess(ins.Container.HostConfig); err != nil {
+		return refuse(err)
+	}
+	if len(ins.Container.Mounts) > 0 {
+		return refuse(fmt.Errorf("the container has %d mount(s) (for example an image-declared volume)", len(ins.Container.Mounts)))
 	}
 	return c.ID, nil
 }

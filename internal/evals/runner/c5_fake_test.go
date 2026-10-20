@@ -38,7 +38,7 @@ func c5Engine(t *testing.T, logStatus int, logs, build string) *Docker {
 			fmt.Fprint(w, `{"Id":"c"}`)
 		case strings.HasSuffix(p, "/containers/c/json"):
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"Id":"c","Image":%q}`, c5Image)
+			fmt.Fprintf(w, `{"Id":"c","Image":%q,"HostConfig":{"NetworkMode":"none","CapDrop":["ALL"],"SecurityOpt":["no-new-privileges:true"]},"Mounts":[]}`, c5Image)
 		case strings.HasSuffix(p, "/start"):
 			w.WriteHeader(204)
 		case strings.HasSuffix(p, "/wait"):
