@@ -876,6 +876,7 @@
               "type": "string",
               "enum": [
                 "harbor",
+                "hint-docker",
                 "direct",
                 "other"
               ]

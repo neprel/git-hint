@@ -124,6 +124,19 @@ func ledgerInvalid() []invalidCase {
 				x["components"].(map[string]any)["prompt"] = 106091
 			})
 		}, nil},
+		{"ledger-complete-with-teardown-reason", base, "semantic", "ledger_inconsistent", func(d M) {
+			l(d)["reasons"] = A{"teardown_incomplete"}
+		}, nil},
+		{"ledger-revision-drops-teardown-reason", base, "semantic", "ledger_inconsistent", func(d M) {
+			m := l(d)
+			m["state"], m["reasons"] = "incomplete", A{"teardown_incomplete"}
+			second(d, func(r M) {
+				r["observation_id"] = id("ledger-usage", "teardown-dropped")
+				x := r["model_ledger"].(map[string]any)
+				x["revision"], x["state"], x["reasons"] = 1, "incomplete", A{"late_requests"}
+				x["counts"].(map[string]any)["late"] = 1
+			})
+		}, nil},
 		{"ledger-revision-new-seal-time", base, "semantic", "ledger_inconsistent", func(d M) {
 			second(d, func(r M) {
 				r["observation_id"] = id("ledger-usage", "revision-1")
@@ -199,6 +212,12 @@ func ledgerSelectionVectors(base M) []any {
 	lessLate := rev(lateFirst, 1, 1, sealed)
 	lessLate["model_ledger"].(map[string]any)["counts"].(map[string]any)["late"] = 0
 	lessLate["model_ledger"].(map[string]any)["reasons"] = A{"late_requests"}
+	// 07B-J §23: a ledger whose attempt teardown did not complete is incomplete with every
+	// count in place, and no later revision drops the reason
+	teardown := clone(led)
+	teardown["model_ledger"].(map[string]any)["state"], teardown["model_ledger"].(map[string]any)["reasons"] = "incomplete", A{"teardown_incomplete"}
+	teardownDropped := rev(teardown, 1, 1, sealed)
+	teardownDropped["model_ledger"].(map[string]any)["reasons"] = A{"late_requests"}
 	dropped := rev(lateFirst, 1, 2, sealed)
 	dropped["model_ledger"].(map[string]any)["reasons"] = A{"rejected_limit"}
 	dropped["model_ledger"].(map[string]any)["counts"].(map[string]any)["rejected_limit"] = 1
@@ -213,6 +232,8 @@ func ledgerSelectionVectors(base M) []any {
 		vector("late revision", "ledger_incomplete", both, withAgents(led, rev(led, 1, 1, sealed))...),
 		vector("late revision with a new seal time", "ledger_binding_changed", both, withAgents(led, rev(led, 1, 1, "2026-10-11T11:00:06Z"))...),
 		vector("inconsistent counts", "ledger_inconsistent", both, withAgents(inconsistent)...),
+		vector("teardown not complete", "ledger_incomplete", both, withAgents(teardown)...),
+		vector("teardown reason dropped by a revision", "ledger_lifecycle_violation", both, withAgents(teardown, teardownDropped)...),
 		vector("ledger source with another configuration", "ledger_binding_mismatch", A{plugin, otherCfgLedger}, withAgents(led)...),
 		vector("plugin source with another configuration", "ledger_configuration_mismatch", A{otherCfgPlugin, ledgerSrc}, withAgents(led)...),
 		vector("ledger without behavioral records", "ledger_without_behavior", both, led),

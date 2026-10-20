@@ -689,6 +689,11 @@
     "code": "ledger_inconsistent",
     "level": "semantic"
   },
+  "ledger-complete-with-teardown-reason.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
   "ledger-complete-without-requests.json": {
     "base": "activity-model-ledger.json",
     "code": "ledger_inconsistent",
@@ -743,6 +748,11 @@
     "base": "activity-model-ledger.json",
     "code": "observation",
     "level": "schema"
+  },
+  "ledger-revision-drops-teardown-reason.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
   },
   "ledger-revision-heals-incompleteness.json": {
     "base": "activity-model-ledger.json",

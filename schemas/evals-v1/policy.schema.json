@@ -31,7 +31,7 @@
       "description": "Code execution in disposable containers through the external runner. off by default.",
       "properties": {
         "use": {"type": "string", "enum": ["off", "docker"]},
-        "runner": {"const": "harbor"},
+        "runner": {"type": "string", "enum": ["harbor", "docker"], "description": "harbor: the transitional developer harness (needs Harbor and Python); docker: the built-in container runner (needs only a Docker engine)."},
         "max_trials_per_run": {"type": "integer", "minimum": 1, "maximum": 500},
         "max_seconds_per_trial": {"type": "integer", "minimum": 10, "maximum": 86400},
         "max_requests_per_trial": {"type": "integer", "minimum": 1, "maximum": 1000},

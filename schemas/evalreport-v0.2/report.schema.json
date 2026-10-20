@@ -230,7 +230,10 @@
           "additionalProperties": false,
           "properties": {
             "name": {
-              "const": "harbor"
+              "enum": [
+                "harbor",
+                "hint-docker"
+              ]
             },
             "version": {
               "type": "string",
@@ -606,6 +609,7 @@
               "type": "string",
               "enum": [
                 "harbor",
+                "hint-docker",
                 "direct",
                 "other"
               ]

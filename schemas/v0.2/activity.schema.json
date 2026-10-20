@@ -1323,6 +1323,7 @@
               "bypass_not_enforced",
               "scope_not_isolated",
               "late_requests",
+              "teardown_incomplete",
               "no_requests",
               "rejected_limit",
               "usage_partial",

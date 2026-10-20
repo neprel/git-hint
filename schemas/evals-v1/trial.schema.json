@@ -217,7 +217,10 @@
       "x-hint-class": "reportable",
       "properties": {
         "name": {
-          "const": "harbor"
+          "enum": [
+            "harbor",
+            "hint-docker"
+          ]
         },
         "version": {
           "type": "string",
