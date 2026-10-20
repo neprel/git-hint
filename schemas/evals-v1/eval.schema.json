@@ -49,7 +49,7 @@
           "origin": {"type": "string", "enum": ["request", "correction", "result_test", "result_state", "existing_test"]},
           "text": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
           "evidence": {"type": "array", "items": {"$ref": "urn:hint:local:evals:v1:common#/$defs/SourceLocation"}},
-          "checks": {"type": "array", "items": {"type": "string", "pattern": "^C[1-9][0-9]{0,2}$"}, "uniqueItems": true},
+          "checks": {"type": "array", "items": {"type": "string", "pattern": "^[CB][1-9][0-9]{0,2}$"}, "uniqueItems": true},
           "tests": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9._/+-]+::[A-Za-z_][A-Za-z0-9_]*$"}, "uniqueItems": true,
             "description": "The tests of the checks that verify this requirement; absent means the whole check."},
           "generator": {"$ref": "#/$defs/Generator", "description": "Provenance of a model mapping."},
@@ -66,14 +66,15 @@
     "verifier": {
       "type": "object", "additionalProperties": false, "x-hint-class": "sensitive",
       "properties": {
-        "archive": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "description": "The hidden tests directory; never in the agent image."},
+        "archive": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "description": "The hidden tests directory (cli-file-v1: io/spec.json and io/inputs only); never in the agent image."},
+        "kind": {"type": "string", "enum": ["generated-tests-v1", "cli-file-v1"], "description": "07B-J: generated-tests-v1 (absent: the default) runs generated or existing tests in the candidate's process (same_process); cli-file-v1 compares the declared command's stdout and exit status with the stored reference on declared cases, process-separated (finite reference-equivalence, not universal correctness)."},
         "checks": {
           "type": "array", "minItems": 1,
           "items": {
             "type": "object", "additionalProperties": false,
             "properties": {
-              "check_id": {"type": "string", "pattern": "^C[1-9][0-9]{0,2}$"},
-              "origin": {"type": "string", "enum": ["existing_test", "result_test", "generated"]},
+              "check_id": {"type": "string", "pattern": "^[CB][1-9][0-9]{0,2}$"},
+              "origin": {"type": "string", "enum": ["existing_test", "result_test", "generated", "declared_io"]},
               "tests": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9._/+-]+::[A-Za-z_][A-Za-z0-9_]*$"}, "uniqueItems": true,
                 "description": "The tests that the check requires to run (C1: each must pass)."},
               "generator": {"$ref": "#/$defs/Generator"}
@@ -82,7 +83,10 @@
           }
         }
       },
-      "required": ["archive", "checks"]
+      "required": ["archive", "checks"],
+      "if": {"properties": {"kind": {"const": "cli-file-v1"}}, "required": ["kind"]},
+      "then": {"properties": {"checks": {"minItems": 1, "maxItems": 1, "items": {"properties": {"check_id": {"const": "B1"}, "origin": {"const": "declared_io"}}, "required": ["tests"]}}}},
+      "else": {"properties": {"checks": {"items": {"properties": {"check_id": {"pattern": "^C"}, "origin": {"not": {"const": "declared_io"}}}}}}}
     },
     "reference": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "x-hint-class": "sensitive", "description": "Reference patch: private evaluator evidence, not proof of correctness."},
     "environment": {
@@ -91,7 +95,7 @@
         "image": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._/-]*(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$"},
         "setup": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest"},
         "workdir": {"type": "string", "pattern": "^/[A-Za-z0-9._/-]*$"},
-        "test_command": {"type": "string", "enum": ["tests/test.sh"]}
+        "test_command": {"type": "string", "enum": ["tests/test.sh", "tests/io/spec.json"]}
       },
       "required": ["image", "workdir", "test_command"]
     },
@@ -192,5 +196,10 @@
   },
   "required": ["record", "manifest_version", "eval_id", "version", "previous", "created_at", "episode_id", "family", "repositories", "instruction", "requirements", "verifier", "environment", "dependencies", "state", "reasons", "qualification", "override"],
   "if": {"properties": {"state": {"const": "validated"}}, "required": ["state"]},
-  "then": {"properties": {"requirements": {"items": {"not": {"properties": {"mapping": {"const": "none"}}, "required": ["mapping"]}}}}}
+  "then": {"properties": {"requirements": {"items": {"not": {"properties": {"mapping": {"const": "none"}}, "required": ["mapping"]}}}}},
+  "allOf": [{
+    "if": {"properties": {"verifier": {"properties": {"kind": {"const": "cli-file-v1"}}, "required": ["kind"]}}},
+    "then": {"properties": {"environment": {"properties": {"test_command": {"const": "tests/io/spec.json"}}}}},
+    "else": {"properties": {"environment": {"properties": {"test_command": {"const": "tests/test.sh"}}}}}
+  }]
 }

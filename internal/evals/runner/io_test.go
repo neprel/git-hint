@@ -32,6 +32,8 @@ func ioTaskDir(t *testing.T, base, reference string, caseSeconds, verifierSecond
 	w("tests/Dockerfile", "FROM "+baseImage+"\n", 0o644)
 	w("solution/solve.sh", solveFixed, 0o755)
 	w("solution/files/tool.sh", reference, 0o644)
+	w("tests/io/reference/solve.sh", solveFixed, 0o755) // the stored reference (Export copies it here)
+	w("tests/io/reference/files/tool.sh", reference, 0o644)
 	if spec == nil {
 		spec = map[string]any{"interface": IOInterface, "entry": []string{"sh", "tool.sh"}, "cases": []string{"lower", "mixed"}, "case_seconds": caseSeconds, "compare": "exact"}
 	}
@@ -130,8 +132,18 @@ func TestDockerRunnerIOVerdicts(t *testing.T) {
 			t.Fatalf("provenance %s missing: %v", k, prov)
 		}
 	}
-	if prov["verdict_scope"] != "equivalence_to_reference_on_declared_cases" || prov["oracle_runs"] != float64(OracleRuns) {
+	if prov["verdict_scope"] != "equivalence_to_reference_on_declared_cases" || prov["oracle_runs"] != float64(OracleRuns) || prov["network"] != "engine_inspect:blocked" {
 		t.Fatalf("provenance %v", prov)
+	}
+	if b, _ := os.ReadFile(filepath.Join(jobs, "p", "p__1", "verifier", "network.txt")); string(b) != "HINT_VERIFIER_NET=blocked\n" {
+		t.Fatalf("network record %q", b)
+	}
+	// the reference comes from tests/io/reference: a candidate solution (solution/) that
+	// differs from it fails, so qualification variants never move the reference
+	moved := ioTaskDir(t, "cat\n", upper, 5, 120, nil)
+	os.WriteFile(filepath.Join(moved, "solution", "files", "tool.sh"), []byte("rev\n"), 0o644)
+	if tr := ioRun(t, d, moved, "oracle"); tr.Outcome() != "failed" {
+		t.Fatalf("the candidate solution moved the reference: %+v", tr)
 	}
 	base := ioRun(t, d, ioTaskDir(t, "cat\n", upper, 5, 120, nil), "nop")
 	if base.Outcome() != "failed" || base.Checks["B1"] != "fail" || base.TrustOver([]string{"B1"}) != TrustProcessSeparated {

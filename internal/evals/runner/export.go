@@ -137,6 +137,17 @@ func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Ta
 	if err := w("tests/Dockerfile", []byte(verifierDockerfile(image)), 0o644); err != nil {
 		return nil, err
 	}
+	// the verifier kind must agree with the archive (07B-J §17.2): a cli-file-v1 eval holds a
+	// B1 declaration and no test script; any other eval holds no declaration
+	kind, _ := rec["verifier"].(map[string]any)["kind"].(string)
+	_, specErr := os.Stat(filepath.Join(dir, "tests", "io", "spec.json"))
+	_, scriptErr := os.Stat(filepath.Join(dir, "tests", "test.sh"))
+	switch {
+	case kind == IOInterface && (specErr != nil || scriptErr == nil):
+		return nil, errors.New("a cli-file-v1 eval without exactly its B1 declaration")
+	case kind != IOInterface && specErr == nil:
+		return nil, errors.New("a B1 declaration in an eval of another verifier kind")
+	}
 	if ref := str(rec["reference"]); ref != "" {
 		sol, err := get("reference", ref)
 		if err != nil {
@@ -145,6 +156,13 @@ func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Ta
 		if err := untar(sol, filepath.Join(dir, "solution")); err != nil {
 			return nil, err
 		}
+		if kind == IOInterface { // the stored reference on the verifier side (never in the agent image)
+			if err := untar(sol, filepath.Join(dir, "tests", "io", "reference")); err != nil {
+				return nil, err
+			}
+		}
+	} else if kind == IOInterface {
+		return nil, errors.New("a cli-file-v1 eval without a stored reference")
 	}
 	return t, nil
 }

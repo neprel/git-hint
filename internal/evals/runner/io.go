@@ -7,18 +7,19 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
+
+	"github.com/neprel/git-hint/internal/evals/iodecl"
 )
 
 // B1 cli-file-v1 (07B-J §14/§15): a process-separated behavior check. A declared command
@@ -30,42 +31,29 @@ import (
 // to the stored reference on the declared finite cases, not universal correctness.
 
 // IOInterface is the only B1 interface.
-const IOInterface = "cli-file-v1"
+const IOInterface = iodecl.Interface
 
 // Limits of a B1 task.
 const (
-	maxIOCases       = 64
-	maxIOBytes       = 1 << 20
-	maxIOCaseSeconds = 30
-	maxEntryArgs     = 16
+	maxIOCases = iodecl.MaxCases
+	maxIOBytes = iodecl.MaxBytes
 	// OracleRuns is the number of reference runs per case in every trial (fixed before the
 	// start); differing reference runs make the trial unknown.
 	OracleRuns = 2
 )
 
-var ioCaseID = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
-
-// ioSpec is tests/io/spec.json, written by the task author.
-type ioSpec struct {
-	Interface   string   `json:"interface"`
-	Entry       []string `json:"entry"`
-	Cases       []string `json:"cases"`
-	CaseSeconds int      `json:"case_seconds"`
-	Compare     string   `json:"compare"`
-}
-
-// ioTask is a checked B1 declaration with its inputs and their digests.
+// ioTask is a checked B1 declaration.
 type ioTask struct {
-	spec         ioSpec
+	spec         iodecl.Spec
 	inputs       map[string][]byte
 	specDigest   string
 	inputsDigest string
 }
 
 // readIOTask reads the B1 declaration of a task, or nil when the task has none. A
-// declaration that is not exactly valid refuses the task: unknown fields, an interface or
-// comparison other than the one, 1..64 unique safe case IDs, a bounded entry, every input
-// a regular file of at most 1 MiB, and no other file next to the inputs.
+// declaration that is not exactly valid refuses the task (iodecl.Parse); every input must be a
+// regular file <id>.in of at most 1 MiB with no other file next to the inputs, and the
+// stored reference must be on the verifier side (tests/io/reference).
 func readIOTask(taskDir string) (*ioTask, error) {
 	dir := filepath.Join(taskDir, "tests", "io")
 	b, err := os.ReadFile(filepath.Join(dir, "spec.json"))
@@ -76,62 +64,37 @@ func readIOTask(taskDir string) (*ioTask, error) {
 		return nil, err
 	}
 	bad := func(why string) (*ioTask, error) { return nil, fmt.Errorf("the B1 declaration is invalid: %s", why) }
-	if len(b) > 64<<10 {
-		return bad("spec too large")
+	ents, err := os.ReadDir(filepath.Join(dir, "inputs"))
+	if err != nil || len(ents) > maxIOCases {
+		return bad("inputs")
 	}
-	var s ioSpec
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&s); err != nil || dec.More() {
-		return bad("spec is not one strict JSON object")
-	}
-	if s.Interface != IOInterface || s.Compare != "exact" {
-		return bad("interface or comparison")
-	}
-	if len(s.Entry) == 0 || len(s.Entry) > maxEntryArgs {
-		return bad("entry")
-	}
-	for _, a := range s.Entry {
-		if a == "" || len(a) > 256 || strings.ContainsRune(a, 0) {
-			return bad("entry argument")
-		}
-	}
-	if s.CaseSeconds < 1 || s.CaseSeconds > maxIOCaseSeconds {
-		return bad("case_seconds")
-	}
-	if len(s.Cases) == 0 || len(s.Cases) > maxIOCases {
-		return bad("number of cases")
-	}
-	t := &ioTask{spec: s, inputs: map[string][]byte{}}
-	h := sha256.New()
-	for _, id := range s.Cases {
-		if !ioCaseID.MatchString(id) {
-			return bad("case ID")
-		}
-		if _, dup := t.inputs[id]; dup {
-			return bad("duplicate case ID")
-		}
-		p := filepath.Join(dir, "inputs", id+".in")
+	inputs := map[string][]byte{}
+	for _, e := range ents {
+		id, ok := strings.CutSuffix(e.Name(), ".in")
+		p := filepath.Join(dir, "inputs", e.Name())
 		fi, err := os.Lstat(p)
-		if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxIOBytes {
-			return bad("input of a case")
+		if !ok || err != nil || !fi.Mode().IsRegular() || fi.Size() > maxIOBytes {
+			return bad("input file")
 		}
 		in, err := os.ReadFile(p)
 		if err != nil || int64(len(in)) != fi.Size() {
-			return bad("input of a case")
+			return bad("input file")
 		}
-		t.inputs[id] = in
-		fmt.Fprintf(h, "%s\x00%d\x00", id, len(in))
-		h.Write(in)
+		inputs[id] = in
 	}
-	ents, err := os.ReadDir(filepath.Join(dir, "inputs"))
-	if err != nil || len(ents) != len(s.Cases) {
-		return bad("unexpected files next to the inputs")
+	if fi, err := os.Lstat(filepath.Join(dir, "reference", "solve.sh")); err != nil || !fi.Mode().IsRegular() {
+		return bad("no stored reference (tests/io/reference/solve.sh)")
 	}
-	sum := sha256.Sum256(b)
-	t.specDigest = "sha256:" + hex.EncodeToString(sum[:])
-	t.inputsDigest = "sha256:" + hex.EncodeToString(h.Sum(nil))
-	return t, nil
+	return parseIO(b, inputs)
+}
+
+// parseIO checks a declaration with the shared rules (iodecl.Parse).
+func parseIO(spec []byte, inputs map[string][]byte) (*ioTask, error) {
+	d, err := iodecl.Parse(spec, inputs)
+	if err != nil {
+		return nil, err
+	}
+	return &ioTask{spec: d.Spec, inputs: d.Inputs, specDigest: d.SpecDigest, inputsDigest: d.InputsDigest}, nil
 }
 
 // caseRun is what the runner captured of one run.
@@ -141,6 +104,7 @@ type caseRun struct {
 	timedOut    bool
 	truncated   bool
 	inputFailed bool // the input was not delivered completely
+	networkNone bool // the engine reports network mode none and no attached network
 }
 
 func (c caseRun) usable() bool { return !c.timedOut && !c.truncated && !c.inputFailed }
@@ -168,8 +132,10 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 		return nil
 	}
 	// the reference: the stored solution applied to the base in its own container, frozen
+	// the stored reference lives on the verifier side (tests/io/reference): qualification
+	// variants that replace solution/ (the candidate) never change it
 	reference := filepath.Join(dir, "oracle", "final.tar")
-	rd, err := d.agentPhase(ctx, taskDir, "oracle", lim, img, reference)
+	rd, err := d.applyPhase(ctx, filepath.Join(taskDir, "tests", "io", "reference"), "oracle", lim, img, reference)
 	if err != nil {
 		if deadline() != nil {
 			return 0, prov, timeoutError{"verifier"}
@@ -178,6 +144,7 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 	}
 	prov["reference_tree"] = rd
 	limit := time.Duration(t.spec.CaseSeconds) * time.Second
+	allNone := true // every run's networks as the engine reports them
 	expected := map[string]caseRun{}
 	oh := sha256.New()
 	for _, id := range t.spec.Cases {
@@ -192,6 +159,7 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 			if err != nil || !r.usable() || r.status != 0 {
 				return 0, prov, errIOVerdict{fmt.Sprintf("reference run of case %s failed", id)}
 			}
+			allNone = allNone && r.networkNone
 			if k > 0 && (r.status != first.status || !bytes.Equal(r.out, first.out)) {
 				return 0, prov, errIOVerdict{fmt.Sprintf("reference runs of case %s differ", id)}
 			}
@@ -213,6 +181,7 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 		if err != nil {
 			return 0, prov, err // the engine failed: no verdict
 		}
+		allNone = allNone && r.networkNone
 		e := expected[id]
 		st := "PASS"
 		if !r.usable() || r.status != e.status || !bytes.Equal(r.out, e.out) {
@@ -230,6 +199,16 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 	}
 	lines = append(lines, "CHECK B1 "+check)
 	if err := os.WriteFile(filepath.Join(dir, "verifier", "test-stdout.txt"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		return 0, prov, err
+	}
+	// the network record of the B1 runs: from the engine's inspection of every run (no
+	// in-container measurement; nothing in the runs can write it)
+	net := "reachable"
+	if allNone {
+		net = "blocked"
+	}
+	prov["network"] = "engine_inspect:" + net
+	if err := os.WriteFile(filepath.Join(dir, "verifier", "network.txt"), []byte("HINT_VERIFIER_NET="+net+"\n"), 0o600); err != nil {
 		return 0, prov, err
 	}
 	return reward, prov, nil
@@ -285,6 +264,11 @@ func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, 
 	}()
 	var r caseRun
 	runErr := d.runToEnd(ctx, c.ID, limit, "case")
+	// the engine's own record of the run's networks: only "none" with no attached network
+	if ins, err := d.cli.ContainerInspect(context.Background(), c.ID, client.ContainerInspectOptions{}); err == nil && ins.Container.HostConfig != nil {
+		r.networkNone = ins.Container.HostConfig.NetworkMode == "none" &&
+			(ins.Container.NetworkSettings == nil || len(ins.Container.NetworkSettings.Networks) == 0 || onlyNone(ins.Container.NetworkSettings.Networks))
+	}
 	var ee exitError
 	var te timeoutError
 	switch {
@@ -345,6 +329,16 @@ func demux(stdout io.Writer, r io.Reader) error {
 			return fmt.Errorf("cut frame body: %v", err)
 		}
 	}
+}
+
+// onlyNone says whether the attached networks are just the engine's "none" network.
+func onlyNone(m map[string]*network.EndpointSettings) bool {
+	for k := range m {
+		if k != "none" {
+			return false
+		}
+	}
+	return true
 }
 
 // capWriter keeps at most max bytes and records any excess.

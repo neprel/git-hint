@@ -114,6 +114,11 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 	}
 	jobs := filepath.Join(o.Work, "jobs")
 	required := runner.RequiredChecks(rec)
+	// the check that the base must fail: the hidden tests (C1), or the declared behavior (B1)
+	primary := "C1"
+	if v, _ := rec["verifier"].(map[string]any); v["kind"] == runner.IOInterface {
+		primary = "B1"
+	}
 	var trust []string
 	run := func(name, agent, taskDir string, attempts int) ([]runner.Trial, error) {
 		ts, err := r.Run(ctx, taskDir, runner.RunOptions{Agent: agent, Attempts: attempts, JobsDir: jobs, JobName: name})
@@ -134,7 +139,7 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 	}
 	// base
 	nop, err := run("base", "nop", task, 1)
-	baseFails := err == nil && len(nop) == 1 && nop[0].Outcome() == "failed" && nop[0].Checks["C1"] == "fail"
+	baseFails := err == nil && len(nop) == 1 && nop[0].Outcome() == "failed" && nop[0].Checks[primary] == "fail"
 	switch {
 	case err != nil || len(nop) != 1 || infra(nop[0]):
 		add(Check{Name: "base_fails", Status: "missing", Runs: len(nop)})
@@ -159,7 +164,7 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 		if infra(t) {
 			infraErr = true
 		}
-		if t.Outcome() == "passed" && t.Checks["C1"] == "pass" && t.Checks["C2"] == "pass" {
+		if t.Outcome() == "passed" && allPass(t, required) {
 			passes++
 		}
 	}
@@ -250,7 +255,7 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 		switch {
 		case err != nil || len(ts) != 1 || infra(ts[0]):
 			missing++
-		case ts[0].Outcome() == "passed" && ts[0].Checks["C1"] == "pass" && ts[0].Checks["C2"] == "pass":
+		case ts[0].Outcome() == "passed" && allPass(ts[0], required):
 			passed++
 		default:
 			failed++
@@ -308,6 +313,19 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 	res.Reasons = uniq(res.Reasons)
 	res.ResultTrust = runner.MinTrust(trust...)
 	return res, nil
+}
+
+// allPass says whether every required check of the eval passed in the trial.
+func allPass(t runner.Trial, required []string) bool {
+	if len(required) == 0 {
+		return false
+	}
+	for _, c := range required {
+		if t.Checks[c] != "pass" {
+			return false
+		}
+	}
+	return true
 }
 
 // noReference finishes the qualification of a record without a reference: the base
@@ -598,5 +616,25 @@ func leakProbe(task string) string {
 			return "solution_leak"
 		}
 	}
+	// B1: the evaluator's cases never reach the agent: no environment file and no instruction
+	// holds an input (non-empty) or the declaration
+	ins, _ := filepath.Glob(filepath.Join(task, "tests", "io", "inputs", "*.in"))
+	spec, _ := os.ReadFile(filepath.Join(task, "tests", "io", "spec.json"))
+	for _, p := range ins {
+		b, _ := os.ReadFile(p)
+		for _, text := range append(textValues(envText), string(instr)) {
+			if len(b) > 0 && strings.Contains(text, string(b)) || len(spec) > 0 && strings.Contains(text, string(spec)) {
+				return "solution_leak"
+			}
+		}
+	}
 	return ""
+}
+
+func textValues(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
 }

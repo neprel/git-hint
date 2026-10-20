@@ -93,6 +93,16 @@ func fakeEngine(t *testing.T, broken bool, status int64) (*Docker, *string) {
 			b.Flush()
 			return
 		}
+		if strings.HasSuffix(p, "/json") && r.Method == "GET" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"Id":%q,"HostConfig":{"NetworkMode":"none"},"NetworkSettings":{"Networks":{"none":{}}}}`, id)
+			return
+		}
+		if strings.HasSuffix(p, "/logs") {
+			w.Header().Set("Content-Type", "application/vnd.docker.multiplexed-stream")
+			w.WriteHeader(200)
+			return
+		}
 		if strings.HasSuffix(p, "/start") {
 			w.WriteHeader(204)
 			return

@@ -253,6 +253,13 @@ func (d *Docker) hostConfig(lim taskLimits) *container.HostConfig {
 // agentPhase runs the agent in a fresh container, stops it, and writes its checked /app
 // tree as the trial artifact; it returns the artifact digest.
 func (d *Docker) agentPhase(ctx context.Context, taskDir, agent string, lim taskLimits, img, artifact string) (string, error) {
+	return d.applyPhase(ctx, filepath.Join(taskDir, "solution"), agent, lim, img, artifact)
+}
+
+// applyPhase is agentPhase with an explicit solution directory (the oracle's solve.sh
+// tree). The agent's output (bounded) is kept next to the artifact as oracle.txt, where the
+// qualification probe reports what it saw.
+func (d *Docker) applyPhase(ctx context.Context, solution, agent string, lim taskLimits, img, artifact string) (string, error) {
 	cmd := []string{"sh", "-c", "true"} // nop: the starting state is the final state
 	if agent == "oracle" {
 		cmd = []string{"sh", "/solution/solve.sh"}
@@ -264,7 +271,7 @@ func (d *Docker) agentPhase(ctx context.Context, taskDir, agent string, lim task
 	}
 	defer d.remove(c.ID)
 	if agent == "oracle" { // the reference enters only the oracle's container, never an agent image
-		sol, err := tarDir(filepath.Join(taskDir, "solution"), "solution")
+		sol, err := tarDir(solution, "solution")
 		if err != nil {
 			return "", err
 		}
@@ -272,8 +279,18 @@ func (d *Docker) agentPhase(ctx context.Context, taskDir, agent string, lim task
 			return "", err
 		}
 	}
-	if err := d.runToEnd(ctx, c.ID, lim.agent, "agent"); err != nil {
+	runErr := d.runToEnd(ctx, c.ID, lim.agent, "agent")
+	if err := os.MkdirAll(filepath.Dir(artifact), 0o700); err != nil {
 		return "", err
+	}
+	if logs, err := d.cli.ContainerLogs(ctx, c.ID, client.ContainerLogsOptions{ShowStdout: true}); err == nil {
+		var out bytes.Buffer
+		_, _ = stdcopy.StdCopy(&limitWriter{w: &out, n: 64 << 10}, io.Discard, logs)
+		logs.Close()
+		_ = os.WriteFile(filepath.Join(filepath.Dir(artifact), "oracle.txt"), out.Bytes(), 0o600)
+	}
+	if runErr != nil {
+		return "", runErr
 	}
 	// the container has stopped: nothing changes the tree during the copy
 	src, err := d.cli.CopyFromContainer(ctx, c.ID, client.CopyFromContainerOptions{SourcePath: "/app"})
@@ -281,9 +298,6 @@ func (d *Docker) agentPhase(ctx context.Context, taskDir, agent string, lim task
 		return "", err
 	}
 	defer src.Content.Close()
-	if err := os.MkdirAll(filepath.Dir(artifact), 0o700); err != nil {
-		return "", err
-	}
 	return freezeTree(src.Content, artifact)
 }
 
