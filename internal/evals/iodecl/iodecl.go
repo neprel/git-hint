@@ -102,3 +102,13 @@ func Parse(spec []byte, inputs map[string][]byte) (*Declaration, error) {
 	d.InputsDigest = "sha256:" + hex.EncodeToString(h.Sum(nil))
 	return d, nil
 }
+
+// Tests are the test IDs of the B1 check for the declared cases, in case order: an eval
+// record's B1 tests must equal them exactly.
+func Tests(cases []string) []string {
+	out := make([]string, 0, len(cases))
+	for _, id := range cases {
+		out = append(out, "cases/"+id+"::output")
+	}
+	return out
+}

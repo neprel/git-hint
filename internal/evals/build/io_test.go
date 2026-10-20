@@ -101,6 +101,12 @@ func TestVerifierKindSchema(t *testing.T) {
 			r["verifier"] = v
 			return r
 		},
+		"cli kind with empty tests": func() map[string]any {
+			r := clone(b.Record)
+			r["verifier"] = map[string]any{"archive": b.Record["verifier"].(map[string]any)["archive"], "kind": "cli-file-v1",
+				"checks": []any{map[string]any{"check_id": "B1", "origin": "declared_io", "tests": []any{}}}}
+			return r
+		},
 		"generated kind with B1": func() map[string]any {
 			r := clone(gen.Record)
 			v := clone(gen.Record["verifier"].(map[string]any))

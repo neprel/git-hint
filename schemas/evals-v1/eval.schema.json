@@ -85,7 +85,7 @@
       },
       "required": ["archive", "checks"],
       "if": {"properties": {"kind": {"const": "cli-file-v1"}}, "required": ["kind"]},
-      "then": {"properties": {"checks": {"minItems": 1, "maxItems": 1, "items": {"properties": {"check_id": {"const": "B1"}, "origin": {"const": "declared_io"}}, "required": ["tests"]}}}},
+      "then": {"properties": {"checks": {"minItems": 1, "maxItems": 1, "items": {"properties": {"check_id": {"const": "B1"}, "origin": {"const": "declared_io"}, "tests": {"minItems": 1, "maxItems": 64}}, "required": ["tests"]}}}},
       "else": {"properties": {"checks": {"items": {"properties": {"check_id": {"pattern": "^C"}, "origin": {"not": {"const": "declared_io"}}}}}}}
     },
     "reference": {"$ref": "urn:hint:local:evals:v1:common#/$defs/Digest", "x-hint-class": "sensitive", "description": "Reference patch: private evaluator evidence, not proof of correctness."},

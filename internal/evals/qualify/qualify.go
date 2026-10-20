@@ -616,16 +616,16 @@ func leakProbe(task string) string {
 			return "solution_leak"
 		}
 	}
-	// B1: the evaluator's cases never reach the agent: no environment file and no instruction
-	// holds an input (non-empty) or the declaration
-	ins, _ := filepath.Glob(filepath.Join(task, "tests", "io", "inputs", "*.in"))
-	spec, _ := os.ReadFile(filepath.Join(task, "tests", "io", "spec.json"))
-	for _, p := range ins {
-		b, _ := os.ReadFile(p)
-		for _, text := range append(textValues(envText), string(instr)) {
-			if len(b) > 0 && strings.Contains(text, string(b)) || len(spec) > 0 && strings.Contains(text, string(spec)) {
-				return "solution_leak"
-			}
+	// B1 (C7BJ-9): the proof that the cases stay out of the agent context is the separation
+	// of the artifacts: Export writes io/ only under tests/, and the agent context is the base
+	// archive plus generated files. The probe checks that separation and looks for copies of
+	// evaluator artifacts: the declaration text, an input file copied whole, or a distinctive
+	// input line (a line of at least 12 characters) in the context or the instruction. Short or common inputs (a blank line, a
+	// word) cannot be told apart from ordinary content; they rely on the separation, and
+	// their equality with base bytes is no leak.
+	if spec, err := os.ReadFile(filepath.Join(task, "tests", "io", "spec.json")); err == nil {
+		if why := ioLeak(envText, string(instr), spec, filepath.Join(task, "tests", "io", "inputs")); why != "" {
+			return why
 		}
 	}
 	return ""
@@ -635,6 +635,54 @@ func textValues(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for _, v := range m {
 		out = append(out, v)
+	}
+	return out
+}
+
+// ioLeak checks a B1 task's agent context (its files as text) and instruction for
+// evaluator artifacts.
+func ioLeak(envText map[string]string, instr string, spec []byte, inputs string) string {
+	for rel := range envText {
+		top := strings.SplitN(rel, "/", 2)[0]
+		if top != "repo" && rel != "setup.sh" && rel != "Dockerfile" && rel != "docker-compose.yaml" {
+			return "solution_leak" // a file the export does not put into the agent context
+		}
+	}
+	for _, text := range append(textValues(envText), instr) {
+		if strings.Contains(text, string(spec)) {
+			return "solution_leak"
+		}
+	}
+	ins, _ := filepath.Glob(filepath.Join(inputs, "*.in"))
+	for _, p := range ins {
+		b, _ := os.ReadFile(p)
+		for _, ln := range distinctiveLines(string(b)) {
+			for _, text := range append(textValues(envText), instr) {
+				if strings.Contains(text, ln) {
+					return "solution_leak"
+				}
+			}
+		}
+		if len(distinctiveLines(string(b))) == 0 {
+			continue // short or common: separation only
+		}
+		for _, text := range envText {
+			if text == string(b) {
+				return "solution_leak"
+			}
+		}
+	}
+	return ""
+}
+
+// distinctiveLines are the lines of at least 12 characters (after trimming) of a text: the
+// same threshold the probe uses for reference and test lines.
+func distinctiveLines(s string) []string {
+	var out []string
+	for _, ln := range strings.Split(s, "\n") {
+		if ln = strings.TrimSpace(ln); len(ln) >= 12 {
+			out = append(out, ln)
+		}
 	}
 	return out
 }

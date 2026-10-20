@@ -20,9 +20,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/neprel/git-hint/internal/evals/iodecl"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/safefs"
 )
@@ -159,6 +161,26 @@ func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Ta
 		if kind == IOInterface { // the stored reference on the verifier side (never in the agent image)
 			if err := untar(sol, filepath.Join(dir, "tests", "io", "reference")); err != nil {
 				return nil, err
+			}
+		}
+		if kind == IOInterface {
+			// the record's B1 tests are exactly the declared cases, in order (C7BJ-8)
+			iot, err := readIOTask(dir)
+			if err != nil {
+				return nil, err
+			}
+			want := iodecl.Tests(iot.spec.Cases)
+			cs, _ := rec["verifier"].(map[string]any)["checks"].([]any)
+			var got []string
+			if len(cs) == 1 {
+				ts, _ := cs[0].(map[string]any)["tests"].([]any)
+				for _, x := range ts {
+					s, _ := x.(string)
+					got = append(got, s)
+				}
+			}
+			if !slices.Equal(got, want) {
+				return nil, errors.New("the B1 tests of the eval are not exactly its declared cases")
 			}
 		}
 	} else if kind == IOInterface {

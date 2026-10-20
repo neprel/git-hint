@@ -120,3 +120,102 @@ func TestQualifyIOOnTheEngine(t *testing.T) {
 		t.Errorf("validated with an unmapped request: %+v", res) // R1 stays unmapped until a user links it
 	}
 }
+
+func ioEvalWith(t *testing.T, l *library.Library, base map[string]string, cases []build.IOCase) map[string]any {
+	t.Helper()
+	res := map[string]string{}
+	for k, v := range base {
+		res[k] = v
+	}
+	res["tool.sh"] = "tr a-z A-Z\n"
+	b, err := build.BuildIO(l, build.InputIO{EpisodeID: "ep-0123456789abcdef", Family: "bug_fix", Repo: "shop", Base: evaltest.Tree(t, l, base),
+		Result: evaltest.Tree(t, l, res), Request: "tool.sh must print its input in upper case.", RequestAt: map[string]any{"source": library.Digest([]byte("src")), "record": "u1"},
+		Entry: []string{"sh", "tool.sh"}, Cases: cases, CaseSeconds: 5, Now: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b.Record
+}
+
+// C7BJ-8: the record's B1 tests must be exactly the declared cases in order.
+func TestExportIOCaseBinding(t *testing.T) {
+	l := evaltest.Library(t)
+	for name, tests := range map[string][]any{
+		"renamed":   {"cases/lower::output", "cases/other::output"},
+		"omitted":   {"cases/lower::output"},
+		"extra":     {"cases/lower::output", "cases/mixed::output", "cases/more::output"},
+		"reordered": {"cases/mixed::output", "cases/lower::output"},
+		"empty":     {},
+	} {
+		rec := ioEval(t, l)
+		rec["verifier"].(map[string]any)["checks"].([]any)[0].(map[string]any)["tests"] = tests
+		if _, err := runner.Export(l, rec, filepath.Join(t.TempDir(), "task"), runner.DefaultSettings); err == nil {
+			t.Errorf("%s: exported", name)
+		}
+	}
+	if _, err := runner.Export(l, ioEval(t, l), filepath.Join(t.TempDir(), "task"), runner.DefaultSettings); err != nil {
+		t.Fatalf("exact match: %v", err)
+	}
+}
+
+// C7BJ-9: ordinary cases (a blank line, a short common word also in the base) are no leak;
+// copies of evaluator artifacts are: a distinctive input in the base or the instruction,
+// the declaration in the context, an input file copied whole, a file the export never
+// writes into the agent context.
+func TestIOLeakProbe(t *testing.T) {
+	l := evaltest.Library(t)
+	export := func(rec map[string]any) string {
+		dir := filepath.Join(t.TempDir(), "task")
+		if _, err := runner.Export(l, rec, dir, runner.DefaultSettings); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	base := map[string]string{"go.mod": "module shop\n\ngo 1.26\n", "tool.sh": "cat\n", "README": "ok\n"}
+	ordinary := export(ioEvalWith(t, l, base, []build.IOCase{{ID: "blank", Input: []byte("\n")}, {ID: "word", Input: []byte("ok\n")}}))
+	if why := leakProbe(ordinary); why != "" {
+		t.Fatalf("ordinary cases: %s", why)
+	}
+	canary := "HINTCANARY input line that only the evaluator holds"
+	leaked := map[string]string{"go.mod": base["go.mod"], "tool.sh": base["tool.sh"], "notes.txt": "see " + canary + "\n"}
+	if why := leakProbe(export(ioEvalWith(t, l, leaked, []build.IOCase{{ID: "c", Input: []byte(canary + "\n")}}))); why != "solution_leak" {
+		t.Errorf("a distinctive input in the base: %q", why)
+	}
+	clean := func() string {
+		return export(ioEvalWith(t, l, base, []build.IOCase{{ID: "c", Input: []byte(canary + "\n")}}))
+	}
+	if why := leakProbe(clean()); why != "" {
+		t.Fatalf("clean distinctive case: %s", why)
+	}
+	for name, mutate := range map[string]func(dir string){
+		"input in the instruction": func(dir string) { appendFile(t, filepath.Join(dir, "instruction.md"), canary+"\n") },
+		"declaration in the context": func(dir string) {
+			spec, _ := os.ReadFile(filepath.Join(dir, "tests", "io", "spec.json"))
+			os.WriteFile(filepath.Join(dir, "environment", "repo", "x.json"), spec, 0o644)
+		},
+		"input file copied": func(dir string) {
+			b, _ := os.ReadFile(filepath.Join(dir, "tests", "io", "inputs", "c.in"))
+			os.WriteFile(filepath.Join(dir, "environment", "repo", "c.in"), b, 0o644)
+		},
+		"file outside the export": func(dir string) {
+			os.MkdirAll(filepath.Join(dir, "environment", "io"), 0o755)
+			os.WriteFile(filepath.Join(dir, "environment", "io", "x"), []byte("x"), 0o644)
+		},
+	} {
+		dir := clean()
+		mutate(dir)
+		if why := leakProbe(dir); why != "solution_leak" {
+			t.Errorf("%s: %q", name, why)
+		}
+	}
+}
+
+func appendFile(t *testing.T, p, s string) {
+	t.Helper()
+	f, err := os.OpenFile(p, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(s)
+	f.Close()
+}

@@ -84,7 +84,9 @@ func BuildIO(l *library.Library, in InputIO) (*Built, error) {
 	var tests []any
 	for _, c := range in.Cases {
 		files = append(files, extra{"io/inputs/" + c.ID + ".in", c.Input, 0o644})
-		tests = append(tests, "cases/"+c.ID+"::output")
+	}
+	for _, id := range iodecl.Tests(ids) {
+		tests = append(tests, id)
 	}
 	vArchive, err := tarTree(l, nil, "", files...)
 	if err != nil {
