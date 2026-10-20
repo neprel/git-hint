@@ -149,6 +149,7 @@
       "type": "object", "additionalProperties": false, "x-hint-class": "reportable",
       "properties": {
         "policy": {"type": "string", "pattern": "^q[1-9][0-9]*$"},
+        "result_trust": {"$ref": "urn:hint:local:evals:v1:common#/$defs/ResultTrust", "description": "q3: the minimum runner trust of every qualification trial over the required checks; absent (q1, q2) reads as unknown."},
         "checks": {
           "type": "array",
           "items": {

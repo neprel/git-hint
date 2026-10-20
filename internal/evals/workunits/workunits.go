@@ -18,6 +18,7 @@ import (
 
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/report"
+	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/hint"
 	"github.com/neprel/git-hint/internal/store"
 )
@@ -220,6 +221,10 @@ func attempt(s *store.Store, run, eval, name string, t, ev map[string]any) map[s
 	case outcome == "infrastructure_error" || outcome == "verifier_error" || outcome == "cancelled":
 		closure = map[string]any{"state": "unknown", "reason": "trial_error"} // kept; coverage incomplete
 	}
+	// the trial's runner trust capped by the qualification's (07B-J §11.4(8)); absent is
+	// unknown and nothing raises it
+	q, _ := ev["qualification"].(map[string]any)
+	closure["result_trust"] = runner.MinTrust(str(t["result_trust"]), str(q["result_trust"]))
 	c, _ := t["counters"].(map[string]any)
 	usage := map[string]any{"requests": c["requests"], "input_tokens": c["input_tokens"], "output_tokens": c["output_tokens"], "cache_tokens": c["cache_tokens"]}
 	prov, complete := "unknown", 0

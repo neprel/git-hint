@@ -394,7 +394,7 @@ func Build(l *library.Library, in Input) (*Built, error) {
 		"reference":    sArc,
 		"environment":  map[string]any{"image": img.Ref, "setup": setupD, "workdir": Workdir, "test_command": "tests/test.sh"},
 		"dependencies": []any{}, "state": "packaged", "reasons": reasonsFor(unattributed),
-		"qualification": map[string]any{"policy": "q2", "checks": []any{}}, "override": nil,
+		"qualification": map[string]any{"policy": "q3", "checks": []any{}}, "override": nil,
 	}
 	if in.NoReference {
 		delete(rec, "reference")

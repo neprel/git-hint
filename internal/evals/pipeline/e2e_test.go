@@ -169,7 +169,7 @@ func TestSessionWithoutMappingNeedsReview(t *testing.T) {
 	var v2 map[string]any
 	l.Manifest("eval", names[1], &v2)
 	qual := v2["qualification"].(map[string]any)
-	if !strings.Contains(fmt.Sprint(v2["reasons"]), "requirement_coverage_missing") || qual["policy"] != "q2" || len(qual["requirements"].([]any)) != 3 {
+	if !strings.Contains(fmt.Sprint(v2["reasons"]), "requirement_coverage_missing") || qual["policy"] != "q3" || len(qual["requirements"].([]any)) != 3 {
 		t.Fatalf("v2 %v %v", v2["reasons"], qual)
 	}
 	if err := evals.ValidateValue("eval", v2); err != nil {

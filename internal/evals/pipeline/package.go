@@ -379,7 +379,7 @@ func nextVersion(rec map[string]any, res qualify.Result, evidence string, now ti
 		}
 		checks = append(checks, m)
 	}
-	q := map[string]any{"policy": qualify.Policy, "checks": checks}
+	q := map[string]any{"policy": qualify.Policy, "checks": checks, "result_trust": res.ResultTrust}
 	if len(res.Requirements) > 0 {
 		var reqs []any
 		for _, r := range res.Requirements {

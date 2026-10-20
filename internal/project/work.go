@@ -344,7 +344,8 @@ func (u *WorkUnit) reportAttempts(s *store.Store) ([]any, error) {
 	}
 	res := []any{}
 	for _, a := range u.Attempts {
-		closure := map[string]any{"state": a.Closure}
+		// a user's own validation run has no runner statement (07B-J): its trust is unknown
+		closure := map[string]any{"state": a.Closure, "result_trust": "unknown"}
 		switch {
 		case a.Validation != "":
 			closure["validation_task_id"], closure["reason"] = a.Validation, "validation_task_passed"

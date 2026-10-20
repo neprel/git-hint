@@ -390,6 +390,15 @@ func evalShow(e *Env, args []string) int {
 	}
 	if q, ok := rec["qualification"].(map[string]any); ok {
 		fmt.Fprintf(w, "Qualification (policy %v):\n", q["policy"])
+		trust, _ := q["result_trust"].(string)
+		switch trust {
+		case "process_separated":
+			fmt.Fprintln(w, "  result trust: process_separated (an evaluator without candidate code gave the verdict)")
+		case "same_process":
+			fmt.Fprintln(w, "  result trust: same_process (the checks ran inside the candidate's process; descriptive evidence, Q7 not met)")
+		default:
+			fmt.Fprintln(w, "  result trust: unknown (no runner statement; descriptive evidence)")
+		}
 		for _, c := range q["checks"].([]any) {
 			m := c.(map[string]any)
 			line := fmt.Sprintf("  %-20s %-14s runs %v", m["name"], m["status"], m["runs"])

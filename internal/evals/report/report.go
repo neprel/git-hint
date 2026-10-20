@@ -22,12 +22,13 @@ import (
 
 	githint "github.com/neprel/git-hint"
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/hint"
 	"github.com/neprel/git-hint/internal/version"
 )
 
 // Version of the report format that Build writes. Check reads 0.1 and 0.2.
-const Version = "0.2.0"
+const Version = "0.2.1"
 
 // MediaType of a report on the wire.
 const MediaType = "application/vnd.hint-evalreport+json"
@@ -123,7 +124,52 @@ func Check(data []byte) error {
 		}
 		seen[r] = true
 	}
+	if err := trustProblem(m); err != nil {
+		return err
+	}
 	return nil
+}
+
+// trustProblem checks result_trust (07B-J §11.4): from 0.2.1 every trial carries its own
+// value and the qualification cap, and every attempt closure; a closure whose trial is in
+// the report equals the minimum of the trial's value and its cap (never above either).
+func trustProblem(m map[string]any) error {
+	if v := str(m["report_version"]); reportMinor(v) != "0.2" || v == "0.2.0" {
+		return nil // legacy: absent values read as unknown
+	}
+	trials := map[string]string{}
+	for _, t := range m["trials"].([]any) {
+		tm := t.(map[string]any)
+		q, _ := tm["qualification"].(map[string]any)
+		rt, ok1 := tm["result_trust"].(string)
+		qt, ok2 := q["result_trust"].(string)
+		if !ok1 || !ok2 {
+			return fmt.Errorf("%w: trial without result_trust", ErrInvalid)
+		}
+		trials[tm["trial_ref"].(string)] = runner.MinTrust(rt, qt)
+	}
+	units, _ := m["work_units"].([]any)
+	for _, u := range units {
+		as, _ := u.(map[string]any)["attempts"].([]any)
+		for _, a := range as {
+			am := a.(map[string]any)
+			c, _ := am["closure"].(map[string]any)
+			ct, ok := c["result_trust"].(string)
+			if !ok {
+				return fmt.Errorf("%w: closure without result_trust", ErrInvalid)
+			}
+			if want, in := trials[str(am["trial_ref"])]; in && ct != want {
+				return fmt.Errorf("%w: closure result_trust differs from its trial", ErrInvalid)
+			}
+		}
+	}
+	return nil
+}
+
+// qualTrust is the qualification trust of an eval record; absent (q1, q2) is unknown.
+func qualTrust(ev map[string]any) string {
+	q, _ := ev["qualification"].(map[string]any)
+	return runner.MinTrust(str(q["result_trust"]))
 }
 
 func firstPath(ve *jsonschema.ValidationError) string {
@@ -289,8 +335,9 @@ func (b Builder) Build(l *library.Library, trialNames []string, now time.Time) (
 		tr := map[string]any{
 			"trial_ref": b.ref("trial", n), "suite_ref": b.ref("suite", suite), "eval_ref": b.ref("eval", evalRef),
 			"task_family_ref": b.ref("family", str(member["task_family"])), "family": ev["family"], "partition": member["partition"],
-			"arm": t["arm"], "qualification": map[string]any{"policy": sr["qualification_policy"], "state": ev["state"], "basis": "client_claim"},
-			"attempt": t["attempt"], "agent": agent, "runner": t["runner"], "outcome": t["outcome"], "checks": checks,
+			"arm": t["arm"], "qualification": map[string]any{"policy": sr["qualification_policy"], "state": ev["state"], "basis": "client_claim", "result_trust": qualTrust(ev)},
+			"result_trust": runner.MinTrust(str(t["result_trust"])), // absent in older trials: unknown
+			"attempt":      t["attempt"], "agent": agent, "runner": t["runner"], "outcome": t["outcome"], "checks": checks,
 			"counters": map[string]any{"requests": counter("requests"), "retries": counter("retries"), "input_tokens": counter("input_tokens"),
 				"output_tokens": counter("output_tokens"), "cache_tokens": counter("cache_tokens"), "wall_seconds": counter("wall_seconds"),
 				"agent_seconds": counter("agent_seconds")},

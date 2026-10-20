@@ -240,12 +240,13 @@ func TestDockerRunnerVerticalSlice(t *testing.T) {
 	var r trialResult
 	b, _ := os.ReadFile(filepath.Join(jobs, "ref", "ref__1", "result.json"))
 	json.Unmarshal(b, &r)
-	if !strings.HasPrefix(r.Container["final_tree"], "sha256:") || r.Container["runner"] != DockerRunnerVersion || r.Container["agent_image"] == "" {
+	if ft, _ := r.Container["final_tree"].(string); !strings.HasPrefix(ft, "sha256:") || r.Container["runner"] != DockerRunnerVersion || r.Container["agent_image"] == "" ||
+		ora[0].ResultTrust != TrustSameProcess || ora[0].TrustOver([]string{"C1"}) != TrustSameProcess || ora[0].TrustOver([]string{"C1", "C2"}) != TrustUnknown {
 		t.Fatalf("identities %v", r.Container)
 	}
 	// C1: the agent image holds neither the hidden tests nor the reference
 	c, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:     &container.Config{Image: r.Container["agent_image"], Cmd: []string{"sh", "-c", "test ! -e /tests && test ! -e /solution && ! grep -rqs HINTCANARY_HIDDEN_TEST / --exclude-dir=proc --exclude-dir=sys"}},
+		Config:     &container.Config{Image: r.Container["agent_image"].(string), Cmd: []string{"sh", "-c", "test ! -e /tests && test ! -e /solution && ! grep -rqs HINTCANARY_HIDDEN_TEST / --exclude-dir=proc --exclude-dir=sys"}},
 		HostConfig: &container.HostConfig{NetworkMode: "none"}})
 	if err != nil {
 		t.Fatal(err)

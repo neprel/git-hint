@@ -1,7 +1,7 @@
 // Package qualify runs the automatic qualification of a packaged eval version under the
-// named policy q2 and returns the new state with every check result.
+// named policy q3 and returns the new state with every check result.
 //
-// Policy q2 (all trials run through the runner; nothing runs on the host):
+// Policy q3 (all trials run through the runner; nothing runs on the host):
 //   - base_fails: the nop agent fails check C1 (the hidden tests);
 //   - reference_passes and repeatable: the oracle passes C1 and C2 in every one of
 //     ReferenceRuns clean trials;
@@ -28,8 +28,10 @@
 // State: validated when every required check passes; needs_review when a requirement
 // lacks coverage; reproducible when base and reference checks pass but other evidence is
 // missing; needs_review or quarantined with reasons otherwise. A missing result never
-// counts as a pass. q2 replaces q1, which took the hidden tests as evidence for every
-// requirement.
+// counts as a pass. q2 replaced q1, which took the hidden tests as evidence for every
+// requirement. q3 (07B-J) keeps every q2 check and adds result_trust: the runner's trust of
+// the trials, never raised; a validated q3 state with same_process or unknown trust does
+// not meet Q7 and is not authoritative evidence.
 package qualify
 
 import (
@@ -45,7 +47,7 @@ import (
 )
 
 // Policy is the qualification policy name.
-const Policy = "q2"
+const Policy = "q3"
 
 // ReferenceRuns is the number of clean oracle trials.
 const ReferenceRuns = 3
@@ -90,6 +92,9 @@ type Result struct {
 	Checks       []Check       `json:"checks"`
 	Requirements []Requirement `json:"requirements"`
 	Trials       int           `json:"trials"`
+	// ResultTrust is the minimum runner trust of every trial that ran, each over the exact
+	// required check set (07B-J §11-§12); unknown when no trial ran or any is unknown.
+	ResultTrust string `json:"result_trust"`
 }
 
 // Options of one qualification.
@@ -108,9 +113,14 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 		return res, err
 	}
 	jobs := filepath.Join(o.Work, "jobs")
+	required := runner.RequiredChecks(rec)
+	var trust []string
 	run := func(name, agent, taskDir string, attempts int) ([]runner.Trial, error) {
 		ts, err := r.Run(ctx, taskDir, runner.RunOptions{Agent: agent, Attempts: attempts, JobsDir: jobs, JobName: name})
 		res.Trials += len(ts)
+		for _, t := range ts {
+			trust = append(trust, t.TrustOver(required))
+		}
 		return ts, err
 	}
 	add := func(c Check) { res.Checks = append(res.Checks, c) }
@@ -138,7 +148,9 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 	// a variant without a verified reference (a refactored base where the original change
 	// does not apply): base and C2 are observed; reference evidence is missing
 	if ref, _ := rec["reference"].(string); ref == "" {
-		return noReference(res, rec, nop, baseFails, task, run)
+		out, err := noReference(res, rec, nop, baseFails, task, run)
+		out.ResultTrust = runner.MinTrust(trust...)
+		return out, err
 	}
 	// reference, repeated
 	or, err := run("reference", "oracle", task, ReferenceRuns)
@@ -294,6 +306,7 @@ func Run(ctx context.Context, l *library.Library, r Runner, rec map[string]any, 
 	}
 	res.State = decide(res)
 	res.Reasons = uniq(res.Reasons)
+	res.ResultTrust = runner.MinTrust(trust...)
 	return res, nil
 }
 

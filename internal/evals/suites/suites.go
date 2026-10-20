@@ -166,7 +166,7 @@ func Freeze(l *library.Library, want []string, now time.Time) (string, []string,
 	}
 	h := sha256.Sum256([]byte(fmt.Sprint(members)))
 	suite := map[string]any{"record": "suite", "manifest_version": 1, "suite_id": "su-" + hex.EncodeToString(h[:8]),
-		"created_at": now.UTC().Format(time.RFC3339), "qualification_policy": "q2", "members": members}
+		"created_at": now.UTC().Format(time.RFC3339), "qualification_policy": "q3", "members": members}
 	var old map[string]any
 	if l.Manifest("suite", suite["suite_id"].(string), &old) == nil {
 		return suite["suite_id"].(string), skipped, nil // the same set is the same frozen suite
@@ -273,6 +273,13 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 		"counters": map[string]any{"requests": count(in.Requests), "retries": count(in.Retries), "input_tokens": count(t.InputTokens),
 			"output_tokens": count(t.OutputTokens), "cache_tokens": count(t.CacheTokens), "wall_seconds": sec(t.WallSeconds), "agent_seconds": sec(t.AgentSeconds)},
 		"budget": budget,
+	}
+	// the runner's trust over the eval's exact required checks (no caller input)
+	var ev map[string]any
+	if l.Manifest("eval", in.Eval, &ev) == nil {
+		rec["result_trust"] = t.TrustOver(runner.RequiredChecks(ev))
+	} else {
+		rec["result_trust"] = runner.TrustUnknown
 	}
 	if in.RunID != "" {
 		rec["run_id"] = in.RunID

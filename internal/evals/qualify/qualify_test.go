@@ -23,8 +23,9 @@ type fakeRunner struct {
 	netOpen    bool   // simulate a container with network
 	vnet       string // the verifier's network record: "" blocked, "reachable", "none" (no record)
 	infraFails map[string]bool
-	tests      map[string]string // per-test results: test ID -> the line it needs (default: the hidden test needs fixed)
-	unmapped   bool              // keep the request unmapped
+	tests      map[string]string            // per-test results: test ID -> the line it needs (default: the hidden test needs fixed)
+	unmapped   bool                         // keep the request unmapped
+	trust      map[string]map[string]string // job name -> the runner's check trust ("" key: result trust)
 	calls      []string
 }
 
@@ -77,6 +78,16 @@ func (f *fakeRunner) Run(_ context.Context, task string, o runner.RunOptions) ([
 			reward = 1
 		}
 		tr := runner.Trial{Name: fmt.Sprintf("%s-%d", o.JobName, k), Reward: &reward, Checks: map[string]string{"C1": pf(c1), "C2": pf(c2)}, Tests: per}
+		if ct, ok := f.trust[o.JobName]; ok {
+			tr.ResultTrust, tr.CheckTrust = ct[""], map[string]string{}
+			for c, v := range ct {
+				if c != "" {
+					tr.CheckTrust[c] = v
+				}
+			}
+		} else if f.trust != nil {
+			tr.ResultTrust, tr.CheckTrust = runner.TrustSameProcess, map[string]string{"C1": runner.TrustSameProcess, "C2": runner.TrustSameProcess}
+		}
 		if f.vnet != "none" {
 			v := "blocked"
 			if f.vnet != "" {
@@ -393,5 +404,27 @@ func TestVerifierNetwork(t *testing.T) {
 	r = qualify(t, &fakeRunner{fixed: "price - discount", vnet: "none"})
 	if r.State == "validated" || check(r, "isolation").Status != "missing" {
 		t.Fatalf("no record: %s %+v", r.State, check(r, "isolation"))
+	}
+}
+
+// 07B-J §11-§12: the qualification's trust is the minimum of every trial over the record's
+// exact required checks; a Harbor-like runner without a statement gives unknown; a trial
+// that lacks a required check gives unknown; an extra check value never raises it.
+func TestQualificationTrust(t *testing.T) {
+	if r := qualify(t, &fakeRunner{fixed: "price - discount"}); r.ResultTrust != runner.TrustUnknown || r.State != "validated" {
+		t.Fatalf("no runner statement: %s %s", r.ResultTrust, r.State)
+	}
+	same := &fakeRunner{fixed: "price - discount", trust: map[string]map[string]string{}}
+	if r := qualify(t, same); r.ResultTrust != runner.TrustSameProcess {
+		t.Fatalf("same process: %s", r.ResultTrust)
+	}
+	sep := map[string]string{"": runner.TrustProcessSeparated, "C1": runner.TrustProcessSeparated, "C2": runner.TrustProcessSeparated}
+	missing := &fakeRunner{fixed: "price - discount", trust: map[string]map[string]string{"reference": {"": runner.TrustProcessSeparated, "C1": runner.TrustProcessSeparated, "X": runner.TrustProcessSeparated}}}
+	if r := qualify(t, missing); r.ResultTrust != runner.TrustUnknown {
+		t.Fatalf("a trial without C2: %s", r.ResultTrust)
+	}
+	mixed := &fakeRunner{fixed: "price - discount", trust: map[string]map[string]string{"reference": sep}}
+	if r := qualify(t, mixed); r.ResultTrust != runner.TrustSameProcess {
+		t.Fatalf("mixed trials: %s", r.ResultTrust)
 	}
 }

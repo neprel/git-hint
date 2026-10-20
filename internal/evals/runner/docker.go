@@ -140,13 +140,13 @@ type images struct{ agent, agentCtx, verifier, verifierCtx string }
 // trialResult is the result.json of one trial (the fields ReadJob reads, plus the
 // container identities of the trial).
 type trialResult struct {
-	TrialName      string            `json:"trial_name"`
-	VerifierResult *verifierResult   `json:"verifier_result"`
-	ExceptionInfo  *exceptionInfo    `json:"exception_info"`
-	StartedAt      string            `json:"started_at"`
-	FinishedAt     string            `json:"finished_at"`
-	AgentExecution *execution        `json:"agent_execution"`
-	Container      map[string]string `json:"hint_container"`
+	TrialName      string          `json:"trial_name"`
+	VerifierResult *verifierResult `json:"verifier_result"`
+	ExceptionInfo  *exceptionInfo  `json:"exception_info"`
+	StartedAt      string          `json:"started_at"`
+	FinishedAt     string          `json:"finished_at"`
+	AgentExecution *execution      `json:"agent_execution"`
+	Container      map[string]any  `json:"hint_container"`
 }
 
 type verifierResult struct {
@@ -166,7 +166,7 @@ func stamp() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 // pass.
 func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, lim taskLimits, im images) {
 	_ = os.MkdirAll(filepath.Join(dir, "verifier"), 0o700)
-	r := trialResult{TrialName: name, StartedAt: stamp(), Container: map[string]string{"runner": DockerRunnerVersion, "engine": d.Version,
+	r := trialResult{TrialName: name, StartedAt: stamp(), Container: map[string]any{"runner": DockerRunnerVersion, "engine": d.Version,
 		"agent_image": im.agent, "agent_context": im.agentCtx, "verifier_image": im.verifier, "verifier_context": im.verifierCtx}}
 	defer func() {
 		r.FinishedAt = stamp()
@@ -193,7 +193,14 @@ func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, li
 		return
 	}
 	r.Container["final_tree"] = digest
-	reward, err := d.verifierPhase(ctx, lim, im.verifier, artifact, dir)
+	reward, checks, err := d.verifierPhase(ctx, lim, im.verifier, artifact, dir)
+	// trust from the topology that ran: the verifier container executes the candidate's code
+	// together with every check it prints (07B-J §11.3)
+	ct := map[string]string{}
+	for _, c := range checks {
+		ct[c] = TrustSameProcess
+	}
+	r.Container["result_trust"], r.Container["check_trust"] = TrustSameProcess, ct
 	if err != nil {
 		var te timeoutError
 		if errors.As(err, &te) {
@@ -297,23 +304,24 @@ func (d *Docker) remove(id string) {
 
 // verifierPhase runs the verifier image without network on a copy of the frozen tree and
 // reads its outputs: the check lines (stdout, bounded) and the reward.
-func (d *Docker) verifierPhase(ctx context.Context, lim taskLimits, img, artifact, dir string) (float64, error) {
+func (d *Docker) verifierPhase(ctx context.Context, lim taskLimits, img, artifact, dir string) (float64, []string, error) {
 	c, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config:     &container.Config{Image: img, Cmd: []string{"sh", "-c", "mkdir -p /logs/verifier && sh /tests/test.sh"}, WorkingDir: "/app"},
 		HostConfig: d.hostConfig(lim)})
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer d.remove(c.ID)
 	f, err := os.Open(artifact)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	_, err = d.cli.CopyToContainer(ctx, c.ID, client.CopyToContainerOptions{DestinationPath: "/", Content: f})
 	f.Close()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
+	var checks []string // the checks the verifier printed (root's stdout)
 	runErr := d.runToEnd(ctx, c.ID, lim.verifier, "verifier")
 	logs, err := d.cli.ContainerLogs(ctx, c.ID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err == nil {
@@ -321,25 +329,30 @@ func (d *Docker) verifierPhase(ctx context.Context, lim taskLimits, img, artifac
 		_, _ = stdcopy.StdCopy(&limitWriter{w: &out, n: 4 << 20}, &limitWriter{w: &errb, n: 1 << 20}, logs)
 		logs.Close()
 		_ = os.WriteFile(filepath.Join(dir, "verifier", "test-stdout.txt"), out.Bytes(), 0o600)
+		for _, ln := range strings.Split(out.String(), "\n") {
+			if c := checkLine.FindStringSubmatch(strings.TrimSpace(ln)); c != nil {
+				checks = append(checks, c[1])
+			}
+		}
 	}
 	if runErr != nil {
-		return 0, runErr
+		return 0, nil, runErr
 	}
 	res, err := d.cli.CopyFromContainer(ctx, c.ID, client.CopyFromContainerOptions{SourcePath: "/logs/verifier/reward.txt"})
 	if err != nil {
-		return 0, fmt.Errorf("no reward file")
+		return 0, nil, fmt.Errorf("no reward file")
 	}
 	defer res.Content.Close()
 	tr := tar.NewReader(res.Content)
 	if _, err := tr.Next(); err != nil {
-		return 0, fmt.Errorf("unreadable reward file")
+		return 0, nil, fmt.Errorf("unreadable reward file")
 	}
 	b, _ := io.ReadAll(io.LimitReader(tr, 64))
 	v, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64)
 	if err != nil {
-		return 0, fmt.Errorf("unreadable reward value")
+		return 0, nil, fmt.Errorf("unreadable reward value")
 	}
-	return v, nil
+	return v, checks, nil
 }
 
 type limitWriter struct {

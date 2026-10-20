@@ -73,12 +73,16 @@ type Trial struct {
 	CacheTokens  *int64            `json:"cache_tokens"`
 	WallSeconds  *float64          `json:"wall_seconds"`
 	AgentSeconds *float64          `json:"agent_seconds"`
+	// the runner's trust statement (hint_container): unknown when absent
+	ResultTrust  string            `json:"result_trust"`
+	CheckTrust   map[string]string `json:"check_trust,omitempty"`
+	TrustInvalid bool              `json:"trust_invalid,omitempty"` // an invalid statement: never a pass
 }
 
 // Outcome classifies a trial for HINT records.
 func (t Trial) Outcome() string {
 	switch {
-	case t.Tampered:
+	case t.Tampered, t.TrustInvalid:
 		return "verifier_error"
 	case t.Exception != "" && strings.Contains(strings.ToLower(t.Exception), "timeout"):
 		return "timeout"
@@ -237,11 +241,17 @@ func ReadJob(jobDir string) ([]Trial, error) {
 				StartedAt  string `json:"started_at"`
 				FinishedAt string `json:"finished_at"`
 			} `json:"agent_execution"`
+			Container json.RawMessage `json:"hint_container"`
 		}
 		if err := json.Unmarshal(b, &r); err != nil {
 			return nil, fmt.Errorf("unreadable trial result")
 		}
 		t := Trial{Name: r.TrialName, Checks: map[string]string{}, Tests: map[string]string{}}
+		if rt, ct, err := readTrust(r.Container); err != nil {
+			t.ResultTrust, t.TrustInvalid = TrustUnknown, true
+		} else {
+			t.ResultTrust, t.CheckTrust = rt, ct
+		}
 		if r.VerifierResult != nil {
 			if v, ok := r.VerifierResult.Rewards["reward"]; ok {
 				t.Reward = &v

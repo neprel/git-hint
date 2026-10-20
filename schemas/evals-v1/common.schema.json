@@ -13,6 +13,7 @@
     "EvalRef": {"type": "string", "pattern": "^ev-[0-9a-f]{16}@[1-9][0-9]*$", "description": "One immutable eval version."},
     "Agent": {"type": "string", "enum": ["opencode", "claude-code", "codex"]},
     "Family": {"type": "string", "enum": ["bug_fix", "feature", "compatibility", "refactor"]},
+    "ResultTrust": {"type": "string", "enum": ["unknown", "same_process", "process_separated"], "description": "07B-J: same_process = the checks ran inside the process of the code under test (Q7 not met); process_separated = an evaluator that never loaded candidate code gave the verdict; unknown = no runner statement. Written only from the runner's statement; never raised."},
     "State": {"type": "string", "enum": ["candidate", "packaged", "reproducible", "validated", "needs_review", "unsupported", "quarantined"]},
     "Reason": {
       "type": "string",
