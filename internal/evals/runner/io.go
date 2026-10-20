@@ -230,22 +230,20 @@ const caseScript = `rm -rf /app && mv /hint/app /app && chown -R 65534:65534 /ap
 // timeout or truncation is recorded in the result and makes it unusable.
 func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, input []byte, limit time.Duration, lim taskLimits) (caseRun, error) {
 	cmd := append([]string{"sh", "-c", caseScript, "sh"}, entry...)
-	c, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{Image: img, Cmd: cmd, WorkingDir: "/", OpenStdin: true, StdinOnce: true,
-			AttachStdin: true, AttachStdout: true, AttachStderr: true},
-		HostConfig: d.hostConfig(lim)})
+	cid, err := d.create(ctx, &container.Config{Image: img, Cmd: cmd, WorkingDir: "/", OpenStdin: true, StdinOnce: true,
+		AttachStdin: true, AttachStdout: true, AttachStderr: true}, d.hostConfig(lim))
 	if err != nil {
 		return caseRun{}, err
 	}
-	defer d.remove(c.ID)
+	defer d.remove(cid)
 	pr, pw := io.Pipe()
 	go func() { pw.CloseWithError(retree(tree, "hint/", pw)) }()
-	_, err = d.cli.CopyToContainer(ctx, c.ID, client.CopyToContainerOptions{DestinationPath: "/", Content: pr})
+	_, err = d.cli.CopyToContainer(ctx, cid, client.CopyToContainerOptions{DestinationPath: "/", Content: pr})
 	pr.Close()
 	if err != nil {
 		return caseRun{}, err
 	}
-	att, err := d.cli.ContainerAttach(ctx, c.ID, client.ContainerAttachOptions{Stream: true, Stdin: true, Stdout: true, Stderr: true})
+	att, err := d.cli.ContainerAttach(ctx, cid, client.ContainerAttachOptions{Stream: true, Stdin: true, Stdout: true, Stderr: true})
 	if err != nil {
 		return caseRun{}, err
 	}
@@ -263,9 +261,9 @@ func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, 
 		wrote <- err
 	}()
 	var r caseRun
-	runErr := d.runToEnd(ctx, c.ID, limit, "case")
+	runErr := d.runToEnd(ctx, cid, limit, "case")
 	// the engine's own record of the run's networks: only "none" with no attached network
-	if ins, err := d.cli.ContainerInspect(context.Background(), c.ID, client.ContainerInspectOptions{}); err == nil && ins.Container.HostConfig != nil {
+	if ins, err := d.cli.ContainerInspect(context.Background(), cid, client.ContainerInspectOptions{}); err == nil && ins.Container.HostConfig != nil {
 		r.networkNone = ins.Container.HostConfig.NetworkMode == "none" &&
 			(ins.Container.NetworkSettings == nil || len(ins.Container.NetworkSettings.Networks) == 0 || onlyNone(ins.Container.NetworkSettings.Networks))
 	}

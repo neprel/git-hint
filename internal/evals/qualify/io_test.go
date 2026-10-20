@@ -2,8 +2,11 @@ package qualify
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,9 +103,23 @@ func TestQualifyIOOnTheEngine(t *testing.T) {
 	defer d.Close()
 	l := evaltest.Library(t)
 	rec := ioEval(t, l)
-	res, err := Run(context.Background(), l, d, rec, Options{Work: t.TempDir(), Settings: runner.DefaultSettings})
+	work := t.TempDir()
+	res, err := Run(context.Background(), l, d, rec, Options{Work: work, Settings: runner.DefaultSettings})
 	if err != nil {
 		t.Fatal(err)
+	}
+	// C5: the toolchain observed in the pinned Go base (a clean probe, not the agent image)
+	b, _ := os.ReadFile(filepath.Join(work, "jobs", "base", "base__1", "result.json"))
+	var tr struct {
+		Container struct {
+			Provenance struct {
+				Toolchain map[string]any `json:"toolchain"`
+			} `json:"provenance"`
+		} `json:"hint_container"`
+	}
+	json.Unmarshal(b, &tr)
+	if tc := tr.Container.Provenance.Toolchain; tc["state"] != "observed" || !strings.HasPrefix(fmt.Sprint(tc["output"]), "go version go1.26") {
+		t.Errorf("toolchain %v", tc)
 	}
 	st := map[string]string{}
 	for _, c := range res.Checks {

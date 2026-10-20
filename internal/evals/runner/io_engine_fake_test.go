@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/moby/moby/client"
 	"io"
@@ -27,18 +28,21 @@ func fakeEngine(t *testing.T, broken bool, status int64) (*Docker, *string) {
 	states := map[string]bool{}
 	n := 0
 	user := "unset"
+	images := map[string]string{} // container -> the image it was created from
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		if strings.HasSuffix(p, "/containers/create") {
 			var cfg struct {
 				OpenStdin bool
 				User      string
+				Image     string
 			}
 			json.NewDecoder(r.Body).Decode(&cfg)
 			mu.Lock()
 			n++
 			id := fmt.Sprint("c", n)
 			states[id] = cfg.OpenStdin
+			images[id] = cfg.Image
 			if cfg.OpenStdin {
 				user = cfg.User
 			}
@@ -95,7 +99,10 @@ func fakeEngine(t *testing.T, broken bool, status int64) (*Docker, *string) {
 		}
 		if strings.HasSuffix(p, "/json") && r.Method == "GET" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"Id":%q,"HostConfig":{"NetworkMode":"none"},"NetworkSettings":{"Networks":{"none":{}}}}`, id)
+			mu.Lock()
+			img := images[id]
+			mu.Unlock()
+			fmt.Fprintf(w, `{"Id":%q,"Image":%q,"HostConfig":{"NetworkMode":"none"},"NetworkSettings":{"Networks":{"none":{}}}}`, id, img)
 			return
 		}
 		if strings.HasSuffix(p, "/logs") {
@@ -145,9 +152,9 @@ func fakeTree(t *testing.T) string {
 }
 func TestIOBrokenAttachCannotPass(t *testing.T) {
 	d, _ := fakeEngine(t, true, 0)
-	r, e := d.runCase(context.Background(), "image", fakeTree(t), []string{"sh", "tool.sh"}, []byte("x"), time.Second, taskLimits{cpus: 1, memoryMB: 64})
-	if e == nil && r.usable() {
-		t.Fatalf("broken Docker output frame accepted as complete: status=%d bytes=%q", r.status, r.out)
+	r, e := d.runCase(context.Background(), fakeImage, fakeTree(t), []string{"sh", "tool.sh"}, []byte("x"), time.Second, taskLimits{cpus: 1, memoryMB: 64})
+	if e == nil && r.usable() || e != nil && !strings.Contains(e.Error(), "incomplete output stream") {
+		t.Fatalf("broken Docker output frame accepted as complete: status=%d bytes=%q err=%v", r.status, r.out, e)
 	}
 }
 func TestIOReferenceExitCannotPass(t *testing.T) {
@@ -159,14 +166,15 @@ func TestIOReferenceExitCannotPass(t *testing.T) {
 	}
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "verifier"), 0700)
-	v, _, e := d.ioPhase(context.Background(), task, iot, taskLimits{agent: time.Second, verifier: 20 * time.Second, cpus: 1, memoryMB: 64}, "image", fakeTree(t), dir)
-	if e == nil {
-		t.Fatalf("all reference cases exit 3 but verdict returned: reward=%v", v)
+	v, _, e := d.ioPhase(context.Background(), task, iot, taskLimits{agent: time.Second, verifier: 20 * time.Second, cpus: 1, memoryMB: 64}, fakeImage, fakeTree(t), dir)
+	var ue errIOVerdict
+	if e == nil || !errors.As(e, &ue) {
+		t.Fatalf("all reference cases exit 3 but verdict returned: reward=%v err=%v", v, e)
 	}
 }
 func TestIOUnprivilegedEntry(t *testing.T) {
 	d, user := fakeEngine(t, false, 0)
-	r, e := d.runCase(context.Background(), "image", fakeTree(t), []string{"sh", "tool.sh"}, nil, time.Second, taskLimits{cpus: 1, memoryMB: 64})
+	r, e := d.runCase(context.Background(), fakeImage, fakeTree(t), []string{"sh", "tool.sh"}, nil, time.Second, taskLimits{cpus: 1, memoryMB: 64})
 	if e != nil || !r.usable() {
 		t.Fatal(r, e)
 	}
@@ -174,3 +182,6 @@ func TestIOUnprivilegedEntry(t *testing.T) {
 		t.Fatal("candidate/oracle entry inherits image user; root default in generated image, no privilege drop")
 	}
 }
+
+// fakeImage is an engine image ID (containers are created by ID).
+const fakeImage = "sha256:0000000000000000000000000000000000000000000000000000000000000001"

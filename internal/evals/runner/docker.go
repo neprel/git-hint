@@ -116,7 +116,7 @@ func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 	if lim.lan {
 		return nil, fmt.Errorf("%w: LAN model tasks need the model gate, which the container runner does not have yet", ErrUnavailable)
 	}
-	agentImg, agentCtx, err := d.build(ctx, filepath.Join(taskDir, "environment"), "agent")
+	agentID, agentTag, agentCtx, err := d.build(ctx, filepath.Join(taskDir, "environment"), "agent")
 	if err != nil {
 		return nil, fmt.Errorf("%w: agent image: %v", ErrUnavailable, err)
 	}
@@ -124,11 +124,25 @@ func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 	if err != nil {
 		return nil, err
 	}
-	var verImg, verCtx string
+	// every container is created by the engine's image ID, resolved once here (C5)
+	im := images{agentTag: agentTag, agentCtx: agentCtx}
+	if im.agentImage, err = d.resolveImage(ctx, agentID); err != nil {
+		return nil, fmt.Errorf("%w: agent image: %v", ErrUnavailable, err)
+	}
+	im.agent = im.agentImage.ID
 	if iot == nil { // a B1 task has no verifier image: the runner compares on the host
-		if verImg, verCtx, err = d.build(ctx, filepath.Join(taskDir, "tests"), "verifier"); err != nil {
+		var verID string
+		if verID, im.verifierTag, im.verifierCtx, err = d.build(ctx, filepath.Join(taskDir, "tests"), "verifier"); err != nil {
 			return nil, fmt.Errorf("%w: verifier image: %v", ErrUnavailable, err)
 		}
+		if im.verifierImage, err = d.resolveImage(ctx, verID); err != nil {
+			return nil, fmt.Errorf("%w: verifier image: %v", ErrUnavailable, err)
+		}
+		im.verifier = im.verifierImage.ID
+	}
+	prov, err := d.jobProvenance(ctx, taskDir, im)
+	if err != nil {
+		return nil, err
 	}
 	job := filepath.Join(o.JobsDir, o.JobName)
 	if err := os.MkdirAll(job, 0o700); err != nil {
@@ -136,12 +150,18 @@ func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 	}
 	for a := 1; a <= o.Attempts; a++ {
 		name := fmt.Sprintf("%s__%d", o.JobName, a)
-		d.trial(ctx, taskDir, filepath.Join(job, name), name, o.Agent, lim, images{agentImg, agentCtx, verImg, verCtx}, iot)
+		d.trial(ctx, taskDir, filepath.Join(job, name), name, o.Agent, lim, im, iot, prov)
 	}
 	return ReadJob(job)
 }
 
-type images struct{ agent, agentCtx, verifier, verifierCtx string }
+// images of a job: agent and verifier are engine image IDs (containers are created by
+// them); the tags and context digests are cache hints.
+type images struct {
+	agent, agentCtx, agentTag          string
+	verifier, verifierCtx, verifierTag string
+	agentImage, verifierImage          image
+}
 
 // trialResult is the result.json of one trial (the fields ReadJob reads, plus the
 // container identities of the trial).
@@ -170,10 +190,10 @@ func stamp() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 // trial runs one attempt; every failure is recorded as the trial's exception, never as a
 // pass.
-func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, lim taskLimits, im images, iot *ioTask) {
+func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, lim taskLimits, im images, iot *ioTask, prov map[string]any) {
 	_ = os.MkdirAll(filepath.Join(dir, "verifier"), 0o700)
 	r := trialResult{TrialName: name, StartedAt: stamp(), Container: map[string]any{"runner": DockerRunnerVersion, "engine": d.Version,
-		"agent_image": im.agent, "agent_context": im.agentCtx, "verifier_image": im.verifier, "verifier_context": im.verifierCtx}}
+		"agent_image": im.agent, "agent_context": im.agentCtx, "verifier_image": im.verifier, "verifier_context": im.verifierCtx, "provenance": prov}}
 	defer func() {
 		r.FinishedAt = stamp()
 		b, _ := json.MarshalIndent(r, "", "  ")
@@ -264,26 +284,25 @@ func (d *Docker) applyPhase(ctx context.Context, solution, agent string, lim tas
 	if agent == "oracle" {
 		cmd = []string{"sh", "/solution/solve.sh"}
 	}
-	c, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config: &container.Config{Image: img, Cmd: cmd, WorkingDir: "/app"}, HostConfig: d.hostConfig(lim)})
+	cid, err := d.create(ctx, &container.Config{Image: img, Cmd: cmd, WorkingDir: "/app"}, d.hostConfig(lim))
 	if err != nil {
 		return "", err
 	}
-	defer d.remove(c.ID)
+	defer d.remove(cid)
 	if agent == "oracle" { // the reference enters only the oracle's container, never an agent image
 		sol, err := tarDir(solution, "solution")
 		if err != nil {
 			return "", err
 		}
-		if _, err := d.cli.CopyToContainer(ctx, c.ID, client.CopyToContainerOptions{DestinationPath: "/", Content: bytes.NewReader(sol)}); err != nil {
+		if _, err := d.cli.CopyToContainer(ctx, cid, client.CopyToContainerOptions{DestinationPath: "/", Content: bytes.NewReader(sol)}); err != nil {
 			return "", err
 		}
 	}
-	runErr := d.runToEnd(ctx, c.ID, lim.agent, "agent")
+	runErr := d.runToEnd(ctx, cid, lim.agent, "agent")
 	if err := os.MkdirAll(filepath.Dir(artifact), 0o700); err != nil {
 		return "", err
 	}
-	if logs, err := d.cli.ContainerLogs(ctx, c.ID, client.ContainerLogsOptions{ShowStdout: true}); err == nil {
+	if logs, err := d.cli.ContainerLogs(ctx, cid, client.ContainerLogsOptions{ShowStdout: true}); err == nil {
 		var out bytes.Buffer
 		_, _ = stdcopy.StdCopy(&limitWriter{w: &out, n: 64 << 10}, io.Discard, logs)
 		logs.Close()
@@ -293,7 +312,7 @@ func (d *Docker) applyPhase(ctx context.Context, solution, agent string, lim tas
 		return "", runErr
 	}
 	// the container has stopped: nothing changes the tree during the copy
-	src, err := d.cli.CopyFromContainer(ctx, c.ID, client.CopyFromContainerOptions{SourcePath: "/app"})
+	src, err := d.cli.CopyFromContainer(ctx, cid, client.CopyFromContainerOptions{SourcePath: "/app"})
 	if err != nil {
 		return "", err
 	}
@@ -345,25 +364,24 @@ func (d *Docker) remove(id string) {
 // verifierPhase runs the verifier image without network on a copy of the frozen tree and
 // reads its outputs: the check lines (stdout, bounded) and the reward.
 func (d *Docker) verifierPhase(ctx context.Context, lim taskLimits, img, artifact, dir string) (float64, []string, error) {
-	c, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:     &container.Config{Image: img, Cmd: []string{"sh", "-c", "mkdir -p /logs/verifier && sh /tests/test.sh"}, WorkingDir: "/app"},
-		HostConfig: d.hostConfig(lim)})
+	cid, err := d.create(ctx, &container.Config{Image: img, Cmd: []string{"sh", "-c", "mkdir -p /logs/verifier && sh /tests/test.sh"}, WorkingDir: "/app"},
+		d.hostConfig(lim))
 	if err != nil {
 		return 0, nil, err
 	}
-	defer d.remove(c.ID)
+	defer d.remove(cid)
 	f, err := os.Open(artifact)
 	if err != nil {
 		return 0, nil, err
 	}
-	_, err = d.cli.CopyToContainer(ctx, c.ID, client.CopyToContainerOptions{DestinationPath: "/", Content: f})
+	_, err = d.cli.CopyToContainer(ctx, cid, client.CopyToContainerOptions{DestinationPath: "/", Content: f})
 	f.Close()
 	if err != nil {
 		return 0, nil, err
 	}
 	var checks []string // the checks the verifier printed (root's stdout)
-	runErr := d.runToEnd(ctx, c.ID, lim.verifier, "verifier")
-	logs, err := d.cli.ContainerLogs(ctx, c.ID, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	runErr := d.runToEnd(ctx, cid, lim.verifier, "verifier")
+	logs, err := d.cli.ContainerLogs(ctx, cid, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err == nil {
 		var out, errb bytes.Buffer
 		_, _ = stdcopy.StdCopy(&limitWriter{w: &out, n: 4 << 20}, &limitWriter{w: &errb, n: 1 << 20}, logs)
@@ -378,7 +396,7 @@ func (d *Docker) verifierPhase(ctx context.Context, lim taskLimits, img, artifac
 	if runErr != nil {
 		return 0, nil, runErr
 	}
-	res, err := d.cli.CopyFromContainer(ctx, c.ID, client.CopyFromContainerOptions{SourcePath: "/logs/verifier/reward.txt"})
+	res, err := d.cli.CopyFromContainer(ctx, cid, client.CopyFromContainerOptions{SourcePath: "/logs/verifier/reward.txt"})
 	if err != nil {
 		return 0, nil, fmt.Errorf("no reward file")
 	}
@@ -564,22 +582,21 @@ func checkLinks(tree map[string]*tar.Header) error {
 	return nil
 }
 
-// build builds (or reuses) the image of a build context directory. The image tag is the
-// digest of the context; the context is only that directory.
-func (d *Docker) build(ctx context.Context, dir, kind string) (tag, contextDigest string, err error) {
+// build builds the image of a build context directory (only that directory) and returns
+// the engine's image ID from the build itself, the cache tag and the context digest. The
+// build always runs (the engine's layer cache makes a rebuild cheap): an existing tag is
+// never trusted as the image of a context, because a tag can be moved (C5).
+func (d *Docker) build(ctx context.Context, dir, kind string) (id, tag, contextDigest string, err error) {
 	b, err := tarDir(dir, "")
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	sum := sha256.Sum256(b)
 	contextDigest = "sha256:" + hex.EncodeToString(sum[:])
 	tag = "hint-eval-" + kind + ":" + hex.EncodeToString(sum[:10])
-	if _, err := d.cli.ImageInspect(ctx, tag); err == nil {
-		return tag, contextDigest, nil
-	}
 	res, err := d.cli.ImageBuild(ctx, bytes.NewReader(b), client.ImageBuildOptions{Tags: []string{tag}, Dockerfile: "Dockerfile", Remove: true, ForceRemove: true})
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	defer res.Body.Close()
 	sc := bufio.NewScanner(res.Body)
@@ -587,15 +604,27 @@ func (d *Docker) build(ctx context.Context, dir, kind string) (tag, contextDiges
 	for sc.Scan() {
 		var m struct {
 			Error string `json:"error"`
+			Aux   struct {
+				ID string `json:"ID"`
+			} `json:"aux"`
 		}
-		if json.Unmarshal(sc.Bytes(), &m) == nil && m.Error != "" {
-			return "", "", errors.New(m.Error)
+		if json.Unmarshal(sc.Bytes(), &m) != nil {
+			continue
+		}
+		if m.Error != "" {
+			return "", "", "", errors.New(m.Error)
+		}
+		if strings.HasPrefix(m.Aux.ID, "sha256:") {
+			id = m.Aux.ID
 		}
 	}
-	if _, err := d.cli.ImageInspect(ctx, tag); err != nil {
-		return "", "", fmt.Errorf("the image was not built")
+	if id == "" {
+		return "", "", "", fmt.Errorf("the build reported no image ID")
 	}
-	return tag, contextDigest, nil
+	if _, err := d.cli.ImageInspect(ctx, id); err != nil {
+		return "", "", "", fmt.Errorf("the image was not built")
+	}
+	return id, tag, contextDigest, nil
 }
 
 // tarDir is a deterministic tar of a directory (sorted, fixed times and owners) with an
