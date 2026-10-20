@@ -59,6 +59,11 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
   git hint eval work close LABEL --outcome completed|failed|abandoned
                                      optional: declare a piece of work (agent runs with
                                      HINT_WORK_UNIT=LABEL and HINT_TASK_ID); eval report sends it
+  git hint eval declare-io --base REV --reference REV --entry '["python","tool.py"]'
+                     --case ID=FILE... --request FILE [--case-seconds N]
+                                     package a declared behavior check (B1): the program's stdout
+                                     and exit status must equal the stored reference's on your
+                                     own cases; the cases stay local and never reach the agent
   git hint eval pack ID... -o FILE   write evals to a private bundle for your other machines
   git hint eval unpack FILE          read a bundle (every object is checked; never sent anywhere)
 `)
@@ -93,6 +98,8 @@ func cmdEval(e *Env, args []string) int {
 		return evalPack(e, args[1:])
 	case "unpack":
 		return evalUnpack(e, args[1:])
+	case "declare-io":
+		return evalDeclareIO(e, args[1:])
 	case "__qualify":
 		return evalWorker(e, args[1:])
 	case "help", "-h", "--help":

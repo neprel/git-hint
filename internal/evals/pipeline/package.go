@@ -279,6 +279,14 @@ func Qualify(ctx context.Context, s *store.Store, r qualify.Runner, now time.Tim
 		if l.Manifest("eval", name, &rec) != nil {
 			continue
 		}
+		// a cli-file-v1 eval needs the container runner; the current runner never runs it
+		// (07B-J §19): it stays packaged until the runner is replaced
+		if v, _ := rec["verifier"].(map[string]any); v["kind"] == runner.IOInterface {
+			if _, ok := r.(*runner.Docker); !ok {
+				rep.States["runner_unsupported"]++
+				continue
+			}
+		}
 		alts := Alternatives(rec)
 		if ok, why := st.Remaining(); !ok || st.Trials+qualifyTrials+len(alts) > lim.Trials {
 			if why == "" {

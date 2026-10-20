@@ -1,0 +1,125 @@
+package cli
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/store"
+	"github.com/neprel/git-hint/internal/testkit"
+)
+
+// declareRepo commits a base (tool.sh prints its input) and a reference (upper case) in the
+// fixture repository and returns both revisions.
+func declareRepo(t *testing.T, shop string) (string, string) {
+	t.Helper()
+	os.WriteFile(filepath.Join(shop, "go.mod"), []byte("module shop\n\ngo 1.26\n"), 0o644)
+	os.WriteFile(filepath.Join(shop, "tool.sh"), []byte("cat\n"), 0o644)
+	os.WriteFile(filepath.Join(shop, "sample.txt"), []byte("in the base\n"), 0o644)
+	testkit.Git(t, shop, "add", "go.mod", "tool.sh", "sample.txt")
+	testkit.Git(t, shop, "commit", "-q", "-m", "base")
+	base := strings.TrimSpace(testkit.Git(t, shop, "rev-parse", "HEAD"))
+	os.WriteFile(filepath.Join(shop, "tool.sh"), []byte("tr a-z A-Z\n"), 0o644)
+	os.WriteFile(filepath.Join(shop, "ref-only.txt"), []byte("only in the reference\n"), 0o644)
+	testkit.Git(t, shop, "add", "tool.sh", "ref-only.txt")
+	testkit.Git(t, shop, "commit", "-q", "-m", "reference")
+	return base, strings.TrimSpace(testkit.Git(t, shop, "rev-parse", "HEAD"))
+}
+
+// 07B-J §19: eval declare-io packages a cli-file-v1 eval from read-only revisions, a JSON argv
+// entry and local case files; it never changes the work tree.
+func TestEvalDeclareIO(t *testing.T) {
+	shop, _ := setup(t)
+	var spawned []string
+	must(t, runEval(t, shop, &spawned, "eval", "on"))
+	base, refRev := declareRepo(t, shop)
+	head := testkit.Git(t, shop, "status", "--porcelain")
+	dir := t.TempDir()
+	w := func(name, s string) string {
+		p := filepath.Join(dir, name)
+		os.WriteFile(p, []byte(s), 0o644)
+		return p
+	}
+	req := w("request.txt", "tool.sh must print its input in upper case.\n")
+	lower, mixed := w("lower.in", "hello\n"), w("mixed.in", "Ab c\nx")
+	link := filepath.Join(dir, "link.in")
+	os.Symlink(lower, link)
+	r := must(t, runEval(t, shop, &spawned, "eval", "declare-io", "--base", base, "--reference", refRev, "--entry", `["sh","tool.sh"]`,
+		"--case", "lower="+link, "--case", "mixed="+mixed, "--request", req))
+	for _, want := range []string{"cli-file-v1, 2 cases", "finite reference-equivalence", "git hint eval map", "runner_unsupported"} {
+		if !strings.Contains(r.stdout, want) {
+			t.Fatalf("output lacks %q:\n%s", want, r.stdout)
+		}
+	}
+	if testkit.Git(t, shop, "status", "--porcelain") != head {
+		t.Fatal("the work tree changed")
+	}
+	s, _ := store.Open(shop)
+	l := library.Open(s, 0)
+	var found map[string]any
+	for _, e := range latestEvals(l) {
+		var rec map[string]any
+		if l.Manifest("eval", e.Ref, &rec) == nil {
+			if v, _ := rec["verifier"].(map[string]any); v["kind"] == "cli-file-v1" {
+				found = rec
+			}
+		}
+	}
+	if found == nil {
+		t.Fatal("no cli-file-v1 eval stored")
+	}
+	show := must(t, runEval(t, shop, &spawned, "eval", "show", found["eval_id"].(string))).stdout
+	if !strings.Contains(show, "finite reference-equivalence") {
+		t.Fatalf("show: %s", show)
+	}
+	os.WriteFile(filepath.Join(shop, "ignored-case.in"), []byte("Ab c\nx"), 0o644) // a local file no snapshot holds
+	big := w("big.in", strings.Repeat("x", 1<<20+1))
+	for name, args := range map[string][]string{
+		"entry not JSON":        {"--entry", "sh tool.sh"},
+		"entry object":          {"--entry", `{"a":1}`},
+		"input in the base":     {"--case", "c=" + filepath.Join(shop, "sample.txt")},
+		"input via a link":      {"--case", "c=" + mustLink(t, filepath.Join(shop, "sample.txt"))},
+		"input only in the ref": {"--case", "c=" + filepath.Join(shop, "ref-only.txt")},
+		"oversize input":        {"--case", "c=" + big},
+		"missing input":         {"--case", "c=" + filepath.Join(dir, "absent.in")},
+		"no ID":                 {"--case", "=" + lower},
+		"unsafe ID":             {"--case", "../x=" + lower},
+		"option as revision":    {"--base", "--all"},
+		"unknown revision":      {"--base", "no-such-rev"},
+		"long timeout":          {"--case-seconds", "31"},
+		"empty request":         {"--request", w("empty.txt", " \n")},
+	} {
+		full := map[string]string{"--base": base, "--reference": refRev, "--entry": `["sh","tool.sh"]`, "--request": req, "--case-seconds": "5"}
+		cs := []string{"x=" + lower}
+		for i := 0; i < len(args); i += 2 {
+			if args[i] == "--case" {
+				cs = []string{args[i+1]}
+			} else {
+				full[args[i]] = args[i+1]
+			}
+		}
+		a := []string{"eval", "declare-io"}
+		for k, v := range full {
+			a = append(a, k, v)
+		}
+		for _, c := range cs {
+			a = append(a, "--case", c)
+		}
+		if r := runEval(t, shop, &spawned, a...); r.code == 0 {
+			t.Errorf("%s: accepted:\n%s", name, r.stdout)
+		}
+	}
+	must(t, runEval(t, shop, &spawned, "eval", "declare-io", "--base", base, "--reference", refRev, "--entry", `["sh","tool.sh"]`,
+		"--case", "c="+filepath.Join(shop, "ignored-case.in"), "--request", req))
+}
+
+func mustLink(t *testing.T, target string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "l.in")
+	if err := os.Symlink(target, p); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
