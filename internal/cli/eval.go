@@ -390,6 +390,14 @@ func evalShow(e *Env, args []string) int {
 	}
 	if q, ok := rec["qualification"].(map[string]any); ok {
 		fmt.Fprintf(w, "Qualification (policy %v):\n", q["policy"])
+		if v, _ := rec["verifier"].(map[string]any); v["kind"] == "cli-file-v1" {
+			n := 0
+			if cs, _ := v["checks"].([]any); len(cs) == 1 {
+				ts, _ := cs[0].(map[string]any)["tests"].([]any)
+				n = len(ts)
+			}
+			fmt.Fprintf(w, "  B1: the program's output equals the stored reference's on %d declared cases (finite reference-equivalence, not universal correctness)\n", n)
+		}
 		trust, _ := q["result_trust"].(string)
 		switch trust {
 		case "process_separated":
