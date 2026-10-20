@@ -105,6 +105,14 @@ func TestEvalRunToolUsesTheBuiltInRunner(t *testing.T) {
 	if _, msg := call(t, cs, "hint_eval_run", map[string]any{"agent": "oracle"}); !strings.Contains(msg, "runner_unavailable") {
 		t.Fatalf("hint_eval_run: %q", msg)
 	}
+	// the portable input schema: a list of evals passes validation (and reaches the runner);
+	// an explicit null is not a list and is refused before any work (omit the field instead)
+	if _, msg := call(t, cs, "hint_eval_run", map[string]any{"agent": "oracle", "evals": []string{"ev-x@1"}}); !strings.Contains(msg, "runner_unavailable") {
+		t.Fatalf("hint_eval_run with a list: %q", msg)
+	}
+	if _, msg := call(t, cs, "hint_eval_run", map[string]any{"agent": "oracle", "evals": nil}); strings.Contains(msg, "runner_unavailable") || msg == "" {
+		t.Fatalf("hint_eval_run with null: %q", msg)
+	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("Harbor was called")
 	}

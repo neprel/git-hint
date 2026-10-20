@@ -74,7 +74,7 @@ func (h *handlers) evals(ctx context.Context, _ *mcp.CallToolRequest, in EvalsIn
 
 // EvalRunIn selects the evals and the agent of a bounded run.
 type EvalRunIn struct {
-	Evals    []string `json:"evals,omitempty" jsonschema:"eval IDs or versions; empty runs every validated eval"`
+	Evals    []string `json:"evals,omitempty" jsonschema:"eval IDs or versions; omitted or empty runs every validated eval"`
 	Agent    string   `json:"agent,omitempty" jsonschema:"oracle or nop (checks without a model) or opencode (the local model of the user's eval policy)"`
 	Attempts int      `json:"attempts,omitempty" jsonschema:"attempts per eval; the user's policy limits the total"`
 	Arm      string   `json:"arm,omitempty" jsonschema:"comparison label: baseline, configuration, no_change, context_only, refactor"`

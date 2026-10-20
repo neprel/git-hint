@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,35 @@ func TestListToolsAndSideEffects(t *testing.T) {
 	}
 	if got["hint_recommend"].Annotations.OpenWorldHint == nil || !*got["hint_recommend"].Annotations.OpenWorldHint {
 		t.Error("hint_recommend must be marked as open world (network)")
+	}
+	// portable schemas: no property has a list of types (e.g. ["null","array"]), in the input
+	// or the output of any tool (clients that map schemas onto one type per property)
+	var multi func(at string, v any) []string
+	multi = func(at string, v any) (bad []string) {
+		switch x := v.(type) {
+		case map[string]any:
+			if _, ok := x["type"].([]any); ok {
+				bad = append(bad, at)
+			}
+			for k, y := range x {
+				bad = append(bad, multi(at+"."+k, y)...)
+			}
+		case []any:
+			for i, y := range x {
+				bad = append(bad, multi(fmt.Sprintf("%s[%d]", at, i), y)...)
+			}
+		}
+		return bad
+	}
+	for n, tool := range got {
+		for kind, sch := range map[string]any{"inputSchema": tool.InputSchema, "outputSchema": tool.OutputSchema} {
+			b, _ := json.Marshal(sch)
+			var v any
+			json.Unmarshal(b, &v)
+			if bad := multi(n+"."+kind, v); len(bad) > 0 {
+				t.Errorf("type lists: %v", bad)
+			}
+		}
 	}
 }
 

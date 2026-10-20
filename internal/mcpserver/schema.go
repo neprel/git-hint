@@ -8,10 +8,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// add registers a tool with an output schema without nullable types (portable to clients
-// that map schemas to a single-type dialect) and fills nil slices and maps in the output,
-// so that every result matches that schema.
+// add registers a tool with input and output schemas without nullable types (portable to
+// clients that map schemas to a single-type dialect, such as function declarations that take
+// one `type` per property; an optional input field is omitted, never null) and fills nil
+// slices and maps in the output, so that every result matches its schema.
 func add[In, Out any](s *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
+	in, err := jsonschema.For[In](nil)
+	if err != nil {
+		panic(err)
+	}
+	stripNull(in)
+	t.InputSchema = in
 	sch, err := jsonschema.For[Out](nil)
 	if err != nil {
 		panic(err)

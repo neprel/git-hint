@@ -1,5 +1,6 @@
 #!/bin/sh
-# MCP Inspector check of an installed git-hint: lists the tools and calls hint_status in a
+# MCP Inspector check of an installed git-hint: lists the tools with the Inspector's strict
+# schema checks (any schema error or portability warning fails), and calls hint_status in a
 # temporary project. Needs git and Node.js (npx); no HINT server, no coding agent.
 #
 #   scripts/release/inspector.sh <directory with git-hint>
@@ -19,9 +20,13 @@ git -C "$p" init -q
 cat > "$tmp/servers.json" <<JSON
 {"mcpServers": {"hint": {"command": "$bin/git-hint", "args": ["mcp", "--project", "$p"], "env": {"HINT_KEY_DIR": "$tmp/keys"}}}}
 JSON
-list=$($inspector --cli --config "$tmp/servers.json" --server hint --method tools/list) || fail "tools/list"
+list=$($inspector --cli --config "$tmp/servers.json" --server hint --method tools/list --strict 2>"$tmp/strict.err") || fail "tools/list"
+if grep -Eq '^(Warning|Error)|[1-9][0-9]* (errors?|warnings?)' "$tmp/strict.err"; then
+	grep -v '^git-hint mcp' "$tmp/strict.err" >&2
+	fail "tool schema errors or portability warnings"
+fi
 n=0
-for t in hint_status hint_collect hint_export_preview hint_recommend hint_plan hint_import_recommendation \
+for t in hint_status hint_collect hint_evals hint_eval_run hint_export_preview hint_recommend hint_plan hint_import_recommendation \
 	hint_changes hint_evidence hint_compare hint_find_definition hint_importers hint_file_outline hint_context; do
 	echo "$list" | grep "\"name\": *\"$t\"" >/dev/null || fail "tool $t not listed"
 	n=$((n + 1))
