@@ -119,6 +119,9 @@ func (s *fakeQ4Engine) serve(w http.ResponseWriter, r *http.Request) {
 		if m["User"] == nil || m["User"] == "" {
 			m["User"] = "65534:65534"
 		}
+		if m["Entrypoint"] == nil { // the image's entrypoint, as the engine reports it
+			m["Entrypoint"] = []any{"/gate"}
+		}
 		s.next++
 		id := fmt.Sprint("c", s.next)
 		n := h["NetworkMode"].(string)
@@ -300,8 +303,23 @@ func TestGateFakeMutations(t *testing.T) {
 		edit func(c *fakeQ4Container)
 	}
 	for name, m := range map[string]mut{
-		"gate command":    {true, func(c *fakeQ4Container) { c.cfg["Cmd"] = []any{"-sentinel"} }},
-		"gate user":       {true, func(c *fakeQ4Container) { c.cfg["User"] = "0:0" }},
+		"gate command":       {true, func(c *fakeQ4Container) { c.cfg["Cmd"] = []any{"-sentinel"} }},
+		"gate user":          {true, func(c *fakeQ4Container) { c.cfg["User"] = "0:0" }},
+		"gate entrypoint":    {true, func(c *fakeQ4Container) { c.cfg["Entrypoint"] = []any{"/gate", "-sentinel"} }},
+		"gate no entrypoint": {true, func(c *fakeQ4Container) { c.cfg["Entrypoint"] = nil }},
+		"gate other program": {true, func(c *fakeQ4Container) { c.cfg["Entrypoint"] = []any{"/bin/sh"} }},
+		"gate extra argument": {true, func(c *fakeQ4Container) {
+			c.cfg["Cmd"] = append(append([]any{}, c.cfg["Cmd"].([]any)...), "-port", "9090")
+		}},
+		"gate other target": {true, func(c *fakeQ4Container) {
+			cmd := append([]any{}, c.cfg["Cmd"].([]any)...)
+			for i := range cmd {
+				if cmd[i] == "-target" {
+					cmd[i+1] = "hint-proxy:1"
+				}
+			}
+			c.cfg["Cmd"] = cmd
+		}},
 		"gate privileged": {true, func(c *fakeQ4Container) { c.host["Privileged"] = true }},
 		"gate cap add":    {true, func(c *fakeQ4Container) { c.host["CapAdd"] = []any{"NET_ADMIN"} }},
 		"gate hosts":      {true, func(c *fakeQ4Container) { c.host["ExtraHosts"] = []any{"hint-proxy:10.0.0.9"} }},

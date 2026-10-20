@@ -293,7 +293,7 @@ func (d *Docker) verifyGate(ctx context.Context, g *gateNet) error {
 	switch {
 	case gc.Image != g.Image:
 		return bad("gate image")
-	case !slices.Equal(gc.Config.Cmd, g.Cmd) || gc.Config.User != "65534:65534":
+	case !slices.Equal(gc.Config.Entrypoint, []string{"/gate"}) || !slices.Equal(gc.Config.Cmd, g.Cmd) || gc.Config.User != "65534:65534":
 		return bad("gate command or user")
 	case !slices.Equal(mapKeys(gc.NetworkSettings.Networks), sortedStrings(g.A, g.B)) || string(h.NetworkMode) != g.B:
 		return bad("gate networks")
