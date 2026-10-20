@@ -114,7 +114,7 @@ func evalOn(e *Env, args []string) int {
 	fs := flags(e, "eval on", evalEffects)
 	agents := fs.String("agent", "opencode", "agents whose sessions are collected: opencode, claude-code, codex (comma separated)")
 	run := fs.String("run", "", "allow container runs: docker")
-	runnerName := fs.String("runner", "", "container runner: harbor (transitional; needs Harbor 0.23 and Docker) or docker (built in; needs only Docker)")
+	runnerName := fs.String("runner", "", "container runner: docker (built in, the default; needs only a Docker engine) or harbor (transitional developer harness; needs Harbor 0.23 and Python)")
 	if fs.Parse(args) != nil || fs.NArg() != 0 {
 		return 2
 	}
@@ -152,7 +152,7 @@ func evalOn(e *Env, args []string) int {
 	switch *run {
 	case "":
 	case "docker":
-		r := "harbor"
+		r := "docker" // the built-in runner; an explicit earlier choice is kept
 		if p.Run != nil && p.Run.Runner != "" {
 			r = p.Run.Runner
 		}
@@ -593,6 +593,9 @@ func evalRun(e *Env, args []string) int {
 			return 1
 		}
 		evalsToRun = refs
+	}
+	if p.Run != nil && p.Run.Runner == "harbor" {
+		fmt.Fprintln(e.Stderr, "git hint: this project's policy selects the transitional Harbor harness (developer comparison only); the built-in runner is: git hint eval on --runner docker")
 	}
 	h, ident, closeRunner, err := pipeline.SelectRunner(ctx, p)
 	if err != nil {

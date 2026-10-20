@@ -17,15 +17,16 @@ These notes describe changes that are not released yet. They name no version, an
   - The request and each correction must be linked to hidden tests.
   - The local model can propose links; they are labeled as an estimate.
   - `git hint eval map ID` prints an editable mapping file; `--apply FILE` checks it against that exact eval version and stores a new version. Only you can confirm that a sentence states no requirement.
-- **Qualification** (Harbor 0.23 with Docker and buildx).
-  - Disposable containers: the agent's container has no network; the verifier has no network and records that.
+- **Qualification** (needs only a Docker engine; git-hint's built-in container runner, no Harbor or Python).
+  - Disposable containers: the agent's container has no network (a live agent reaches only your local model through HINT's gate); the agent's final tree is frozen and checked by a separate verifier without network.
   - The starting state must fail and the reference must pass, three times.
   - Partial references must fail, and each requirement's tests must discriminate.
   - Probes check result forgery, early test exits, network access and leaked solutions.
   - States: `validated`, `reproducible`, `needs_review`, `quarantined`, each with reasons.
 - **Alternatives.** Existing alternative solutions in a Git work tree can be named in the mapping file. HINT runs them; a claim of independence is recorded as your claim.
 - **Runs and comparisons.**
-  - `git hint eval run` runs bounded trials with `nop`, `oracle` or OpenCode on your configured local model, through a counting proxy with a request limit.
+  - `git hint eval run` runs bounded trials with `nop`, `oracle` or OpenCode on your configured local model, through a counting proxy with a request limit. OpenCode is a pinned, hash-checked build (downloaded once, or `--opencode-tgz FILE` offline).
+  - `git hint eval declare-io` packages a declared behavior check: your command's output on your own inputs is compared with the stored reference's (equivalence on those cases, not general correctness).
   - `--arm context_only --with FILE...` and `--arm refactor --with WORKTREE` run variants of the same tasks with added context files or on your refactored code. A refactoring variant is used only when the original change ports onto it; otherwise it stays `needs_review`.
   - `git hint eval compare` shows every attempt and its resources per task objective; unknown usage stays unknown.
 - **Library.** Immutable versions, retention with pins (`git hint eval pin`), `forget`, and private bundles for your other machines (`eval pack`, `eval unpack`).

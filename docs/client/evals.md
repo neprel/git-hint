@@ -105,8 +105,22 @@ arms of one task objective side by side. A label alone (`--arm refactor` without
 `--with`) is refused. A HINT context policy as the treatment (`--context-policy`) is refused
 for now: the task container cannot run `hint_context` yet, so the policy would only be a label.
 
-Qualification needs Docker with buildx and Harbor 0.23 (`uv tool install harbor==0.23.0`); HINT
-turns Harbor's telemetry off for its runs. Without them, evals stay `packaged`.
+Qualification and eval runs need a Docker engine (Docker Desktop, OrbStack, or Docker on
+Linux). git-hint has a built-in container runner: it builds the task images, runs every
+attempt in fresh containers with resource limits, freezes the agent's final tree, and checks
+it in a separate container without network. Nothing else is installed: no Harbor, no Python.
+Without a Docker engine, evals stay `packaged`; there is no other runner to fall back to.
+
+A live OpenCode run gets network only to your local model, through HINT's model gate. The
+runner installs a pinned OpenCode build into each attempt: it downloads the pinned archive
+from the npm registry once (checked against its pin, then cached in `.hint/cache`), or uses a
+local copy that you name with `git hint eval run --opencode-tgz FILE`.
+
+Declared behavior checks: `git hint eval declare-io --base REV --reference REV --entry
+'["python","tool.py"]' --case ID=FILE... --request FILE` packages an eval whose check runs
+your command on your own inputs (stdin) and compares its output and exit status with the
+stored reference's. The verdict is equivalence to the reference on those cases, not general
+correctness. The inputs stay on your machine and never reach the agent.
 
 ## Measuring agents
 

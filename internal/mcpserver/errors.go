@@ -44,7 +44,7 @@ var messages = map[string]string{
 	"too_large":              "The input is larger than the limit.",
 	"eval_run_denied":        "The user's local rule denies eval runs from MCP. The user can allow them with `git hint init --mcp-eval-run allow`.",
 	"eval_not_allowed":       "The user's eval policy does not allow this operation (collection, container runs or the local model). The user changes it with `git hint eval on`.",
-	"runner_unavailable":     "The eval runner (Harbor 0.23 with Docker) is not available. Nothing ran on the host.",
+	"runner_unavailable":     "The eval runner (a Docker engine for the built-in runner) is not available. Nothing ran on the host.",
 	"internal":               "The operation failed. The user can run the matching `git hint` command for details.",
 }
 

@@ -69,7 +69,7 @@ func TestDockerRunnerCLIOfflinePaths(t *testing.T) {
 	dockerE2E(t)
 	shop, _ := setup(t)
 	var spawned []string
-	must(t, runEval(t, shop, &spawned, "eval", "on", "--run", "docker", "--runner", "docker"))
+	must(t, runEval(t, shop, &spawned, "eval", "on", "--run", "docker")) // the default runner
 	id := declaredMappedEval(t, shop, &spawned)
 	r := must(t, runEval(t, shop, &spawned, "eval", "__qualify"))
 	if !strings.Contains(r.stdout, "validated:1") {
@@ -236,4 +236,63 @@ func dockerArch(t *testing.T, d *runner.Docker) string {
 		t.Fatal(err)
 	}
 	return a
+}
+
+// harborMarker installs a fake Harbor that records any call, and an unreachable engine.
+func harborMarker(t *testing.T) string {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), "harbor-called")
+	fake := filepath.Join(t.TempDir(), "harbor")
+	os.WriteFile(fake, []byte("#!/bin/sh\ntouch "+marker+"\necho harbor 0.23.0\n"), 0o755)
+	t.Setenv("HINT_HARBOR", fake)
+	t.Setenv("DOCKER_HOST", "tcp://127.0.0.1:1")
+	return marker
+}
+
+// The default runner is the built-in one: a new policy records docker; a legacy policy
+// without the field uses docker; Harbor is never called for them (eval run and the worker);
+// an explicit harbor choice is honored with a notice; an unknown runner is refused.
+func TestDefaultRunnerIsBuiltIn(t *testing.T) {
+	shop, _ := setup(t)
+	var spawned []string
+	marker := harborMarker(t)
+	must(t, runEval(t, shop, &spawned, "eval", "on", "--run", "docker"))
+	s, _ := store.Open(shop)
+	if s.Cfg.Evals.Run == nil || s.Cfg.Evals.Run.Runner != "docker" {
+		t.Fatalf("new policy runner %+v", s.Cfg.Evals.Run)
+	}
+	check := func(name string) {
+		t.Helper()
+		if r := runEval(t, shop, &spawned, "eval", "run", "--agent", "oracle"); r.code == 0 || !strings.Contains(r.stderr, "Docker") {
+			t.Fatalf("%s: eval run %+v", name, r)
+		}
+		if r := runEval(t, shop, &spawned, "eval", "__qualify"); r.code == 0 {
+			t.Fatalf("%s: worker %+v", name, r)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatalf("%s: Harbor was called", name)
+		}
+	}
+	check("new policy")
+	set := func(runner string) {
+		s, _ := store.Open(shop)
+		s.Cfg.Evals.Run.Runner = runner
+		if err := s.SaveConfig(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("") // a legacy policy without the field
+	check("missing field")
+	set("podman")
+	if r := runEval(t, shop, &spawned, "eval", "run", "--agent", "oracle"); r.code == 0 {
+		t.Fatalf("unknown runner: %+v", r)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("unknown runner: Harbor was called")
+	}
+	set("harbor") // explicit: honored, with a notice
+	r := runEval(t, shop, &spawned, "eval", "run", "--agent", "oracle")
+	if _, err := os.Stat(marker); err != nil || !strings.Contains(r.stderr, "transitional Harbor") {
+		t.Fatalf("explicit harbor: %+v", r)
+	}
 }

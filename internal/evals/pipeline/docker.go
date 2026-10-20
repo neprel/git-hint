@@ -23,22 +23,23 @@ type RunnerIdentity struct {
 }
 
 // SelectRunner is the one runner factory of eval run, the qualification worker and the MCP
-// tool (07B-J §23): the policy's runner (docker: the built-in container runner, harbor: the
-// transitional developer harness). An unknown runner or an unavailable engine is an error;
-// there is no fallback to another runner. close releases it.
+// tool: the policy's runner, by default the built-in container runner (docker; it needs only
+// a Docker engine). An explicit "harbor" selects the transitional developer harness (Harbor
+// and Python), kept only for comparison. An unknown runner or an unavailable engine is an
+// error; there is no fallback to another runner. close releases it.
 func SelectRunner(ctx context.Context, p *evals.Policy) (qualify.Runner, RunnerIdentity, func(), error) {
 	name := ""
 	if p != nil && p.Run != nil {
 		name = p.Run.Runner
 	}
 	switch name {
-	case "docker":
+	case "docker", "": // the built-in runner is the default; a missing field never means Harbor
 		d, err := runner.FindDocker(ctx)
 		if err != nil {
 			return nil, RunnerIdentity{}, nil, err
 		}
 		return d, RunnerIdentity{Name: "hint-docker", Version: runner.DockerRunnerSemver}, func() { d.Close() }, nil
-	case "harbor", "":
+	case "harbor": // explicit only: the transitional developer harness (Harbor and Python)
 		h, err := runner.FindHarbor(ctx)
 		if err != nil {
 			return nil, RunnerIdentity{}, nil, err

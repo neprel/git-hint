@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -75,5 +77,34 @@ func TestEvalToolsHoldNoTextAndObeyTheRules(t *testing.T) {
 	cs = session(t, mcpserver.Options{Dir: shop})
 	if _, msg := call(t, cs, "hint_eval_run", map[string]any{"agent": "oracle"}); !strings.Contains(msg, "eval_not_allowed") {
 		t.Fatalf("run without the eval policy: %q", msg)
+	}
+}
+
+// The MCP tool uses the same runner factory: with the default runner and no engine it reports
+// the runner as unavailable, and Harbor is never called.
+func TestEvalRunToolUsesTheBuiltInRunner(t *testing.T) {
+	shop, _ := project_(t)
+	marker := filepath.Join(t.TempDir(), "harbor-called")
+	fake := filepath.Join(t.TempDir(), "harbor")
+	os.WriteFile(fake, []byte("#!/bin/sh\ntouch "+marker+"\necho harbor 0.23.0\n"), 0o755)
+	t.Setenv("HINT_HARBOR", fake)
+	t.Setenv("DOCKER_HOST", "tcp://127.0.0.1:1")
+	s, err := store.Open(shop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := evals.Enabled(nil)
+	p.Run = &evals.Run{Use: "docker"} // a policy without the runner field
+	s.Cfg.Evals = &p
+	if err := s.SaveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	gh(t, shop, "init", "--mcp-eval-run", "allow")
+	cs := session(t, mcpserver.Options{Dir: shop})
+	if _, msg := call(t, cs, "hint_eval_run", map[string]any{"agent": "oracle"}); !strings.Contains(msg, "runner_unavailable") {
+		t.Fatalf("hint_eval_run: %q", msg)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("Harbor was called")
 	}
 }
