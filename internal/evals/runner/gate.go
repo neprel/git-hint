@@ -576,7 +576,11 @@ func (d *Docker) probe(ctx context.Context, image string) (GateProbe, error) {
 	if ok {
 		return p, nil
 	}
-	p = d.ProbeGate(ctx)
+	if d.probeFn != nil {
+		p = d.probeFn(ctx)
+	} else {
+		p = d.ProbeGate(ctx)
+	}
 	if !p.OK || p.Key != key || p.Image != image {
 		return p, fmt.Errorf("%w: %s", errGate, p.Reason)
 	}

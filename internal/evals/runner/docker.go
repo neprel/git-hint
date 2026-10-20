@@ -42,7 +42,8 @@ type Docker struct {
 	cli     *client.Client
 	Version string // engine version
 	mu      sync.Mutex
-	probes  map[string]GateProbe // passed network probes by key (engine, policy, gate image)
+	probes  map[string]GateProbe                // passed network probes by key (engine, policy, gate image)
+	probeFn func(ctx context.Context) GateProbe // replaces the network probe in tests (nil: ProbeGate)
 }
 
 // FindDocker connects to the Docker engine named by the environment (DOCKER_HOST, the
@@ -107,6 +108,10 @@ func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 	}
 	switch o.Agent {
 	case "nop", "oracle":
+	case "test-agent":
+		if o.agentCmd == nil || o.Live == nil || o.Counter == nil || o.Attempts != 1 {
+			return nil, errors.New("a live attempt needs the proxy, its counter and one attempt")
+		}
 	case "opencode":
 		return nil, fmt.Errorf("%w: the container runner does not run live agents yet (the model gate is not built)", ErrUnavailable)
 	default:
@@ -153,7 +158,7 @@ func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial
 	}
 	for a := 1; a <= o.Attempts; a++ {
 		name := fmt.Sprintf("%s__%d", o.JobName, a)
-		d.trial(ctx, taskDir, filepath.Join(job, name), name, o.Agent, lim, im, iot, prov)
+		d.trial(ctx, taskDir, filepath.Join(job, name), name, o, lim, im, iot, prov)
 	}
 	return ReadJob(job)
 }
@@ -193,7 +198,7 @@ func stamp() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 // trial runs one attempt; every failure is recorded as the trial's exception, never as a
 // pass.
-func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, lim taskLimits, im images, iot *ioTask, prov map[string]any) {
+func (d *Docker) trial(ctx context.Context, taskDir, dir, name string, o RunOptions, lim taskLimits, im images, iot *ioTask, prov map[string]any) {
 	_ = os.MkdirAll(filepath.Join(dir, "verifier"), 0o700)
 	r := trialResult{TrialName: name, StartedAt: stamp(), Container: map[string]any{"runner": DockerRunnerVersion, "engine": d.Version,
 		"agent_image": im.agent, "agent_context": im.agentCtx, "verifier_image": im.verifier, "verifier_context": im.verifierCtx, "provenance": prov}}
@@ -206,12 +211,26 @@ func (d *Docker) trial(ctx context.Context, taskDir, dir, name, agent string, li
 	exec := &execution{StartedAt: stamp()}
 	r.AgentExecution = exec
 	artifact := filepath.Join(dir, "agent", "final.tar")
-	digest, err := d.agentPhase(ctx, taskDir, agent, lim, im.agent, artifact)
+	var digest string
+	var err error
+	if o.Agent == "test-agent" {
+		var ledger *LedgerReport
+		digest, ledger, err = d.livePhase(ctx, taskDir, o, lim, im.agent, artifact)
+		if ledger == nil { // not launched: the account is sealed empty and the egress unverified
+			ledger = o.Counter.Seal(0, BypassUnverified, ScopeIsolatedContainer)
+		}
+		r.Container["ledger"] = ledger
+	} else {
+		digest, err = d.agentPhase(ctx, taskDir, o.Agent, lim, im.agent, artifact)
+	}
 	exec.FinishedAt = stamp()
 	if err != nil {
 		var te timeoutError
 		var ee exitError
-		if errors.As(err, &te) {
+		var gr gateRefusal
+		if errors.As(err, &gr) {
+			fail(ErrGateRefused)
+		} else if errors.As(err, &te) {
 			fail("AgentTimeoutError")
 		} else if errors.As(err, &ee) {
 			fail("NonZeroAgentExitCodeError")
