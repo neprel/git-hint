@@ -304,6 +304,16 @@
     "code": "effort_scope_inconsistent",
     "level": "semantic"
   },
+  "decision-cost-unknown-provider-totals.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-known-provider-totals.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
   "decision-known-unlabeled-effort.json": {
     "base": "recommendation-findings.json",
     "code": "effort_scope_inconsistent",
@@ -330,6 +340,11 @@
     "level": "semantic"
   },
   "decision-whole-task-partial-coverage.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "decision-whole-task-provider-totals.json": {
     "base": "recommendation-findings.json",
     "code": "effort_scope_inconsistent",
     "level": "semantic"
@@ -485,6 +500,11 @@
     "level": "schema"
   },
   "effort-labels-mismatched.json": {
+    "base": "recommendation-findings.json",
+    "code": "effort_scope_inconsistent",
+    "level": "semantic"
+  },
+  "effort-provider-totals-root-scope.json": {
     "base": "recommendation-findings.json",
     "code": "effort_scope_inconsistent",
     "level": "semantic"

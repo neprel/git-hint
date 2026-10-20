@@ -113,6 +113,27 @@ func TestRenderRefusesUnsupportedStoredDecisions(t *testing.T) {
 	if out := md.String(); !strings.Contains(out, "**CONTEXT_ONLY**") || !strings.Contains(out, "[whole-task tokens]") {
 		t.Fatalf("whole-task decision:\n%s", out)
 	}
+	// the same complete numbers labeled as provider totals: never a decision, never task effort
+	md.Reset()
+	prov := map[string]any{"chosen": "CONTEXT_ONLY", "evidence": "bound_eval_pairs", "alternatives": []any{map[string]any{}}}
+	for k, v := range full["alternatives"].([]any)[0].(map[string]any) {
+		prov["alternatives"].([]any)[0].(map[string]any)[k] = v
+	}
+	pe := map[string]any{}
+	for k, v := range full["alternatives"].([]any)[0].(map[string]any)["effort_delta"].(map[string]any) {
+		pe[k] = v
+	}
+	pe["counter_semantics"] = "openai-compat-provider-totals-v1"
+	prov["alternatives"].([]any)[0].(map[string]any)["effort_delta"] = pe
+	renderDecision(w, prov)
+	if out := md.String(); !strings.Contains(out, "**historical, unverified**") || strings.Contains(out, "[whole-task tokens]") ||
+		!strings.Contains(out, "[provider-reported totals of the observed requests; cache and reasoning semantics unknown; not task effort]") {
+		t.Fatalf("provider totals decision:\n%s", out)
+	}
+	// whole-task scope without whole-task semantics is not task effort
+	if l := effortDelta(map[string]any{"observed": 1.0, "coverage": []any{1.0, 1.0}, "scope": "full_task"}); !strings.Contains(l, "[counter scope unknown, not task effort]") {
+		t.Fatal(l)
+	}
 	// whole-task labels without data (null observed and interval, zero or partial coverage) are
 	// not evidence: such a stored decision is historical and unverified
 	for _, eff := range []map[string]any{

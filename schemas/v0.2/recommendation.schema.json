@@ -1833,9 +1833,10 @@
               "enum": [
                 "harbor-0.23.0+opencode:n-tokens-root-v1",
                 "hint-task-tokens-v1",
+                "openai-compat-provider-totals-v1",
                 "unknown"
               ],
-              "description": "The token counters behind the difference. harbor-0.23.0+opencode:n-tokens-root-v1: Harbor 0.23.0 counters of an OpenCode run (root session only; input includes cache reads; output excludes reasoning; a missing step usage reads as 0). hint-task-tokens-v1: non-cached input plus generated output including reasoning, over the whole task. Absent means unknown."
+              "description": "The token counters behind the difference. harbor-0.23.0+opencode:n-tokens-root-v1: Harbor 0.23.0 counters of an OpenCode run (root session only; input includes cache reads; output excludes reasoning; a missing step usage reads as 0). hint-task-tokens-v1: non-cached input plus generated output including reasoning, over the whole task. openai-compat-provider-totals-v1: the provider-reported prompt and completion totals of the observed requests of an isolated run with a complete, enforced model ledger (cache and reasoning semantics unknown); descriptive only, never task effort. Absent means unknown."
             },
             "scope": {
               "type": "string",
@@ -1844,7 +1845,7 @@
                 "full_task",
                 "unknown"
               ],
-              "description": "The part of the task's model work the counters cover. Only full_task supports an effort-based decision. Absent means unknown."
+              "description": "The part of the task's model work the counters cover. Only full_task with hint-task-tokens-v1 supports an effort-based decision; with openai-compat-provider-totals-v1, full_task means the observed request population of an isolated run, not task effort. Absent means unknown."
             }
           },
           "required": [

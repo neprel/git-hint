@@ -404,6 +404,12 @@
           }
         }
       ],
+      "provider_totals": {
+        "counter_semantics": "openai-compat-provider-totals-v1",
+        "input_tokens": 6091,
+        "output_tokens": 597,
+        "scope": "full_task"
+      },
       "reason": "usage_normalization_unmapped",
       "sources": [
         {
@@ -1006,6 +1012,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_other_run",
       "sources": [
         {
@@ -1607,6 +1614,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_other_run",
       "sources": [
         {
@@ -2209,6 +2217,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_binding_mismatch",
       "sources": [
         {
@@ -2864,6 +2873,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_ambiguous",
       "sources": [
         {
@@ -3429,6 +3439,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_revision_gap",
       "sources": [
         {
@@ -4084,6 +4095,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_conflict",
       "sources": [
         {
@@ -4741,6 +4753,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_incomplete",
       "sources": [
         {
@@ -5398,6 +5411,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_binding_changed",
       "sources": [
         {
@@ -5961,6 +5975,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_inconsistent",
       "sources": [
         {
@@ -6526,6 +6541,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_incomplete",
       "sources": [
         {
@@ -7185,6 +7201,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_lifecycle_violation",
       "sources": [
         {
@@ -7748,6 +7765,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_binding_mismatch",
       "sources": [
         {
@@ -8311,6 +8329,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_configuration_mismatch",
       "sources": [
         {
@@ -8566,6 +8585,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_without_behavior",
       "sources": [
         {
@@ -9223,6 +9243,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_lifecycle_violation",
       "sources": [
         {
@@ -9880,6 +9901,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_lifecycle_violation",
       "sources": [
         {
@@ -10539,6 +10561,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_lifecycle_violation",
       "sources": [
         {
@@ -11198,6 +11221,7 @@
           }
         }
       ],
+      "provider_totals": null,
       "reason": "ledger_lifecycle_violation",
       "sources": [
         {

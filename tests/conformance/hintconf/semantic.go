@@ -470,7 +470,7 @@ func effortPaired(e map[string]any) bool {
 	switch sem {
 	case "harbor-0.23.0+opencode:n-tokens-root-v1":
 		return scope == "root_session"
-	case "hint-task-tokens-v1":
+	case "hint-task-tokens-v1", "openai-compat-provider-totals-v1":
 		return scope == "full_task"
 	}
 	return scope == "unknown"
@@ -509,7 +509,8 @@ func usableDelta(d map[string]any, paired any) bool {
 
 // decisions checks the effort deltas of the findings' decisions and of the project comparisons:
 // a delta's semantics and scope belong together; an alternative in state chosen, known or
-// cost_unknown needs a whole-task effort delta (hint-task-tokens-v1, full_task); chosen names
+// cost_unknown needs a whole-task effort delta (hint-task-tokens-v1 and full_task; provider
+// totals or any other semantics never qualify); chosen names
 // the alternative in state chosen; NO_CHANGE needs every alternative excluded for correctness or
 // known with whole-task effort.
 func (c *checker) decisions(payload map[string]any) {
@@ -543,7 +544,7 @@ func (c *checker) decisions(payload map[string]any) {
 					paired = sc["paired_objectives"]
 				}
 				suc, _ := am["success_delta"].(map[string]any)
-				if _, scope := effortLabels(e); !hasEffort || scope != "full_task" || !effortPaired(e) || !usableDelta(e, paired) || !usableDelta(suc, paired) {
+				if sem, scope := effortLabels(e); !hasEffort || sem != "hint-task-tokens-v1" || scope != "full_task" || !usableDelta(e, paired) || !usableDelta(suc, paired) {
 					c.add(CodeEffortScope, "%s.alternatives[%d].state", at, j)
 				}
 			}

@@ -19,6 +19,20 @@ type Coverage struct {
 	Input, Output float64
 	Cache         *float64 // read + write when every call reports both; nil otherwise
 	Normalization string
+	// Provider are the descriptive provider totals of a ledger that passed every gate (nil
+	// otherwise); they never fill Input/Output and never make the usage complete
+	Provider *ProviderTotals
+}
+
+// ProviderTotalsSemantics labels the provider-reported prompt and completion totals of the
+// observed requests of an isolated run (07B-J §25 A): cache and reasoning semantics unknown,
+// never task effort, never added to another channel.
+const ProviderTotalsSemantics = "openai-compat-provider-totals-v1"
+
+// ProviderTotals are the sums of a complete, final, enforced and bound ledger.
+type ProviderTotals struct {
+	Semantics, Scope string // ProviderTotalsSemantics, full_task (the observed request population)
+	Input, Output    int64  // Σ prompt, Σ completion of the complete entries
 }
 
 var coverageCaps = []string{"usage", "request_kind", "collection"}
@@ -112,7 +126,11 @@ func ledgerCoverage(obs []Observation, sources map[string]Source) Coverage {
 	if m.State != "complete" {
 		return no("ledger_incomplete")
 	}
-	return Coverage{State: "unknown", Reason: "usage_normalization_unmapped"}
+	// the canonical usage stays unknown; the provider totals are descriptive (a complete ledger
+	// without problems has every entry complete with known prompt and completion, enforced
+	// egress, an isolated scope and no late, rejected or teardown-incomplete account)
+	return Coverage{State: "unknown", Reason: "usage_normalization_unmapped",
+		Provider: &ProviderTotals{Semantics: ProviderTotalsSemantics, Scope: "full_task", Input: *m.Components["prompt"], Output: *m.Components["completion"]}}
 }
 
 func sameLedger(a, b *ModelLedger) bool {

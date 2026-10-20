@@ -85,8 +85,14 @@ func TestLedgerSelectionVectors(t *testing.T) {
 	}
 	var f struct {
 		Vectors []struct {
-			Name         string        `json:"name"`
-			Reason       string        `json:"reason"`
+			Name   string `json:"name"`
+			Reason string `json:"reason"`
+			Totals *struct {
+				Semantics string `json:"counter_semantics"`
+				Scope     string `json:"scope"`
+				Input     int64  `json:"input_tokens"`
+				Output    int64  `json:"output_tokens"`
+			} `json:"provider_totals"`
 			Sources      []Source      `json:"sources"`
 			Observations []Observation `json:"observations"`
 		} `json:"vectors"`
@@ -105,6 +111,13 @@ func TestLedgerSelectionVectors(t *testing.T) {
 		c := UsageCoverage(v.Observations, srcs)
 		if c.Reason != v.Reason || c.State == "complete" || c.Input != 0 || c.Output != 0 {
 			t.Errorf("%s: %+v, want reason %s", v.Name, c, v.Reason)
+		}
+		// descriptive provider totals only on the path that passed every gate, as the vector says
+		switch p, w := c.Provider, v.Totals; {
+		case (p == nil) != (w == nil):
+			t.Errorf("%s: provider totals %+v, want %+v", v.Name, p, w)
+		case p != nil && (p.Semantics != w.Semantics || p.Scope != w.Scope || p.Input != w.Input || p.Output != w.Output):
+			t.Errorf("%s: provider totals %+v, want %+v", v.Name, *p, *w)
 		}
 	}
 }

@@ -187,6 +187,10 @@ func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M)
 	unknown := clone(findings)
 	observedOn(unknown, 1)
 	write(filepath.Join(root, "tests", "conformance", "valid", "effect-basis-observed-unknown-cost.json"), reseal(unknown))
+	// descriptive provider totals of isolated runs: a valid comparison, never a decision
+	totals := clone(findings)
+	providerTotals(obj(totals, "payload", "project_comparisons", 0, "effort_delta"))
+	write(filepath.Join(root, "tests", "conformance", "valid", "effort-provider-totals-descriptive.json"), reseal(totals))
 	return ctx, findings, declared
 }
 
@@ -257,6 +261,12 @@ func declaredChangeSet(changes, findings M) M {
 // wholeTaskChoice turns finding 0's decision into an explicitly synthetic, complete whole-task
 // CONTEXT_ONLY choice (canonical labels, numeric observed and interval, full coverage of the
 // paired objectives, success evidence); the negative cases then remove one piece of evidence.
+// providerTotals relabels an effort delta as the provider-reported totals of isolated runs.
+func providerTotals(e M) M {
+	e["counter_semantics"], e["scope"] = "openai-compat-provider-totals-v1", "full_task"
+	return e
+}
+
 func wholeTaskChoice(d M) M {
 	dec := obj(d, "payload", "findings", 0, "decision")
 	dec["chosen"], dec["evidence"] = "CONTEXT_ONLY", "bound_eval_pairs"
@@ -385,6 +395,24 @@ func v02Invalid() []invalidCase {
 		}, nil},
 		{"decision-whole-task-no-success", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
 			wholeTaskChoice(d)["success_delta"] = nil
+		}, nil},
+		{"effort-provider-totals-root-scope", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			providerTotals(obj(d, "payload", "project_comparisons", 0, "effort_delta"))["scope"] = "root_session"
+		}, nil},
+		{"decision-whole-task-provider-totals", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			providerTotals(wholeTaskChoice(d)["effort_delta"].(M)) // the same complete numbers, provider totals: never a decision
+		}, nil},
+		{"decision-known-provider-totals", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			a := wholeTaskChoice(d)
+			a["state"] = "known"
+			obj(d, "payload", "findings", 0, "decision")["chosen"] = "NO_CHANGE"
+			providerTotals(a["effort_delta"].(M))
+		}, nil},
+		{"decision-cost-unknown-provider-totals", "recommendation-findings.json", "semantic", "effort_scope_inconsistent", func(d M) {
+			a := wholeTaskChoice(d)
+			a["state"] = "cost_unknown"
+			obj(d, "payload", "findings", 0, "decision")["chosen"] = "COLLECT_MORE_EVIDENCE"
+			providerTotals(a["effort_delta"].(M))
 		}, nil},
 		{"effort-scope-free-text", "recommendation-findings.json", "schema", "finding", func(d M) {
 			obj(d, "payload", "project_comparisons", 0, "effort_delta")["scope"] = "whole repo"

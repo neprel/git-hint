@@ -181,8 +181,15 @@ func ledgerSelectionVectors(base M) []any {
 		return x
 	}
 	sealed := led["model_ledger"].(map[string]any)["sealed_at"].(string)
+	// provider_totals (07B-J §25 A): the descriptive totals only when every gate passed; the
+	// prompt total keeps its cached part (no non-cached input is derived)
 	vector := func(name, reason string, sources A, records ...any) M {
-		return M{"name": name, "reason": reason, "sources": sources, "observations": A(records)}
+		var totals any
+		if reason == "usage_normalization_unmapped" {
+			c := led["model_ledger"].(map[string]any)["components"].(map[string]any)
+			totals = M{"counter_semantics": "openai-compat-provider-totals-v1", "scope": "full_task", "input_tokens": c["prompt"], "output_tokens": c["completion"]}
+		}
+		return M{"name": name, "reason": reason, "provider_totals": totals, "sources": sources, "observations": A(records)}
 	}
 	both := A{plugin, ledgerSrc}
 	withAgents := func(extra ...any) A { return append(append(A{}, agents...), extra...) }

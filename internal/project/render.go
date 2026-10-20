@@ -370,15 +370,19 @@ func delta(v any) string {
 	return fmt.Sprintf("%s (%v to %v; %v of %v)", numOr(m["observed"]), iv["lower"], iv["upper"], cov[0], cov[1])
 }
 
-// effortDelta writes a token difference with the provenance of its counters: only whole-task
-// counters are task effort; root-session or unknown counters are raw counter differences.
+// effortDelta writes a token difference with the provenance of its counters (semantics and
+// scope together): only whole-task counters (hint-task-tokens-v1, full_task) are task effort;
+// root-session counters, provider-reported totals and unknown counters are not.
 func effortDelta(v any) string {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return "unknown"
 	}
-	label := map[string]string{"root_session": "root-session raw counters (Harbor 0.23.0 + OpenCode), not task effort",
-		"full_task": "whole-task tokens"}[str(m["scope"])]
+	label := map[[2]string]string{
+		{"hint-task-tokens-v1", "full_task"}:                        "whole-task tokens",
+		{"harbor-0.23.0+opencode:n-tokens-root-v1", "root_session"}: "root-session raw counters (Harbor 0.23.0 + OpenCode), not task effort",
+		{"openai-compat-provider-totals-v1", "full_task"}:           "provider-reported totals of the observed requests; cache and reasoning semantics unknown; not task effort",
+	}[[2]string{str(m["counter_semantics"]), str(m["scope"])}]
 	if label == "" {
 		label = "counter scope unknown, not task effort"
 	}
