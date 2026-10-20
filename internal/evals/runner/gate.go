@@ -76,12 +76,14 @@ type gateNet struct {
 	A, B     string // network names
 	ASubnet  string
 	BGateway string
-	Gate     string // gate container ID
-	GateIP   string // the gate's address in A
-	Image    string // gate image ID
-	Listen   string // as the gate reported it
-	Target   string // the resolved target as the gate reported it
-	ProxyIP  string // the host address the proxy listens on
+	Gate     string   // gate container ID
+	GateIP   string   // the gate's address in A
+	Image    string   // gate image ID
+	Listen   string   // as the gate reported it
+	Target   string   // the resolved target as the gate reported it
+	ProxyIP  string   // the host address the proxy listens on
+	Cmd      []string // the gate's frozen command
+	Host     string   // the gate's one hosts entry (hint-proxy)
 }
 
 var errGate = errors.New("the model gate is not available on this engine")
@@ -178,8 +180,9 @@ func (d *Docker) startGate(ctx context.Context, g *gateNet, image, hostEntry str
 	h := gateHost(hostEntry)
 	h.NetworkMode = container.NetworkMode(g.B)
 	h.Sysctls = map[string]string{"net.ipv4.ip_forward": "0"}
-	id, err := d.create(ctx, &container.Config{Image: image, Cmd: []string{"-listen-net", g.ASubnet, "-target", fmt.Sprintf("hint-proxy:%d", port),
-		"-max-seconds", fmt.Sprint(int(life.Seconds()))}}, h)
+	g.Cmd = []string{"-listen-net", g.ASubnet, "-target", fmt.Sprintf("hint-proxy:%d", port), "-max-seconds", fmt.Sprint(int(life.Seconds()))}
+	g.Host = hostEntry
+	id, err := d.create(ctx, &container.Config{Image: image, User: "65534:65534", Cmd: g.Cmd}, h)
 	if err != nil {
 		return err
 	}
@@ -192,7 +195,7 @@ func (d *Docker) startGate(ctx context.Context, g *gateNet, image, hostEntry str
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		out := d.logs(ctx, id)
+		out, _ := d.capture(ctx, id) // retried until the deadline
 		if i := strings.Index(out, "HINT_GATE listen="); i >= 0 {
 			f := strings.Fields(out[i:])
 			if len(f) >= 3 {
@@ -210,16 +213,22 @@ func (d *Docker) startGate(ctx context.Context, g *gateNet, image, hostEntry str
 	return fmt.Errorf("%w: the gate did not start", errGate)
 }
 
-// logs returns at most 64 KiB of a container's output (diagnostic only).
-func (d *Docker) logs(ctx context.Context, id string) string {
+// capture returns a container's complete output (at most 64 KiB) or an error: a failed
+// retrieval, a cut frame or truncation is never evidence (C7BJ-15).
+func (d *Docker) capture(ctx context.Context, id string) (string, error) {
 	r, err := d.cli.ContainerLogs(ctx, id, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("output unavailable: %w", err)
 	}
 	defer r.Close()
 	b := &capWriter{max: 64 << 10}
-	_ = demux(b, b, r)
-	return b.buf.String()
+	if err := demux(b, b, r); err != nil {
+		return "", fmt.Errorf("output incomplete: %w", err)
+	}
+	if b.over {
+		return "", errors.New("output truncated")
+	}
+	return b.buf.String(), nil
 }
 
 // agentHost is the host configuration of a container that runs as the agent would.
@@ -231,8 +240,9 @@ func (g *gateNet) agentHost() *container.HostConfig {
 }
 
 // verifyAgent inspects a container started with agentHost and the gate against the policy;
-// dns is the resolver it must have (the gate address, or the probe's sentinel).
-func (d *Docker) verifyAgent(ctx context.Context, g *gateNet, id, dns string) error {
+// dns is the resolver and hosts the hosts entries the container must have (the gate address
+// and the gate entry, or the probe's variants).
+func (d *Docker) verifyAgent(ctx context.Context, g *gateNet, id, dns string, hosts []string) error {
 	if err := d.checkA(ctx, g); err != nil {
 		return err
 	}
@@ -242,25 +252,57 @@ func (d *Docker) verifyAgent(ctx context.Context, g *gateNet, id, dns string) er
 		return bad("agent container not inspectable")
 	}
 	c := in.Container
-	nets := mapKeys(c.NetworkSettings.Networks)
-	if !slices.Equal(nets, []string{g.A}) || string(c.HostConfig.NetworkMode) != g.A {
+	if !slices.Equal(mapKeys(c.NetworkSettings.Networks), []string{g.A}) || string(c.HostConfig.NetworkMode) != g.A {
 		return bad("the agent is on other networks")
 	}
-	if !slices.Contains(c.HostConfig.CapDrop, "ALL") || len(c.HostConfig.CapAdd) > 0 || c.HostConfig.Privileged ||
-		!slices.Contains(c.HostConfig.SecurityOpt, "no-new-privileges:true") || c.Config.User != "65534:65534" {
+	if c.Config.User != "65534:65534" || unprivileged(c.HostConfig) != nil {
 		return bad("the agent has privileges")
 	}
-	if len(c.HostConfig.DNS) != 1 || c.HostConfig.DNS[0].String() != dns || len(c.Mounts) > 0 || len(c.HostConfig.Binds) > 0 {
-		return bad("the agent's DNS or mounts")
+	if len(c.HostConfig.DNS) != 1 || c.HostConfig.DNS[0].String() != dns || !slices.Equal(sortedStrings(c.HostConfig.ExtraHosts...), sortedStrings(hosts...)) {
+		return bad("the agent's DNS or hosts entries")
 	}
+	if len(c.Mounts) > 0 {
+		return bad("the agent has mounts")
+	}
+	return d.verifyGate(ctx, g)
+}
+
+// unprivileged checks the restrictions every policy container shares: no capabilities, no
+// privileges, no-new-privileges, no binds, no published ports, no host namespaces.
+func unprivileged(h *container.HostConfig) error {
+	if !slices.Equal(h.CapDrop, []string{"ALL"}) || len(h.CapAdd) > 0 || h.Privileged || !slices.Contains(h.SecurityOpt, "no-new-privileges:true") ||
+		len(h.Binds) > 0 || len(h.Mounts) > 0 || len(h.PortBindings) > 0 || h.PublishAllPorts || len(h.Devices) > 0 ||
+		h.PidMode != "" || h.IpcMode.IsHost() || h.UTSMode.IsHost() || h.UsernsMode.IsHost() {
+		return errors.New("privileged")
+	}
+	return nil
+}
+
+// verifyGate inspects the gate against its frozen configuration: the image, the command,
+// the user, the one hosts entry, the networks, IP forwarding off, a read-only root and no
+// privileges, mounts or published ports (configuration invariants; a Docker administrator
+// is trusted).
+func (d *Docker) verifyGate(ctx context.Context, g *gateNet) error {
+	bad := func(why string) error { return fmt.Errorf("%w: %s", errGate, why) }
 	gi, err := d.cli.ContainerInspect(ctx, g.Gate, client.ContainerInspectOptions{})
-	if err != nil || gi.Container.HostConfig == nil || gi.Container.NetworkSettings == nil {
+	if err != nil || gi.Container.HostConfig == nil || gi.Container.Config == nil || gi.Container.NetworkSettings == nil {
 		return bad("gate not inspectable")
 	}
 	gc := gi.Container
-	if gc.Image != g.Image || !slices.Equal(mapKeys(gc.NetworkSettings.Networks), sortedStrings(g.A, g.B)) ||
-		gc.HostConfig.Sysctls["net.ipv4.ip_forward"] != "0" || !slices.Contains(gc.HostConfig.CapDrop, "ALL") || !gc.HostConfig.ReadonlyRootfs {
-		return bad("the gate differs from the policy")
+	h := gc.HostConfig
+	switch {
+	case gc.Image != g.Image:
+		return bad("gate image")
+	case !slices.Equal(gc.Config.Cmd, g.Cmd) || gc.Config.User != "65534:65534":
+		return bad("gate command or user")
+	case !slices.Equal(mapKeys(gc.NetworkSettings.Networks), sortedStrings(g.A, g.B)) || string(h.NetworkMode) != g.B:
+		return bad("gate networks")
+	case !slices.Equal(h.ExtraHosts, []string{g.Host}):
+		return bad("gate hosts entries")
+	case len(h.Sysctls) != 1 || h.Sysctls["net.ipv4.ip_forward"] != "0" || !h.ReadonlyRootfs:
+		return bad("gate forwarding or root")
+	case unprivileged(h) != nil || len(gc.Mounts) > 0:
+		return bad("gate privileges, mounts or ports")
 	}
 	return nil
 }
@@ -387,91 +429,136 @@ func (d *Docker) ProbeGate(ctx context.Context) GateProbe {
 	if gi, err := d.cli.ContainerInspect(ctx, g.Gate, client.ContainerInspectOptions{}); err == nil && gi.Container.NetworkSettings != nil && gi.Container.NetworkSettings.Networks[g.B] != nil {
 		gateB = gi.Container.NetworkSettings.Networks[g.B].IPAddress.String()
 	}
-	for i := 0; i < 50 && !strings.Contains(d.logs(ctx, sid), "HINT_SENTINEL ready"); i++ {
-		time.Sleep(100 * time.Millisecond)
+	ready := false
+	for i := 0; i < 50 && !ready; i++ {
+		out, err := d.capture(ctx, sid)
+		ready = err == nil && strings.Contains(out, "HINT_SENTINEL ready")
+		if !ready {
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
-	dnsCount := func() int { return strings.Count(d.logs(ctx, sid), "HINT_SENTINEL dns") }
-	run := func(name, dns string, h *container.HostConfig, args ...string) map[string]string {
+	if !ready {
+		return no("the sentinel did not start")
+	}
+	// the sentinel's DNS counter, only from a complete capture (C7BJ-15)
+	dnsCount := func() (int, error) {
+		out, err := d.capture(ctx, sid)
+		if err != nil {
+			return 0, err
+		}
+		return strings.Count(out, "HINT_SENTINEL dns"), nil
+	}
+	// run executes one probe container and returns its check lines; it fails unless the
+	// container ran to a clean exit, its output was captured completely, and it reported
+	// every requested check and every identity check exactly once (C7BJ-13)
+	identity := []string{"uid", "cap_eff", "cap_bnd", "no_new_privs", "no_docker_socket", "no_global_ipv6"}
+	run := func(name, dns string, hosts []string, h *container.HostConfig, args ...string) (map[string]string, error) {
 		res := map[string]string{}
 		id, err := d.create(ctx, &container.Config{Image: image, User: "65534:65534", Cmd: append([]string{"-probe"}, args...)}, h)
 		if err != nil {
-			res[name] = "fail"
-			return res
+			return nil, fmt.Errorf("%s: not created", name)
 		}
 		defer d.remove(id)
-		if name == "agent" || name == "agent_dns" {
-			if err := d.verifyAgent(ctx, g, id, dns); err != nil {
-				res["topology"] = "fail"
-				return res
+		if dns != "" {
+			if err := d.verifyAgent(ctx, g, id, dns, hosts); err != nil {
+				return nil, fmt.Errorf("%s: topology: %v", name, err)
 			}
 			res["topology"] = "ok"
 		}
 		if err := d.runToEnd(ctx, id, time.Minute, "probe"); err != nil {
-			res[name] = "fail"
-			return res
+			return nil, fmt.Errorf("%s: %v", name, err)
 		}
-		for _, ln := range strings.Split(d.logs(ctx, id), "\n") {
+		out, err := d.capture(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %v", name, err)
+		}
+		for _, ln := range strings.Split(out, "\n") {
 			if f := strings.Fields(ln); len(f) == 3 && f[0] == "PROBE" {
+				if _, dup := res[f[1]]; dup {
+					return nil, fmt.Errorf("%s: %s reported twice", name, f[1])
+				}
 				res[f[1]] = f[2]
 			}
 		}
-		return res
+		want := append([]string{}, identity...)
+		for _, a := range args {
+			kind, rest, _ := strings.Cut(a, "=")
+			n, _, _ := strings.Cut(rest, "=")
+			want = append(want, kind+":"+n)
+		}
+		for _, k := range want {
+			if res[k] != "ok" {
+				return nil, fmt.Errorf("%s: check %s is %q", name, k, res[k])
+			}
+		}
+		return res, nil
+	}
+	merge := func(prefix string, m map[string]string) {
+		for k, v := range m {
+			p.Checks[prefix+"."+k] = v
+		}
 	}
 	// positive controls from B (the stubs, the sentinel, a DNS query reaching it)
 	ctl := gateHost(hostEntry)
 	ctl.NetworkMode = container.NetworkMode(g.B)
 	sd, _ := netip.ParseAddr(sentIP)
 	ctl.DNS = []netip.Addr{sd}
-	before := dnsCount()
-	controls := run("control", "", ctl,
+	before, err := dnsCount()
+	if err != nil {
+		return no("sentinel counter: " + err.Error())
+	}
+	controls, err := run("control", "", nil, ctl,
 		"reach=target=hint-proxy:"+fmt.Sprint(target.port())+"="+target.marker,
 		"reach=other=hint-proxy:"+fmt.Sprint(other.port())+"="+other.marker,
 		"reach=sentinel="+sentIP+":8081=HINT-SENTINEL-OK",
 		"dns=sentinel_query=hint-probe-control.invalid")
+	if err != nil {
+		return no(err.Error())
+	}
+	merge("control", controls)
 	time.Sleep(time.Second)
-	controlDNS := dnsCount() - before
+	after, err := dnsCount()
+	if err != nil || after-before < 1 {
+		return no("the control DNS query did not reach the sentinel, or its counter is unknown")
+	}
+	p.Checks["control.dns_reached_sentinel"] = "ok"
 	// the agent's own settings: only the gate
 	ah := g.agentHost()
 	ah.ExtraHosts = append(ah.ExtraHosts, hostEntry)
-	deny := []string{
-		"reach=gate=gate:8080=" + target.marker,
+	agent, err := run("agent", g.GateIP, []string{"gate:" + g.GateIP, hostEntry}, ah,
+		"reach=gate=gate:8080="+target.marker,
 		"deny=gate_other_port=gate:8081",
-		"deny=gate_b_address=" + net.JoinHostPort(gateB, "8080"),
-		"deny=proxy_direct=hint-proxy:" + fmt.Sprint(target.port()),
-		"deny=host_other_port=hint-proxy:" + fmt.Sprint(other.port()),
-		"deny=b_gateway=" + net.JoinHostPort(g.BGateway, fmt.Sprint(target.port())),
-		"deny=sentinel_tcp=" + net.JoinHostPort(sentIP, "8081"),
-		"dns=external_name=hint-probe-agent.invalid",
+		"deny=gate_b_address="+net.JoinHostPort(gateB, "8080"),
+		"deny=proxy_direct=hint-proxy:"+fmt.Sprint(target.port()),
+		"deny=host_other_port=hint-proxy:"+fmt.Sprint(other.port()),
+		"deny=b_gateway="+net.JoinHostPort(g.BGateway, fmt.Sprint(target.port())),
+		"deny=sentinel_tcp="+net.JoinHostPort(sentIP, "8081"),
+		"dns=external_name=hint-probe-agent.invalid")
+	if err != nil {
+		return no(err.Error())
 	}
-	agent := run("agent", g.GateIP, ah, deny...)
+	merge("agent", agent)
 	// the same with the sentinel as the configured resolver: no query may reach it
 	ad := g.agentHost()
 	ad.DNS = []netip.Addr{sd}
-	before = dnsCount()
-	agentDNS := run("agent_dns", sentIP, ad, "dns=via_sentinel=hint-probe-leak.invalid")
+	before, err = dnsCount()
+	if err != nil {
+		return no("sentinel counter: " + err.Error())
+	}
+	agentDNS, err := run("agent_dns", sentIP, []string{"gate:" + g.GateIP}, ad, "dns=via_sentinel=hint-probe-leak.invalid")
+	if err != nil {
+		return no(err.Error())
+	}
+	merge("agent_dns", agentDNS)
 	time.Sleep(time.Second)
-	leaked := dnsCount() - before
-	for k, v := range controls {
-		p.Checks["control."+k] = v
+	after, err = dnsCount()
+	if err != nil {
+		return no("sentinel counter: " + err.Error())
 	}
-	for k, v := range agent {
-		p.Checks["agent."+k] = v
+	if after != before {
+		return no("a DNS query from the agent network reached the sentinel")
 	}
-	for k, v := range agentDNS {
-		p.Checks["agent_dns."+k] = v
-	}
-	p.Checks["control.dns_reached_sentinel"] = okIf(controlDNS > 0)
-	p.Checks["agent_dns.zero_upstream_queries"] = okIf(leaked == 0)
-	expected := []string{"control.reach:target", "control.reach:other", "control.reach:sentinel", "control.dns_reached_sentinel",
-		"agent.topology", "agent.reach:gate", "agent.deny:gate_other_port", "agent.deny:gate_b_address", "agent.deny:proxy_direct",
-		"agent.deny:host_other_port", "agent.deny:b_gateway", "agent.deny:sentinel_tcp", "agent.dns:external_name", "agent.uid",
-		"agent.cap_eff", "agent.cap_bnd", "agent.no_new_privs", "agent.no_docker_socket", "agent.no_global_ipv6",
-		"agent_dns.topology", "agent_dns.zero_upstream_queries"}
-	for _, k := range expected {
-		if p.Checks[k] != "ok" {
-			return no("check " + k + " did not pass")
-		}
-	}
+	p.Checks["agent_dns.zero_upstream_queries"] = "ok"
 	p.OK = true
 	return p
 }
@@ -512,15 +599,8 @@ func (d *Docker) Bypass(ctx context.Context, g *gateNet, agentID string) string 
 	if _, err := d.probe(ctx, g.Image); err != nil {
 		return "unverified"
 	}
-	if d.verifyAgent(ctx, g, agentID, g.GateIP) != nil {
+	if d.verifyAgent(ctx, g, agentID, g.GateIP, []string{"gate:" + g.GateIP}) != nil {
 		return "unverified"
 	}
 	return "enforced"
-}
-
-func okIf(b bool) string {
-	if b {
-		return "ok"
-	}
-	return "fail"
 }
