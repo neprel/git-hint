@@ -69,6 +69,7 @@ type liveResult struct {
 	// opencode attempts: the installed binary's provenance and the capture of its output
 	agentBinary map[string]any
 	output      map[string]string
+	sealedAt    string // when admission was revoked (the ledger's seal time)
 }
 
 // livePhase runs one live attempt. Order (C7BJ-16): the agent runs; the ledger is sealed
@@ -83,6 +84,7 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	var cleanups []func() error
 	finish := func(err error) liveResult {
 		if o.Counter.Report() == nil { // revoke admission on every path that admitted nothing yet
+			res.sealedAt = time.Now().UTC().Format(time.RFC3339Nano)
 			o.Counter.Seal(5*time.Second, BypassUnverified, ScopeIsolatedContainer)
 		}
 		res.final = true
@@ -103,6 +105,10 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		if err != nil {
 			return finish(agentInstallError{err})
 		}
+		// the attempt runs only with the target that was frozen in the run's configuration
+		if o.ExpectTarget == "" || bin.prov["target"] != o.ExpectTarget {
+			return finish(agentInstallError{fmt.Errorf("the attempt's target %v is not the run's frozen target %q", bin.prov["target"], o.ExpectTarget)})
+		}
 		res.agentBinary = bin.prov
 		instr, err := taskInstruction(taskDir)
 		if err != nil {
@@ -112,7 +118,7 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 			return finish(agentInstallError{err})
 		}
 		cmd = openCodeArgv(o.Live.model, instr)
-		res.agentBinary["launch_digest"] = openCodeLaunchDigest(o.Live.model, instr, bin.prov)
+		res.agentBinary["execution_digest"] = openCodeExecutionDigest(o.Live.model, instr, bin.prov)
 	}
 	gateImg, err := d.gateImage(ctx)
 	if err != nil {
@@ -165,6 +171,7 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		return refuse(errors.New("the inspected topology is not the probed policy"))
 	}
 	runErr := d.runToEnd(ctx, id, lim.agent, "agent")
+	res.sealedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	o.Counter.Seal(5*time.Second, bypass, ScopeIsolatedContainer) // revoke admission and drain; not the final account
 	if o.Agent == "opencode" {
 		res.output = d.saveOutput(ctx, id, filepath.Join(filepath.Dir(artifact), "opencode"))

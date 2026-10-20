@@ -208,6 +208,8 @@ type TrialInput struct {
 	PlanBinding map[string]any
 	// ModelCheck is the proxy's check of the model field of every forwarded request
 	ModelCheck string
+	// RunnerName is the runner that ran the trial: harbor (empty) or hint-docker
+	RunnerName string
 	// ObservedConfig are digests of the effective launch configuration (kind, sha256 digest);
 	// nil: not observed (unknown), empty: observed none
 	ObservedConfig []map[string]string
@@ -268,7 +270,7 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 	}
 	rec := map[string]any{
 		"record": "trial", "manifest_version": 1, "trial_id": "tr-" + hex.EncodeToString(h[:8]), "suite_id": in.Suite, "eval": in.Eval,
-		"attempt": in.Attempt, "arm": in.Arm, "agent": agent, "runner": map[string]any{"name": "harbor", "version": in.RunnerVersion},
+		"attempt": in.Attempt, "arm": in.Arm, "agent": agent, "runner": map[string]any{"name": orHarbor(in.RunnerName), "version": in.RunnerVersion},
 		"started_at": in.Started.UTC().Format(time.RFC3339), "outcome": outcome, "checks": checks,
 		"counters": map[string]any{"requests": count(in.Requests), "retries": count(in.Retries), "input_tokens": count(t.InputTokens),
 			"output_tokens": count(t.OutputTokens), "cache_tokens": count(t.CacheTokens), "wall_seconds": sec(t.WallSeconds), "agent_seconds": sec(t.AgentSeconds)},
@@ -321,4 +323,11 @@ func RecordTrial(l *library.Library, in TrialInput, t runner.Trial) (string, err
 		rec["artifacts"] = arts
 	}
 	return l.PutManifest("trial", rec)
+}
+
+func orHarbor(name string) string {
+	if name == "" {
+		return "harbor"
+	}
+	return name
 }

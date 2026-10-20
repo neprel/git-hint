@@ -29,7 +29,10 @@ import (
 
 // DockerRunnerVersion is the version of the container runner's trial procedure; it is
 // recorded with every trial.
-const DockerRunnerVersion = "hint-docker-runner-0.1.0"
+const DockerRunnerVersion = "hint-docker-runner-" + DockerRunnerSemver
+
+// DockerRunnerSemver is the runner's version in trial records, configurations and reports.
+const DockerRunnerSemver = "0.1.0"
 
 // Docker runs eval trials through the Docker Engine API (embedded SDK; the engine is a
 // prerequisite of the controlled eval mode only). One trial: a fresh agent container
@@ -58,6 +61,15 @@ func FindDocker(ctx context.Context) (*Docker, error) {
 		return nil, fmt.Errorf("%w: the Docker engine is not running or not reachable", ErrUnavailable)
 	}
 	return &Docker{cli: cli, Version: v.Version}, nil
+}
+
+// Architecture is the engine's architecture as it reports it.
+func (d *Docker) Architecture(ctx context.Context) (string, error) {
+	info, err := d.cli.Info(ctx, client.InfoOptions{})
+	if err != nil {
+		return "", err
+	}
+	return info.Info.Architecture, nil
 }
 
 // Close releases the client.
@@ -225,7 +237,7 @@ func (d *Docker) trial(ctx context.Context, taskDir, dir, name string, o RunOpti
 		}
 		digest, err = lr.digest, lr.err
 		// the ledger as read after the teardown; never the seal-time snapshot (C7BJ-16)
-		r.Container["ledger"], r.Container["ledger_final"] = lr.ledger, lr.final
+		r.Container["ledger"], r.Container["ledger_final"], r.Container["ledger_sealed_at"] = lr.ledger, lr.final, lr.sealedAt
 		if !lr.final {
 			r.Container["teardown_errors"] = lr.teardown
 		}

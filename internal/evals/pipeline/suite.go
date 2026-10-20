@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -29,6 +30,9 @@ type SuiteOptions struct {
 	Attempts int
 	Arm      string
 	Live     *runner.Live // LAN model access for live agents (nil for oracle/nop)
+	// OpenCodeTgz is a local copy of the pinned OpenCode archive for the container runner
+	// (offline; checked against the pin like a download)
+	OpenCodeTgz string
 }
 
 // SuiteReport counts a suite run.
@@ -39,7 +43,10 @@ type SuiteReport struct {
 	Outcomes map[string]int `json:"outcomes"`
 	Stopped  string         `json:"stopped,omitempty"`
 	Requests *int64         `json:"model_requests"`
-	Kept     int            `json:"run_dirs_kept,omitempty"` // results that could not be archived stay on disk
+	// LedgersNotWritten counts container-runner attempts whose ledger could not be handed
+	// over (their usage stays unknown)
+	LedgersNotWritten int `json:"ledgers_not_written,omitempty"`
+	Kept              int `json:"run_dirs_kept,omitempty"` // results that could not be archived stay on disk
 }
 
 // RunSuite freezes a suite and runs bounded trials. Every attempt is recorded.
@@ -114,12 +121,53 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 		}
 		bind[ref] = b
 	}
+	// the container runner (07B-J §23): the OpenCode target is part of the run's configuration
+	// (A); it is resolved for every member before anything is planned, and a suite of several
+	// targets is refused (no target is picked silently)
+	docker, isDocker := r.(*runner.Docker)
+	var target, launch string
+	if isDocker && o.Agent == "opencode" {
+		targets := map[string]bool{}
+		for _, m := range sr["members"].([]any) {
+			var rec map[string]any
+			if l.Manifest("eval", m.(map[string]any)["eval"].(string), &rec) != nil {
+				continue
+			}
+			dir, err := os.MkdirTemp(s.Path("cache"), "preflight-")
+			if err != nil {
+				return rep, err
+			}
+			pre := runner.DefaultSettings
+			_, err = runner.Export(l, rec, filepath.Join(dir, "task"), pre)
+			if err == nil {
+				var t string
+				if t, err = docker.PreflightTarget(ctx, filepath.Join(dir, "task")); err == nil {
+					targets[t] = true
+				}
+			}
+			os.RemoveAll(dir)
+			if err != nil {
+				return rep, fmt.Errorf("the OpenCode target of %v is not known: %w", m.(map[string]any)["eval"], err)
+			}
+		}
+		if len(targets) != 1 {
+			return rep, fmt.Errorf("the suite needs %d OpenCode targets; a controlled run has exactly one", len(targets))
+		}
+		for t := range targets {
+			target = t
+		}
+		var err error
+		if launch, err = runner.DockerLaunchDigest(runner.DockerOpenCodeVersion, o.Live.ModelLabel, target); err != nil {
+			return rep, err
+		}
+	}
 	h := sha256.Sum256([]byte("suite\x00" + suite + "\x00" + now.UTC().Format(time.RFC3339Nano)))
 	job := "jb-" + hex.EncodeToString(h[:8])
 	if err := l.StartJob(job, "trials", library.Budget{Trials: lim.Trials, Requests: lim.TrialRequests * lim.Trials, Seconds: lim.Trials * lim.TrialSeconds}); err != nil {
 		return rep, err
 	}
 	defer l.EndJob(job, "done")
+	var manifest workunits.Manifest
 	// controlled work units (C7B-E CU5): the run manifest and an open unit for every planned
 	// eligible objective are written before the first attempt
 	if o.Agent == "opencode" && o.Live != nil {
@@ -127,6 +175,10 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			RunnerVersion: runnerVersion, ModelLabel: o.Live.ModelLabel, MaxRequests: lim.TrialRequests, MaxSeconds: lim.TrialSeconds,
 			LaunchDigest: runner.LaunchDigest(runner.RunOptions{Agent: o.Agent, AgentArgs: o.Live.AgentArgs(nil), Env: o.Live.AgentEnv(&runner.Counter{}), Model: o.Live.Model()}),
 			CreatedAt:    now.UTC().Format(time.RFC3339)}
+		if isDocker {
+			m.AgentVersion, m.RunnerVersion, m.LaunchDigest, m.Harness = runner.DockerOpenCodeVersion, runner.DockerRunnerSemver, launch, "hint-docker"
+		}
+		manifest = m
 		for _, mm := range sr["members"].([]any) {
 			ref := mm.(map[string]any)["eval"].(string)
 			var rec map[string]any
@@ -164,11 +216,11 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				return rep, err
 			}
 			mode := runner.Offline
-			if o.Live != nil {
+			if o.Live != nil && !isDocker { // the container runner's gate replaces the LAN allowlist
 				mode = runner.LANModel
 			}
 			settings.Mode, settings.LANHost = mode, ""
-			if o.Live != nil {
+			if o.Live != nil && !isDocker {
 				settings.LANHost = o.Live.ContainerHost
 			}
 			if _, err := runner.Export(l, rec, work+"/task", settings); err != nil {
@@ -179,6 +231,10 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			if o.Live != nil {
 				counter = o.Live.NewTrial(lim.TrialRequests)
 				ro.AgentArgs, ro.Env, ro.Model = o.Live.AgentArgs(counter), o.Live.AgentEnv(counter), o.Live.Model()
+				if isDocker {
+					ro.Attempts, ro.Live, ro.Counter, ro.ExpectTarget = 1, o.Live, counter, target
+					ro.OpenCode = &runner.OpenCodeSource{Version: runner.DockerOpenCodeVersion, CacheDir: s.Path("cache", "evals", "opencode"), TgzFile: o.OpenCodeTgz}
+				}
 			}
 			started := time.Now()
 			trials, err := r.Run(ctx, work+"/task", ro)
@@ -186,7 +242,11 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				trials = []runner.Trial{{Name: "trial", Exception: "RunnerError", Checks: map[string]string{}}}
 			}
 			b := bind[ref]
-			in := suites.TrialInput{RunID: job, Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
+			runnerName := ""
+			if isDocker {
+				runnerName = "hint-docker"
+			}
+			in := suites.TrialInput{RunnerName: runnerName, RunID: job, Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
 				Started: started, MaxSeconds: lim.TrialSeconds, Objective: b.Objective, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, EvalDigest: b.EvalDigest,
 				ContextPolicy: "disabled", PlanBinding: b.PlanBinding} // HINT delivers no managed context in eval trials yet
 			var reqs, retries int64
@@ -199,6 +259,18 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				// environment names; the per-trial proxy URL and the dummy key value are not
 				// configuration): one setting_override digest
 				in.ObservedConfig = []map[string]string{{"kind": "setting_override", "digest": runner.LaunchDigest(ro)}}
+				if isDocker { // (A) of the target the attempt actually installed; not launched: the frozen one
+					got := target
+					if t := jobAgentTarget(work); t != "" {
+						got = t
+					}
+					a, err := runner.DockerLaunchDigest(runner.DockerOpenCodeVersion, o.Live.ModelLabel, got)
+					if err != nil {
+						return rep, err
+					}
+					in.ObservedConfig = []map[string]string{{"kind": "setting_override", "digest": a}}
+					in.AgentVersion = runner.DockerOpenCodeVersion
+				}
 				if counter.LimitHit() {
 					in.Stop = "request_limit"
 				}
@@ -221,6 +293,9 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			if o.Agent == "opencode" && o.Live != nil {
 				if err := workunits.Record(s, l, job, ref, name); err != nil {
 					return rep, err
+				}
+				if isDocker && handOverLedger(s, work, manifest, name, job, ref, a, b.Objective, str(m.(map[string]any)["task_family"])) != nil {
+					rep.LedgersNotWritten++
 				}
 			}
 			rep.Trials++

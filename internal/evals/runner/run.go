@@ -127,6 +127,9 @@ type RunOptions struct {
 	Live     *Live
 	Counter  *Counter
 	OpenCode *OpenCodeSource // the pinned OpenCode of a live opencode attempt
+	// ExpectTarget is the OpenCode target frozen in the run's configuration; the attempt
+	// refuses another
+	ExpectTarget string
 	// agentCmd is the agent command of the internal test agent ("test-agent"): the opencode
 	// installation is not wired into the container runner yet
 	agentCmd []string

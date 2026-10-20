@@ -102,10 +102,11 @@ func (h *handlers) evalRun(ctx context.Context, _ *mcp.CallToolRequest, in EvalR
 	if agent == "" {
 		agent = "oracle"
 	}
-	h2, err := runner.FindHarbor(ctx)
+	h2, ident, closeRunner, err := pipeline.SelectRunner(ctx, p)
 	if err != nil {
 		return nil, EvalRunOut{}, h.fail("hint_eval_run", err)
 	}
+	defer closeRunner()
 	o := pipeline.SuiteOptions{Evals: in.Evals, Agent: agent, Attempts: in.Attempts, Arm: in.Arm}
 	if agent == "opencode" {
 		if err := p.Check(evals.OpModel, ""); err != nil {
@@ -118,7 +119,7 @@ func (h *handlers) evalRun(ctx context.Context, _ *mcp.CallToolRequest, in EvalR
 		defer lv.Close()
 		o.Live = lv
 	}
-	rep, err := pipeline.RunSuite(ctx, s, h2, h2.Version, o, h.o.Now())
+	rep, err := pipeline.RunSuite(ctx, s, h2, ident.Version, o, h.o.Now())
 	if err != nil {
 		return nil, EvalRunOut{}, h.fail("hint_eval_run", err)
 	}

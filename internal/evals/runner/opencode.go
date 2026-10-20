@@ -32,6 +32,10 @@ import (
 // start, owned by root with mode 0755. The agent runs it with a fixed argv and a config that
 // names the gate and a dummy key.
 
+// DockerOpenCodeVersion is the OpenCode version the container runner installs (v2, pinned
+// below); the Harbor path keeps OpenCodeVersion.
+const DockerOpenCodeVersion = "2.0.26"
+
 // OpenCodePins are the SHA-512 values (hex) of cli-<target>-<version>.tgz from the npm
 // registry's dist.integrity (the same pins as the Harbor agent class).
 var OpenCodePins = map[string]map[string]string{
@@ -394,10 +398,10 @@ func readFileBounded(p string, max int64) ([]byte, error) {
 	return readBounded(f, max)
 }
 
-// openCodeLaunchDigest is the identity of the effective launch: the argv with the instruction
-// replaced by its digest, the config without the attempt's token, the version and the binary
-// digest (local provenance).
-func openCodeLaunchDigest(model, instruction string, prov map[string]any) string {
+// openCodeExecutionDigest is the per-attempt execution provenance (B, local only): the argv
+// with the instruction replaced by its digest, the config without the attempt's token, the
+// version, the target and the installed binary's digest.
+func openCodeExecutionDigest(model, instruction string, prov map[string]any) string {
 	is := sha256.Sum256([]byte(instruction))
 	argv := openCodeArgv(model, "sha256:"+hex.EncodeToString(is[:]))
 	cfg, _ := openCodeFiles(nil, &Counter{token: "<token>"}, model)
@@ -405,4 +409,50 @@ func openCodeLaunchDigest(model, instruction string, prov map[string]any) string
 	b, _ := json.Marshal([]any{argv, hex.EncodeToString(cs[:]), prov["version"], prov["binary_sha256"], prov["target"]})
 	sum := sha256.Sum256(b)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// DockerLaunchDigest is the canonical configuration identity (A) of a controlled OpenCode run
+// in the container runner: the same for the work-unit manifest and every attempt, independent
+// of the task, its instruction, the attempt's token, ports and proxy host. It names the runner
+// version, the gate policy, the agent, the pinned version, the selected target and its exact
+// archive pin, the normalized argv and config, the environment and the container controls. An
+// unpinned target has no configuration.
+func DockerLaunchDigest(version, model, target string) (string, error) {
+	pin := OpenCodePins[version][target]
+	if pin == "" {
+		return "", fmt.Errorf("OpenCode %s has no pin for target %q", version, target)
+	}
+	cfg, err := openCodeFiles(nil, &Counter{token: "<token>"}, model)
+	if err != nil {
+		return "", err
+	}
+	tr := tar.NewReader(bytes.NewReader(cfg))
+	var conf []byte
+	for {
+		h, err := tr.Next()
+		if err != nil {
+			break
+		}
+		if h.Name == "tmp/.config/opencode/opencode.json" {
+			conf, _ = io.ReadAll(tr)
+		}
+	}
+	policy := sha256.Sum256([]byte(gatePolicyText))
+	b, _ := json.Marshal([]any{"hint-docker-launch-v1", DockerRunnerVersion, GatePolicy, hex.EncodeToString(policy[:]),
+		"opencode", version, target, pin, openCodeArgv(model, "<instruction>"), string(conf),
+		[]string{"HOME=/tmp", "OPENAI_API_KEY=hint-proxy", "OPENAI_BASE_URL=http://gate:8080/t/<token>"},
+		map[string]any{"user": "65534:65534", "cap_drop": "ALL", "no_new_privileges": true, "tree_owner": "65534:65534", "binary": "root:0755"}})
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// PreflightTarget builds a task's agent image and resolves its OpenCode target with the clean
+// probe, before any run is planned (the target is part of the configuration).
+func (d *Docker) PreflightTarget(ctx context.Context, taskDir string) (string, error) {
+	id, _, _, err := d.build(ctx, filepath.Join(taskDir, "environment"), "agent")
+	if err != nil {
+		return "", err
+	}
+	t, _, err := d.openCodeTarget(ctx, id)
+	return t, err
 }

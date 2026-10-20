@@ -47,6 +47,7 @@ type Manifest struct {
 	RunnerVersion string   `json:"runner_version"`
 	ModelLabel    string   `json:"model_label"`
 	LaunchDigest  string   `json:"launch_digest"`
+	Harness       string   `json:"harness,omitempty"` // harbor (empty) or hint-docker
 	MaxRequests   int      `json:"max_requests"`
 	MaxSeconds    int      `json:"max_seconds"`
 	Members       []Member `json:"members"`
@@ -101,14 +102,7 @@ func Start(s *store.Store, l *library.Library, m Manifest, now time.Time) error 
 			return fmt.Errorf("member %s: the baseline digest does not match its record", mb.Eval)
 		}
 		ref := func(kind string, parts ...string) string { return hint.EvalRef(s.Key(), kind, parts...) }
-		cfg := map[string]any{
-			"agent":          map[string]any{"name": m.Agent, "version": version(m.AgentVersion)},
-			"model":          map[string]any{"state": "known", "ref": ref("model", m.ModelLabel), "provenance": "launch_intent"},
-			"harness":        map[string]any{"kind": "harbor", "version": version(m.RunnerVersion)},
-			"context_policy": map[string]any{"state": "disabled"}, // HINT delivers no managed context in eval trials yet
-			"config_refs":    map[string]any{"state": "known", "refs": []any{ref("observed-config", "setting_override", m.LaunchDigest)}},
-			"budget":         map[string]any{"max_requests": limit(m.MaxRequests), "max_seconds": limit(m.MaxSeconds)},
-		}
+		cfg := ScopeConfiguration(s.Key(), m)
 		scope := map[string]any{"declared_at": now.UTC().Truncate(time.Hour).Format(time.RFC3339), "plan": nil,
 			"objective_ref": ref("objective", mb.Objective), "base_snapshots": []any{}, "family_ref": ref("family", mb.TaskFamily),
 			"configuration": cfg, "environment_ref": ref("environment", report.EnvironmentIdentity(ev)...), "run_ref": ref("run", m.RunID),
@@ -178,6 +172,30 @@ func Record(s *store.Store, l *library.Library, runID, eval, name string) error 
 		return err
 	}
 	return s.WriteJSON(r, "state", "evals", "work", runFile(runID))
+}
+
+// ScopeConfiguration is the canonical configuration of a controlled run (the scope of each of
+// its units, and the configuration its model ledgers are bound to).
+func ScopeConfiguration(key []byte, m Manifest) map[string]any {
+	ref := func(kind string, parts ...string) string { return hint.EvalRef(key, kind, parts...) }
+	limit := func(v int) map[string]any {
+		if v >= 1 {
+			return map[string]any{"state": "known", "value": v}
+		}
+		return map[string]any{"state": "unknown"}
+	}
+	harness := m.Harness
+	if harness == "" {
+		harness = "harbor"
+	}
+	return map[string]any{
+		"agent":          map[string]any{"name": m.Agent, "version": version(m.AgentVersion)},
+		"model":          map[string]any{"state": "known", "ref": ref("model", m.ModelLabel), "provenance": "launch_intent"},
+		"harness":        map[string]any{"kind": harness, "version": version(m.RunnerVersion)},
+		"context_policy": map[string]any{"state": "disabled"}, // HINT delivers no managed context in eval trials yet
+		"config_refs":    map[string]any{"state": "known", "refs": []any{ref("observed-config", "setting_override", m.LaunchDigest)}},
+		"budget":         map[string]any{"max_requests": limit(m.MaxRequests), "max_seconds": limit(m.MaxSeconds)},
+	}
 }
 
 // attempt is the report form of one terminal trial (CU3/CU4).

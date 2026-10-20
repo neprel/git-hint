@@ -113,7 +113,8 @@ func cmdEval(e *Env, args []string) int {
 func evalOn(e *Env, args []string) int {
 	fs := flags(e, "eval on", evalEffects)
 	agents := fs.String("agent", "opencode", "agents whose sessions are collected: opencode, claude-code, codex (comma separated)")
-	run := fs.String("run", "", "allow container runs: docker (needs Harbor 0.23 and Docker)")
+	run := fs.String("run", "", "allow container runs: docker")
+	runnerName := fs.String("runner", "", "container runner: harbor (transitional; needs Harbor 0.23 and Docker) or docker (built in; needs only Docker)")
 	if fs.Parse(args) != nil || fs.NArg() != 0 {
 		return 2
 	}
@@ -151,9 +152,25 @@ func evalOn(e *Env, args []string) int {
 	switch *run {
 	case "":
 	case "docker":
-		p.Run = &evals.Run{Use: "docker", Runner: "harbor"}
+		r := "harbor"
+		if p.Run != nil && p.Run.Runner != "" {
+			r = p.Run.Runner
+		}
+		p.Run = &evals.Run{Use: "docker", Runner: r}
 	default:
 		fmt.Fprintf(e.Stderr, "git hint: --run accepts docker only\n")
+		return 2
+	}
+	switch *runnerName {
+	case "":
+	case "harbor", "docker":
+		if p.Run == nil {
+			fmt.Fprintf(e.Stderr, "git hint: --runner needs container runs (--run docker)\n")
+			return 2
+		}
+		p.Run.Runner = *runnerName
+	default:
+		fmt.Fprintf(e.Stderr, "git hint: --runner accepts harbor or docker\n")
 		return 2
 	}
 	if err := evals.ValidateValue("policy", p); err != nil {
@@ -514,7 +531,7 @@ func evalWorker(e *Env, _ []string) int {
 		fmt.Fprintln(e.Stdout, "another qualification worker runs; nothing to do")
 		return 0
 	}
-	h, err := runner.FindHarbor(context.Background())
+	h, _, closeRunner, err := pipeline.SelectRunner(context.Background(), s.Cfg.Evals)
 	if err != nil {
 		var u = runner.ErrUnavailable
 		if errors.Is(err, u) {
@@ -523,6 +540,7 @@ func evalWorker(e *Env, _ []string) int {
 		}
 		return fail(e, err)
 	}
+	defer closeRunner()
 	rep := pipeline.Qualify(context.Background(), s, h, e.Now())
 	fmt.Fprintf(e.Stdout, "%s qualified %d (trials %d) states %v %s %s\n", e.Now().UTC().Format("2006-01-02T15:04:05Z"), rep.Qualified, rep.Trials, rep.States, rep.Blocked, rep.Stopped)
 	return 0
@@ -539,6 +557,7 @@ func evalRun(e *Env, args []string) int {
 	fs.Var(&with, "with", "context_only: a file to add to each task's repository (repeatable); refactor: the work tree of the refactored repository")
 	ctxPolicy := fs.String("context-policy", "", "not supported yet: a HINT context policy as the treatment of a context_only arm")
 	planID := fs.String("plan", "", "refactor: bind the variant to this plan (needs --work-unit; the --with work tree must be the captured after state)")
+	opencodeTgz := fs.String("opencode-tgz", "", "container runner, opencode: a local copy of the pinned OpenCode archive (offline; checked against the pin)")
 	workUnit := fs.String("work-unit", "", "refactor with --plan: the work unit whose closed successful attempt made the change")
 	if fs.Parse(args) != nil {
 		return 2
@@ -575,11 +594,12 @@ func evalRun(e *Env, args []string) int {
 		}
 		evalsToRun = refs
 	}
-	h, err := runner.FindHarbor(ctx)
+	h, ident, closeRunner, err := pipeline.SelectRunner(ctx, p)
 	if err != nil {
 		return fail(e, err)
 	}
-	o := pipeline.SuiteOptions{Evals: evalsToRun, Agent: *agent, Attempts: *attempts, Arm: *arm}
+	defer closeRunner()
+	o := pipeline.SuiteOptions{Evals: evalsToRun, Agent: *agent, Attempts: *attempts, Arm: *arm, OpenCodeTgz: *opencodeTgz}
 	if *agent == "opencode" {
 		if err := p.Check(evals.OpModel, ""); err != nil {
 			return fail(e, err)
@@ -591,7 +611,7 @@ func evalRun(e *Env, args []string) int {
 		defer lv.Close()
 		o.Live = lv
 	}
-	rep, err := pipeline.RunSuite(ctx, s, h, h.Version, o, e.Now())
+	rep, err := pipeline.RunSuite(ctx, s, h, ident.Version, o, e.Now())
 	if err != nil {
 		return fail(e, err)
 	}

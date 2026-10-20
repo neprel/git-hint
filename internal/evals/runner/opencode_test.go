@@ -270,7 +270,7 @@ func openCodeRun(t *testing.T, d *Docker, script string) (Trial, trialResult, st
 	os.WriteFile(filepath.Join(task, "instruction.md"), []byte("<!-- canary HINTCANARY -->\nUpper-case the input.\n"), 0o644)
 	jobs := t.TempDir()
 	ts, err := d.Run(context.Background(), task, RunOptions{Agent: "opencode", Attempts: 1, JobsDir: jobs, JobName: "oc", Live: lv, Counter: c,
-		OpenCode: &OpenCodeSource{Version: "0.0.0-test", CacheDir: t.TempDir(), Registry: reg.URL}})
+		OpenCode: &OpenCodeSource{Version: "0.0.0-test", CacheDir: t.TempDir(), Registry: reg.URL}, ExpectTarget: target})
 	if err != nil || len(ts) != 1 {
 		t.Fatalf("%v %v", ts, err)
 	}
@@ -305,7 +305,7 @@ func TestDockerOpenCodeInstalledAndRun(t *testing.T) {
 	}
 	ab, _ := res.Container["agent_binary"].(map[string]any)
 	if ab["source"] != "registry" || !strings.HasPrefix(ab["binary_sha256"].(string), "sha256:") || ab["libc"] != "glibc" || ab["version"] != "0.0.0-test" ||
-		!strings.HasPrefix(fmt.Sprint(ab["launch_digest"]), "sha256:") {
+		!strings.HasPrefix(fmt.Sprint(ab["execution_digest"]), "sha256:") {
 		t.Fatalf("agent binary %v", ab)
 	}
 	out, _ := res.Container["agent_output"].(map[string]any)
@@ -332,16 +332,72 @@ func TestDockerOpenCodeFailureNeverPasses(t *testing.T) {
 
 // The launch digest does not depend on the attempt's token and changes with the instruction,
 // the model and the binary.
-func TestOpenCodeLaunchDigest(t *testing.T) {
+func TestOpenCodeExecutionDigest(t *testing.T) {
 	p := map[string]any{"version": "2.0.26", "binary_sha256": "sha256:a", "target": "linux-arm64"}
-	a := openCodeLaunchDigest("m", "do", p)
-	if a != openCodeLaunchDigest("m", "do", p) {
+	a := openCodeExecutionDigest("m", "do", p)
+	if a != openCodeExecutionDigest("m", "do", p) {
 		t.Fatal("not stable")
 	}
 	q := map[string]any{"version": "2.0.26", "binary_sha256": "sha256:b", "target": "linux-arm64"}
-	for _, other := range []string{openCodeLaunchDigest("m", "other", p), openCodeLaunchDigest("n", "do", p), openCodeLaunchDigest("m", "do", q)} {
+	for _, other := range []string{openCodeExecutionDigest("m", "other", p), openCodeExecutionDigest("n", "do", p), openCodeExecutionDigest("m", "do", q)} {
 		if other == a {
 			t.Fatal("a launch change kept the digest")
 		}
 	}
+}
+
+// (A) is the same for the same launch and target, and differs with the target, its libc, its
+// pin, the model or the version; an unpinned target has none.
+func TestDockerLaunchDigest(t *testing.T) {
+	a, err := DockerLaunchDigest("2.0.26", "m", "linux-arm64")
+	if err != nil || !strings.HasPrefix(a, "sha256:") {
+		t.Fatal(a, err)
+	}
+	if b, _ := DockerLaunchDigest("2.0.26", "m", "linux-arm64"); b != a {
+		t.Fatal("not stable")
+	}
+	for name, args := range map[string][3]string{
+		"x64":     {"2.0.26", "m", "linux-x64"},
+		"musl":    {"2.0.26", "m", "linux-arm64-musl"},
+		"model":   {"2.0.26", "n", "linux-arm64"},
+		"version": {"2.0.22", "m", "linux-arm64"},
+	} {
+		if d, err := DockerLaunchDigest(args[0], args[1], args[2]); err != nil || d == a {
+			t.Errorf("%s: %s %v", name, d, err)
+		}
+	}
+	old := OpenCodePins["2.0.26"]["linux-arm64"]
+	OpenCodePins["2.0.26"]["linux-arm64"] = strings.Repeat("0", 128)
+	changed, _ := DockerLaunchDigest("2.0.26", "m", "linux-arm64")
+	OpenCodePins["2.0.26"]["linux-arm64"] = old
+	if changed == a {
+		t.Error("a pin change kept the configuration")
+	}
+	if _, err := DockerLaunchDigest("2.0.26", "m", "linux-riscv64"); err == nil {
+		t.Error("an unpinned target has a configuration")
+	}
+}
+
+// An attempt whose resolved target is not the run's frozen target is refused before any
+// network or agent exists (no model call).
+func TestDockerOpenCodeTargetMismatchRefused(t *testing.T) {
+	d := dockerOrSkip(t)
+	defer d.Close()
+	tgz := makeTgz(t, fileE("package/bin/opencode", fakeOpenCode))
+	testPin(t, "0.0.0-test", "linux-x64", tgz)
+	OpenCodePins["0.0.0-test"]["linux-arm64"] = sha512Hex(tgz)
+	reg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(tgz) }))
+	defer reg.Close()
+	lv, calls := fakeModel(t)
+	c := lv.NewTrial(10)
+	task := liveTask(t, 120)
+	os.WriteFile(filepath.Join(task, "instruction.md"), []byte("x\n"), 0o644)
+	info, _ := d.cli.Info(context.Background(), client.InfoOptions{})
+	other := map[string]string{"aarch64": "linux-x64", "x86_64": "linux-arm64"}[info.Info.Architecture]
+	ts, err := d.Run(context.Background(), task, RunOptions{Agent: "opencode", Attempts: 1, JobsDir: t.TempDir(), JobName: "mm", Live: lv, Counter: c,
+		OpenCode: &OpenCodeSource{Version: "0.0.0-test", CacheDir: t.TempDir(), Registry: reg.URL}, ExpectTarget: other})
+	if err != nil || len(ts) != 1 || ts[0].Outcome() == "passed" || calls.Load() != 0 {
+		t.Fatalf("%+v %v calls %d", ts, err, calls.Load())
+	}
+	noQ4Leftovers(t, d)
 }
