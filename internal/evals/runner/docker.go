@@ -214,12 +214,13 @@ func (d *Docker) trial(ctx context.Context, taskDir, dir, name string, o RunOpti
 	var digest string
 	var err error
 	if o.Agent == "test-agent" {
-		var ledger *LedgerReport
-		digest, ledger, err = d.livePhase(ctx, taskDir, o, lim, im.agent, artifact)
-		if ledger == nil { // not launched: the account is sealed empty and the egress unverified
-			ledger = o.Counter.Seal(0, BypassUnverified, ScopeIsolatedContainer)
+		lr := d.livePhase(ctx, taskDir, o, lim, im.agent, artifact)
+		digest, err = lr.digest, lr.err
+		// the ledger as read after the teardown; never the seal-time snapshot (C7BJ-16)
+		r.Container["ledger"], r.Container["ledger_final"] = lr.ledger, lr.final
+		if !lr.final {
+			r.Container["teardown_errors"] = lr.teardown
 		}
-		r.Container["ledger"] = ledger
 	} else {
 		digest, err = d.agentPhase(ctx, taskDir, o.Agent, lim, im.agent, artifact)
 	}
@@ -379,8 +380,16 @@ type exitError struct {
 
 func (e exitError) Error() string { return fmt.Sprintf("%s exited with status %d", e.phase, e.code) }
 
-func (d *Docker) remove(id string) {
-	_, _ = d.cli.ContainerRemove(context.Background(), id, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+func (d *Docker) remove(id string) { _ = d.removeErr(id) }
+
+// removeErr force-removes a container (bounded) and reports a failure.
+func (d *Docker) removeErr(id string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := d.cli.ContainerRemove(ctx, id, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
+		return fmt.Errorf("container %s: %v", id, err)
+	}
+	return nil
 }
 
 // verifierPhase runs the verifier image without network on a copy of the frozen tree and

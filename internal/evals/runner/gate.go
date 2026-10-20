@@ -159,13 +159,24 @@ func (d *Docker) checkA(ctx context.Context, g *gateNet) error {
 }
 
 // close removes the gate container and both networks.
-func (g *gateNet) close(d *Docker) {
-	ctx := context.Background()
+func (g *gateNet) close(d *Docker) { _ = g.closeErr(d) }
+
+// closeErr removes the gate container and both networks (bounded) and reports what failed.
+func (g *gateNet) closeErr(d *Docker) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var errs []error
 	if g.Gate != "" {
-		d.remove(g.Gate)
+		if _, err := d.cli.ContainerRemove(ctx, g.Gate, client.ContainerRemoveOptions{Force: true}); err != nil {
+			errs = append(errs, fmt.Errorf("gate container: %v", err))
+		}
 	}
-	d.cli.NetworkRemove(ctx, g.A, client.NetworkRemoveOptions{})
-	d.cli.NetworkRemove(ctx, g.B, client.NetworkRemoveOptions{})
+	for _, n := range []string{g.A, g.B} {
+		if _, err := d.cli.NetworkRemove(ctx, n, client.NetworkRemoveOptions{}); err != nil {
+			errs = append(errs, fmt.Errorf("network %s: %v", n, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func gateHost(extra ...string) *container.HostConfig {
