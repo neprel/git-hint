@@ -1,8 +1,12 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +15,10 @@ import (
 	"github.com/neprel/git-hint/internal/evals"
 	"github.com/neprel/git-hint/internal/evals/build"
 	"github.com/neprel/git-hint/internal/evals/evaltest"
+	"github.com/neprel/git-hint/internal/evals/report"
 	"github.com/neprel/git-hint/internal/evals/runner"
+	"github.com/neprel/git-hint/internal/evals/workunits"
+	"github.com/neprel/git-hint/internal/project"
 )
 
 // Live tests use only the owner's LAN model (AGENTS.md §11) with finite limits. Set
@@ -78,16 +85,29 @@ func TestLiveRequirementMap(t *testing.T) {
 	}
 }
 
-// TestLiveOpenCodeTrial runs one OpenCode trial of the validated synthetic bug fix through
-// the built-in runner and HINT's counting proxy behind the gate: 1 eval x 1 attempt, at most
-// 40 model requests (retries included: the proxy counts every request) and 900 seconds, no
-// trial retry. Set HINT_DOCKER_TESTS=1 too; HINT_OPENCODE_TGZ is a local copy of the pinned
-// OpenCode archive (else the pinned archive is fetched once).
+// TestLiveOpenCodeTrial is one session of the bounded §11 check of the pinned OpenCode on the
+// built-in runner: the validated synthetic bug fix, 1 eval x 1 attempt, at most 8 forwarded
+// model requests (retries included: the proxy counts every request; at most 1 retry) and
+// 300 seconds of agent time, no trial retry. The endpoint is checked first by a TCP connect
+// only (no request); when it is unreachable nothing starts. Set HINT_DOCKER_TESTS=1 too;
+// HINT_OPENCODE_TGZ is a local copy of the pinned OpenCode archive (else it is fetched once).
+// The run checks the chain (gate, ledger, result trust, report) and that the key appears in
+// no output; it does not measure canonical tokens or savings.
 func TestLiveOpenCodeTrial(t *testing.T) {
 	m := liveModel(t)
 	if os.Getenv("HINT_DOCKER_TESTS") != "1" {
 		t.Skip("set HINT_DOCKER_TESTS=1")
 	}
+	u, err := url.Parse(m.BaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, err := net.DialTimeout("tcp", u.Host, 3*time.Second); err != nil {
+		t.Skipf("the LAN endpoint is not reachable (TCP %s): 0 model requests", u.Host)
+	} else {
+		c.Close()
+	}
+	const maxRequests, maxSeconds = 8, 300
 	ctx := context.Background()
 	h, err := runner.FindDocker(ctx)
 	if err != nil {
@@ -97,7 +117,8 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	s, l := validatedProject(t)
 	p := evals.Enabled(nil)
 	p.Model = m
-	p.Run = &evals.Run{Use: "docker", Runner: "docker", MaxTrialsPerRun: 1, MaxSecondsPerTrial: 900, MaxRequestsPerTrial: 40, CPUs: 2, MemoryMB: 2048}
+	p.Model.MaxRetries = 1
+	p.Run = &evals.Run{Use: "docker", Runner: "docker", MaxTrialsPerRun: 1, MaxSecondsPerTrial: maxSeconds, MaxRequestsPerTrial: maxRequests, CPUs: 2, MemoryMB: 2048}
 	s.Cfg.Evals = &p
 	lv, err := runner.StartLive(runner.LiveConfig{BaseURL: m.BaseURL, Model: m.Model, KeyEnv: m.KeyEnv, AgentVersion: runner.DockerOpenCodeVersion})
 	if err != nil {
@@ -109,24 +130,57 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("hint-docker %s: trials %d outcomes %v model requests %v kept %d wall %s", runner.DockerRunnerSemver, rep.Trials, rep.Outcomes, deref(rep.Requests), rep.Kept, time.Since(start).Round(time.Second))
+	summary := map[string]any{"runner": "hint-docker " + runner.DockerRunnerSemver, "opencode": runner.DockerOpenCodeVersion, "trials": rep.Trials, "outcomes": rep.Outcomes,
+		"model_requests": deref(rep.Requests), "ledgers_not_written": rep.LedgersNotWritten, "wall_seconds": time.Since(start).Round(time.Second).Seconds()}
+	var outputs [][]byte
 	names, _ := l.Manifests("trial")
 	for _, n := range names {
 		var tr map[string]any
 		if l.Manifest("trial", n, &tr) != nil {
 			continue
 		}
-		b, _ := json.MarshalIndent(map[string]any{"outcome": tr["outcome"], "checks": tr["checks"], "counters": tr["counters"], "budget": tr["budget"], "agent": tr["agent"]}, "", "  ")
-		t.Logf("trial %s:\n%s", n, b)
-		liveOut(t, "opencode-trial-summary.json", b)
+		summary["trial"] = map[string]any{"outcome": tr["outcome"], "checks": tr["checks"], "counters": tr["counters"], "budget": tr["budget"], "agent": tr["agent"], "runner": tr["runner"], "result_trust": tr["result_trust"]}
 		if arts, ok := tr["artifacts"].([]any); ok && len(arts) == 1 {
 			if a, err := l.GetObject(arts[0].(string)); err == nil {
+				outputs = append(outputs, a)
 				liveOut(t, "opencode-trial-run.tar", a)
 			}
 		}
 	}
-	if rep.Trials != 1 || rep.Requests == nil || *rep.Requests > 40 {
+	// the ledger handed over after teardown (gate, enforcement, completeness)
+	obs, _, err := project.ReadSpool(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ledgers []any
+	for _, o := range obs {
+		if o.ModelLedger != nil {
+			ledgers = append(ledgers, map[string]any{"state": o.ModelLedger.State, "bypass": o.ModelLedger.Bypass, "reasons": o.ModelLedger.Reasons})
+		}
+	}
+	summary["ledgers"] = ledgers
+	// the report with the journal validates
+	revs, _ := workunits.Unreported(s)
+	doc, _, rerr := report.Builder{Key: s.Key(), Namespace: s.Cfg.ProjectNamespace, WorkUnits: revs}.Build(l, names, time.Now())
+	summary["report_error"] = fmt.Sprint(rerr)
+	outputs = append(outputs, doc)
+	b, _ := json.MarshalIndent(summary, "", "  ")
+	outputs = append(outputs, b)
+	// the key never appears in an output (the value is not printed)
+	if key := os.Getenv(m.KeyEnv); key != "" {
+		for _, o := range outputs {
+			if bytes.Contains(o, []byte(key)) {
+				t.Fatal("the model key appears in an output")
+			}
+		}
+	}
+	liveOut(t, "opencode-trial-summary.json", b)
+	t.Logf("summary:\n%s", b)
+	if rep.Trials != 1 || rep.Requests == nil || *rep.Requests > maxRequests {
 		t.Fatalf("limits: %+v", rep)
+	}
+	if rerr != nil || len(ledgers) != 1 || rep.LedgersNotWritten != 0 {
+		t.Errorf("chain: report %v, ledgers %d, not written %d", rerr, len(ledgers), rep.LedgersNotWritten)
 	}
 	if rep.Outcomes["infrastructure_error"] > 0 || rep.Outcomes["verifier_error"] > 0 {
 		t.Errorf("the trial did not run as a measurement: %v", rep.Outcomes)
