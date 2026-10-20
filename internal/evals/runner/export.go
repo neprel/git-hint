@@ -186,7 +186,47 @@ func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Ta
 	} else if kind == IOInterface {
 		return nil, errors.New("a cli-file-v1 eval without a stored reference")
 	}
+	if kind == IOInterface {
+		// the expected agent context, as exported: the digest of every file the agent can see
+		// (environment/ and the instruction), kept on the verifier side; the leak probe
+		// compares against it instead of guessing from content (C7BJ-9)
+		m, err := contextManifest(dir)
+		if err != nil {
+			return nil, err
+		}
+		if err := w("tests/io/context.sha256", []byte(m), 0o644); err != nil {
+			return nil, err
+		}
+	}
 	return t, nil
+}
+
+// contextManifest lists "<sha256> <path>" for every regular file of the agent context of a
+// task directory: environment/** and instruction.md, sorted.
+func contextManifest(dir string) (string, error) {
+	var lines []string
+	add := func(rel string) error {
+		b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(b)
+		lines = append(lines, hex.EncodeToString(sum[:])+" "+rel)
+		return nil
+	}
+	if err := add("instruction.md"); err != nil {
+		return "", err
+	}
+	env := filepath.Join(dir, "environment")
+	err := filepath.Walk(env, func(p string, fi os.FileInfo, err error) error {
+		if err != nil || !fi.Mode().IsRegular() {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, p)
+		return add(filepath.ToSlash(rel))
+	})
+	sort.Strings(lines)
+	return strings.Join(lines, "\n") + "\n", err
 }
 
 func taskTOML(name string, version int, evalID string, s Settings) string {

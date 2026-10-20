@@ -158,10 +158,10 @@ func TestExportIOCaseBinding(t *testing.T) {
 	}
 }
 
-// C7BJ-9: ordinary cases (a blank line, a short common word also in the base) are no leak;
-// copies of evaluator artifacts are: a distinctive input in the base or the instruction,
-// the declaration in the context, an input file copied whole, a file the export never
-// writes into the agent context.
+// C7BJ-9: content that the frozen base already holds is no leak (a blank line, a short word,
+// a long line equal to an input); evaluator artifacts added or changed after the export
+// are: an input in the instruction, the declaration in the context, an input file copied
+// whole, a file the export never writes into the agent context, a missing manifest.
 func TestIOLeakProbe(t *testing.T) {
 	l := evaltest.Library(t)
 	export := func(rec map[string]any) string {
@@ -178,8 +178,9 @@ func TestIOLeakProbe(t *testing.T) {
 	}
 	canary := "HINTCANARY input line that only the evaluator holds"
 	leaked := map[string]string{"go.mod": base["go.mod"], "tool.sh": base["tool.sh"], "notes.txt": "see " + canary + "\n"}
-	if why := leakProbe(export(ioEvalWith(t, l, leaked, []build.IOCase{{ID: "c", Input: []byte(canary + "\n")}}))); why != "solution_leak" {
-		t.Errorf("a distinctive input in the base: %q", why)
+	// a coincidence in the frozen base is no leak, however long (C7BJ-9 residual)
+	if why := leakProbe(export(ioEvalWith(t, l, leaked, []build.IOCase{{ID: "c", Input: []byte(canary + "\n")}}))); why != "" {
+		t.Errorf("a distinctive input already in the base: %q", why)
 	}
 	clean := func() string {
 		return export(ioEvalWith(t, l, base, []build.IOCase{{ID: "c", Input: []byte(canary + "\n")}}))
@@ -197,6 +198,10 @@ func TestIOLeakProbe(t *testing.T) {
 			b, _ := os.ReadFile(filepath.Join(dir, "tests", "io", "inputs", "c.in"))
 			os.WriteFile(filepath.Join(dir, "environment", "repo", "c.in"), b, 0o644)
 		},
+		"base file changed to hold an input": func(dir string) {
+			appendFile(t, filepath.Join(dir, "environment", "repo", "README"), canary+"\n")
+		},
+		"no manifest": func(dir string) { os.Remove(filepath.Join(dir, "tests", "io", "context.sha256")) },
 		"file outside the export": func(dir string) {
 			os.MkdirAll(filepath.Join(dir, "environment", "io"), 0o755)
 			os.WriteFile(filepath.Join(dir, "environment", "io", "x"), []byte("x"), 0o644)
