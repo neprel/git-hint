@@ -312,6 +312,24 @@ func Build(l *library.Library, in Input) (*Built, error) {
 	if plan.C2, err = testRefs(l, lang, preserve, keep); err != nil {
 		return nil, err
 	}
+	if lang == "go" { // the gate test joins the package of each required test
+		plan.Pkgs = map[string]string{}
+		byPath := map[string]trees.File{}
+		for _, f := range append(append([]trees.File{}, preserve...), vfiles...) {
+			byPath[f.Path] = f
+		}
+		for _, t := range append(append([]TestRef{}, plan.C1...), plan.C2...) {
+			b, err := l.GetObject(byPath[t.File].Digest)
+			if err != nil {
+				return nil, err
+			}
+			m := goPackage.FindSubmatch(b)
+			if m == nil {
+				return nil, &Refusal{[]string{"verifier_missing"}}
+			}
+			plan.Pkgs[t.File] = string(m[1])
+		}
+	}
 	allowed := []string{}
 	for _, f := range preserve {
 		allowed = append(allowed, f.Path)
@@ -325,11 +343,11 @@ func Build(l *library.Library, in Input) (*Built, error) {
 	}
 	var vArchive []byte
 	if apiDirs != nil {
-		vArchive, err = tarTree(l, nil, "", extra{"test.sh", []byte(plan.script()), 0o755},
-			extra{"checks.json", checksJSON(lang, nil, plan), 0o644}, extra{"apicheck/main.go", []byte(apicheckMain()), 0o644},
-			extra{"api.expected", []byte(strings.Join(apiAfter, "\n") + "\n"), 0o644}, allowedTxt)
+		vArchive, err = tarTree(l, nil, "", append([]extra{{"test.sh", []byte(plan.script()), 0o755},
+			{"checks.json", checksJSON(lang, nil, plan), 0o644}, {"apicheck/main.go", []byte(apicheckMain()), 0o644},
+			{"api.expected", []byte(strings.Join(apiAfter, "\n") + "\n"), 0o644}, allowedTxt}, plan.gateArchive()...)...)
 	} else {
-		vArchive, err = tarTree(l, vfiles, "hidden/", extra{"test.sh", []byte(plan.script()), 0o755}, extra{"checks.json", checksJSON(lang, hidden, plan), 0o644}, allowedTxt)
+		vArchive, err = tarTree(l, vfiles, "hidden/", append([]extra{{"test.sh", []byte(plan.script()), 0o755}, {"checks.json", checksJSON(lang, hidden, plan), 0o644}, allowedTxt}, plan.gateArchive()...)...)
 	}
 	if err != nil {
 		return nil, err
@@ -454,6 +472,8 @@ func instruction(in Input, lang string) string {
 	b.WriteString("\nThe repository is in " + Workdir + ". Change the code so that the request is met; keep the existing tests passing.\n")
 	return b.String()
 }
+
+var goPackage = regexp.MustCompile(`(?m)^package\s+([A-Za-z_][A-Za-z0-9_]*)`)
 
 var goTestFunc = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(t \*testing\.T\)`)
 

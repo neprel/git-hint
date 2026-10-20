@@ -118,7 +118,7 @@ func TestBugFixPackage(t *testing.T) {
 		}
 	}
 	v := untar(t, l, b.Record["verifier"].(map[string]any)["archive"].(string))
-	if v["hidden/discount_test.go"] != newTest || !strings.Contains(v["test.sh"], `-run '\''^(TestDiscount)$'\'' .`) || !strings.Contains(v["test.sh"], `TEST C1 discount_test.go::TestDiscount`) || v["allowed.txt"] != "cart_test.go\ndiscount_test.go\n" || v["preserve/cart_test.go"] != "package shop\n" {
+	if v["hidden/discount_test.go"] != newTest || !strings.Contains(v["gate/C1/zz_hint_gate_c1_test.go"], `{"TestDiscount", TestDiscount}`) || v["gate/C1.expect"] != "C1@. TestDiscount discount_test.go::TestDiscount\n" || !strings.Contains(v["test.sh"], "gate_check C1 ") || v["allowed.txt"] != "cart_test.go\ndiscount_test.go\n" || v["preserve/cart_test.go"] != "package shop\n" {
 		t.Fatalf("verifier %v", keysOf(v))
 	}
 	s := untar(t, l, b.Record["reference"].(string))
