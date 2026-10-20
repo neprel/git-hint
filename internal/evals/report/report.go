@@ -130,21 +130,32 @@ func Check(data []byte) error {
 	return nil
 }
 
-// trustProblem checks result_trust (07B-J §11.4): from 0.2.1 every trial carries its own
-// value and the qualification cap, and every attempt closure; a closure whose trial is in
-// the report equals the minimum of the trial's value and its cap (never above either).
+// trustProblem checks result_trust (07B-J §11.4, C7BJ-4) in every 0.2.x report: from
+// 0.2.1 every trial carries its own value and the qualification cap, and every attempt
+// closure its value; in any 0.2.x report, wherever the fields are present, a closure whose
+// trial is in the report equals the minimum of the trial's value and its cap, an absent
+// value counting as unknown. A patch label never lifts the no-upgrade rule; legacy data
+// without the fields stays valid and reads as unknown.
 func trustProblem(m map[string]any) error {
-	if v := str(m["report_version"]); reportMinor(v) != "0.2" || v == "0.2.0" {
-		return nil // legacy: absent values read as unknown
+	v := str(m["report_version"])
+	if reportMinor(v) != "0.2" {
+		return nil
 	}
+	required := v != "0.2.0"
 	trials := map[string]string{}
 	for _, t := range m["trials"].([]any) {
 		tm := t.(map[string]any)
 		q, _ := tm["qualification"].(map[string]any)
 		rt, ok1 := tm["result_trust"].(string)
 		qt, ok2 := q["result_trust"].(string)
-		if !ok1 || !ok2 {
+		if required && (!ok1 || !ok2) {
 			return fmt.Errorf("%w: trial without result_trust", ErrInvalid)
+		}
+		if !ok1 {
+			rt = runner.TrustUnknown
+		}
+		if !ok2 {
+			qt = runner.TrustUnknown
 		}
 		trials[tm["trial_ref"].(string)] = runner.MinTrust(rt, qt)
 	}
@@ -156,7 +167,10 @@ func trustProblem(m map[string]any) error {
 			c, _ := am["closure"].(map[string]any)
 			ct, ok := c["result_trust"].(string)
 			if !ok {
-				return fmt.Errorf("%w: closure without result_trust", ErrInvalid)
+				if required {
+					return fmt.Errorf("%w: closure without result_trust", ErrInvalid)
+				}
+				continue
 			}
 			if want, in := trials[str(am["trial_ref"])]; in && ct != want {
 				return fmt.Errorf("%w: closure result_trust differs from its trial", ErrInvalid)
