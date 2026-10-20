@@ -250,7 +250,7 @@ func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, 
 	out := &capWriter{max: maxIOBytes}
 	readErr := make(chan error, 1)
 	go func() {
-		readErr <- demux(out, att.Reader)
+		readErr <- demux(out, io.Discard, att.Reader)
 	}()
 	wrote := make(chan error, 1)
 	go func() {
@@ -300,10 +300,10 @@ func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, 
 }
 
 // demux reads the engine's multiplexed attach stream strictly: stdout frames go to stdout,
-// stderr frames are dropped; the stream may end only at a frame boundary. A cut header or
+// stderr frames to stderr; the stream may end only at a frame boundary. A cut header or
 // body, an unknown stream type or a system-error frame is an error (stdcopy treats an EOF
 // inside a frame as the end).
-func demux(stdout io.Writer, r io.Reader) error {
+func demux(stdout, stderr io.Writer, r io.Reader) error {
 	var hdr [8]byte
 	for {
 		n, err := io.ReadFull(r, hdr[:])
@@ -319,7 +319,7 @@ func demux(stdout io.Writer, r io.Reader) error {
 		case 1:
 			w = stdout
 		case 2:
-			w = io.Discard
+			w = stderr
 		default:
 			return fmt.Errorf("unexpected stream type %d", hdr[0])
 		}

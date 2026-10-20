@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -221,7 +222,7 @@ func TestDemux(t *testing.T) {
 		{"system error frame", frame(3, "boom"), "", false},
 	} {
 		var out bytes.Buffer
-		err := demux(&out, strings.NewReader(c.in))
+		err := demux(&out, io.Discard, strings.NewReader(c.in))
 		if (err == nil) != c.ok || (c.ok && out.String() != c.out) {
 			t.Errorf("%s: %v %q", c.name, err, out.String())
 		}

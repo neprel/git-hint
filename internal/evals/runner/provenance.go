@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
@@ -134,16 +133,31 @@ func (d *Docker) probeToolchain(ctx context.Context, baseID string, argv []strin
 	}
 	defer d.remove(id)
 	runErr := d.runToEnd(ctx, id, 30*time.Second, "toolchain probe")
-	if logs, err := d.cli.ContainerLogs(ctx, id, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true}); err == nil {
-		var b bytes.Buffer
-		_, _ = stdcopy.StdCopy(&limitWriter{w: &b, n: 4 << 10}, &limitWriter{w: &b, n: 4 << 10}, logs)
-		logs.Close()
-		out["output"] = strings.TrimSpace(b.String())
-	}
 	if runErr != nil {
 		out["reason"] = "probe_failed"
 		return out
 	}
+	// the output counts only when captured completely within one 4 KiB budget (C7BJ-11)
+	logs, err := d.cli.ContainerLogs(ctx, id, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	if err != nil {
+		out["reason"] = "output_unavailable"
+		return out
+	}
+	b := &capWriter{max: 4 << 10}
+	derr := demux(b, b, logs)
+	logs.Close()
+	switch {
+	case derr != nil:
+		out["reason"] = "output_incomplete"
+		return out
+	case b.over:
+		out["reason"] = "output_truncated"
+		return out
+	case strings.TrimSpace(b.buf.String()) == "":
+		out["reason"] = "output_empty"
+		return out
+	}
+	out["output"] = strings.TrimSpace(b.buf.String())
 	out["state"] = "observed"
 	return out
 }

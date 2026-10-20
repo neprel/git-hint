@@ -601,15 +601,22 @@ func (d *Docker) build(ctx context.Context, dir, kind string) (id, tag, contextD
 	defer res.Body.Close()
 	sc := bufio.NewScanner(res.Body)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	// every line of the build stream must be a protocol message, and the stream must end
+	// cleanly: an aux ID before a read failure, an overflow or a malformed line is no
+	// build (C7BJ-12)
 	for sc.Scan() {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
+			continue
+		}
 		var m struct {
 			Error string `json:"error"`
 			Aux   struct {
 				ID string `json:"ID"`
 			} `json:"aux"`
 		}
-		if json.Unmarshal(sc.Bytes(), &m) != nil {
-			continue
+		if json.Unmarshal(line, &m) != nil {
+			return "", "", "", errors.New("malformed build stream")
 		}
 		if m.Error != "" {
 			return "", "", "", errors.New(m.Error)
@@ -617,6 +624,9 @@ func (d *Docker) build(ctx context.Context, dir, kind string) (id, tag, contextD
 		if strings.HasPrefix(m.Aux.ID, "sha256:") {
 			id = m.Aux.ID
 		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", "", "", fmt.Errorf("incomplete build stream: %w", err)
 	}
 	if id == "" {
 		return "", "", "", fmt.Errorf("the build reported no image ID")
