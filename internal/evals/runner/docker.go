@@ -455,8 +455,9 @@ func (d *Docker) verifierPhase(ctx context.Context, lim taskLimits, img, artifac
 	if err != nil {
 		return 0, nil, fmt.Errorf("unreadable reward value")
 	}
-	// the generated verifier's own network record (the isolation check reads it); only the
-	// two exact records are kept, anything else stays absent (missing evidence)
+	// the generated verifier's own network record (the isolation check reads it): only a whole
+	// file that is exactly one of the two records is kept; anything else stays absent (missing
+	// evidence, never a pass)
 	if n, err := d.readSmall(ctx, cid, "/logs/verifier/network.txt"); err == nil {
 		switch rec := strings.TrimSpace(string(n)); rec {
 		case "HINT_VERIFIER_NET=blocked", "HINT_VERIFIER_NET=reachable":
@@ -466,19 +467,36 @@ func (d *Docker) verifierPhase(ctx context.Context, lim taskLimits, img, artifac
 	return v, checks, nil
 }
 
-// readSmall reads the first 64 bytes of one regular file of a stopped container.
+// maxSmallFile bounds the verifier's small result files (reward, network record).
+const maxSmallFile = 64
+
+// readSmall reads one whole regular file of at most maxSmallFile bytes from a stopped
+// container. A larger, non-regular, cut or unreadable file, or an archive with another entry,
+// is an error: evidence is never shortened into a valid value.
 func (d *Docker) readSmall(ctx context.Context, cid, path string) ([]byte, error) {
 	res, err := d.cli.CopyFromContainer(ctx, cid, client.CopyFromContainerOptions{SourcePath: path})
 	if err != nil {
 		return nil, err
 	}
 	defer res.Content.Close()
-	tr := tar.NewReader(res.Content)
+	tr := tar.NewReader(io.LimitReader(res.Content, 64<<10))
 	h, err := tr.Next()
-	if err != nil || h.Typeflag != tar.TypeReg {
-		return nil, fmt.Errorf("unreadable %s", path)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("unreadable %s: %v", path, err)
+	case h.Typeflag != tar.TypeReg:
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	case h.Size < 0 || h.Size > maxSmallFile:
+		return nil, fmt.Errorf("%s has %d bytes (limit %d)", path, h.Size, maxSmallFile)
 	}
-	return io.ReadAll(io.LimitReader(tr, 64))
+	b := make([]byte, h.Size)
+	if _, err := io.ReadFull(tr, b); err != nil {
+		return nil, fmt.Errorf("%s is cut: %v", path, err)
+	}
+	if _, err := tr.Next(); err != io.EOF {
+		return nil, fmt.Errorf("%s: the archive is not exactly one complete file", path)
+	}
+	return b, nil
 }
 
 type limitWriter struct {
