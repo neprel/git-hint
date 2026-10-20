@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -40,6 +41,8 @@ const DockerRunnerVersion = "hint-docker-runner-0.1.0"
 type Docker struct {
 	cli     *client.Client
 	Version string // engine version
+	mu      sync.Mutex
+	probes  map[string]GateProbe // passed network probes by key (engine, policy, gate image)
 }
 
 // FindDocker connects to the Docker engine named by the environment (DOCKER_HOST, the
