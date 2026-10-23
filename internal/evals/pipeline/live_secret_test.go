@@ -10,8 +10,12 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -23,8 +27,10 @@ import (
 // model name, the endpoint, the agent and runner names and versions) when such a field contains
 // the whole key in a form the scan searches (keyForms; case-sensitive like the scan), as the
 // field is written and as JSON writes it. Such a key is refused. A key that merely contains a
-// field is no collision: the field alone never matches the whole key. The names of the fields
-// are reported, never the key.
+// field is no collision: the field alone never matches the whole key. One equality is
+// supported: the key may equal the declared model (publicModelField), because the scan exempts
+// exactly that one field of the summary (summaryPublic) and nothing else; a key that is only a
+// part of the model name is still refused. The names of the fields are reported, never the key.
 func keyCollision(key string, exported map[string]string) error {
 	if key == "" {
 		return nil
@@ -32,6 +38,9 @@ func keyCollision(key string, exported map[string]string) error {
 	forms := keyForms(key)
 	var hit []string
 	for name, v := range exported {
+		if name == publicModelField && v == key {
+			continue
+		}
 		j, _ := json.Marshal(v)
 		for _, f := range forms {
 			if bytes.Contains([]byte(v), f) || bytes.Contains(j, f) {
@@ -45,6 +54,125 @@ func keyCollision(key string, exported map[string]string) error {
 	}
 	sort.Strings(hit)
 	return fmt.Errorf("the model key collides with exported non-secret fields %v: the output scan could not tell them apart; use a distinct key (0 model requests)", hit)
+}
+
+// publicModelField is the exported field that may equal the key (the owner's LAN model accepts
+// its public model ID as the key).
+const publicModelField = "model"
+
+// publicField is a field that the harness itself writes with a declared public value: the JSON
+// object path in one named output. When the key equals that value, the scan reads a copy of
+// the output in which exactly this field's value is replaced (maskPublic). So with such a key
+// the scan checks where else the key is placed or disclosed (any other field, the agent's
+// output, archives, logs, credential contexts); it cannot show that the shared public bytes
+// never appear, because the harness writes them on purpose.
+type publicField struct {
+	output, path, value string
+}
+
+// summaryPublic is the one public field of a session summary: the model of the trial's agent
+// record, which the harness copies from the trial manifest.
+func summaryPublic(output, model string) publicField {
+	return publicField{output, "trial.agent.model", model}
+}
+
+// publicPlaceholder replaces a public field's value in a scan copy or a log rendering.
+const publicPlaceholder = "(declared public value)"
+
+// maskPublic returns a copy of b in which the value of each field is the placeholder. A field
+// is replaced only when b is valid JSON, its path occurs exactly once and its value is written
+// exactly as JSON writes the declared value; otherwise b keeps that field and the scan reads
+// it. b itself is never changed.
+func maskPublic(b []byte, fields []publicField) []byte {
+	if len(fields) == 0 || !json.Valid(b) {
+		return b
+	}
+	var spans [][2]int
+	for _, f := range fields {
+		want, _ := json.Marshal(f.value)
+		if at := jsonPathSpans(b, f.path); len(at) == 1 && at[0][0] >= 0 && bytes.Equal(b[at[0][0]:at[0][1]], want) {
+			spans = append(spans, at[0])
+		}
+	}
+	if len(spans) == 0 {
+		return b
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i][0] < spans[j][0] })
+	out, prev := make([]byte, 0, len(b)), 0
+	for _, s := range spans {
+		if s[0] < prev {
+			continue
+		}
+		out = append(append(out, b[prev:s[0]]...), `"`+publicPlaceholder+`"`...)
+		prev = s[1]
+	}
+	return append(out, b[prev:]...)
+}
+
+// jsonPathSpans finds every value at the dotted path in the JSON document b (object keys;
+// array elements by index): the byte span of a scalar value, [-1 -1] for an object or array.
+func jsonPathSpans(b []byte, path string) [][2]int {
+	type frame struct {
+		obj, wantKey bool
+		key          string
+		idx          int
+	}
+	var stack []frame
+	here := func() string {
+		parts := make([]string, len(stack))
+		for i, f := range stack {
+			if parts[i] = f.key; !f.obj {
+				parts[i] = strconv.Itoa(f.idx)
+			}
+		}
+		return strings.Join(parts, ".")
+	}
+	next := func() {
+		if n := len(stack); n > 0 {
+			if stack[n-1].obj {
+				stack[n-1].wantKey = true
+			} else {
+				stack[n-1].idx++
+			}
+		}
+	}
+	var spans [][2]int
+	dec := json.NewDecoder(bytes.NewReader(b))
+	for {
+		pos := int(dec.InputOffset())
+		tok, err := dec.Token()
+		if err != nil {
+			return spans
+		}
+		if n := len(stack); n > 0 && stack[n-1].obj && stack[n-1].wantKey {
+			if k, ok := tok.(string); ok {
+				stack[n-1].key, stack[n-1].wantKey = k, false
+				continue
+			}
+		}
+		if tok == json.Delim('}') || tok == json.Delim(']') {
+			stack = stack[:len(stack)-1]
+			next()
+			continue
+		}
+		open := tok == json.Delim('{') || tok == json.Delim('[')
+		if here() == path {
+			if open {
+				spans = append(spans, [2]int{-1, -1})
+			} else {
+				start := pos
+				for start < len(b) && strings.IndexByte(" \t\r\n:,", b[start]) >= 0 {
+					start++
+				}
+				spans = append(spans, [2]int{start, int(dec.InputOffset())})
+			}
+		}
+		if open {
+			stack = append(stack, frame{obj: tok == json.Delim('{'), wantKey: true})
+			continue
+		}
+		next()
+	}
 }
 
 // keyForms are the encodings of the key that the scan looks for: the raw text first (a bare
@@ -92,8 +220,9 @@ type keyScan struct {
 
 // keyHits scans every named output in name order; archives are read entry by entry in their
 // order (a later entry with the same name never replaces an earlier one), also nested and
-// gzip-compressed ones.
-func keyHits(key string, outputs map[string][]byte) (hits, incomplete []string) {
+// gzip-compressed ones. A public field of an output is masked in the scan copy only when the
+// key equals its declared value (maskPublic).
+func keyHits(key string, outputs map[string][]byte, public ...publicField) (hits, incomplete []string) {
 	if key == "" {
 		return nil, nil
 	}
@@ -104,7 +233,13 @@ func keyHits(key string, outputs map[string][]byte) (hits, incomplete []string) 
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		ks.scan(n, outputs[n], 0)
+		var mine []publicField
+		for _, f := range public {
+			if f.output == n && f.value == key {
+				mine = append(mine, f)
+			}
+		}
+		ks.scan(n, maskPublic(outputs[n], mine), 0)
 	}
 	sort.Strings(ks.hits)
 	return ks.hits, ks.incomplete
@@ -216,7 +351,8 @@ func (ks *keyScan) untar(name string, b []byte, depth int) {
 func TestKeyCollisionPreflight(t *testing.T) {
 	exported := map[string]string{"model": "ai01", "base_url": "http://127.0.0.1:10011/v1", "agent": "opencode", "agent_version": "2.0.26", "runner": "hint-docker 0.1.0", "note": "a<b", "enc": "dG9rM24=", "query": "q=a+b"}
 	refused := map[string]string{
-		"equal to a field":      "ai01",
+		"equal to a field":      "opencode",
+		"part of the model":     "i0", // the summary's model field is masked only for a key equal to it
 		"substring of a field":  "10011",
 		"substring, other":      "docker 0.1",
 		"json-escaped in field": `\u003c`, // "a<b" is written as "a\u003cb" in JSON output
@@ -237,6 +373,7 @@ func TestKeyCollisionPreflight(t *testing.T) {
 		"prefix-only (contains model)": "ai01-Synthetic-Long-Secret-9f3k",
 		"contains a whole field":       "x-hint-docker 0.1.0-y",
 		"other case than the field":    "AI01", // the scan is case-sensitive: "ai01" never matches "AI01"
+		"equal to the declared model":  "ai01", // supported: the scan masks exactly the summary's model field
 	}
 	for name, key := range accepted {
 		if err := keyCollision(key, exported); err != nil {
@@ -246,15 +383,17 @@ func TestKeyCollisionPreflight(t *testing.T) {
 }
 
 // TestPreflightAgreesWithTheScan: the preflight accepts exactly the keys whose scan over
-// exported metadata is clean, and the scan still catches the whole key.
+// exported metadata is clean (the summary with its one public field, the log with the summary
+// as the harness logs it), and the scan still catches the whole key.
 func TestPreflightAgreesWithTheScan(t *testing.T) {
+	summary := []byte(`{"trial":{"agent":{"model":"ai01","name":"opencode","version":"2.0.26"}},"note":"a\u003cb","enc":"dG9rM24="}`)
 	meta := map[string][]byte{
-		"summary.json": []byte(`{"agent":{"model":"ai01","name":"opencode","version":"2.0.26"},"note":"a\u003cb","enc":"dG9rM24="}`),
-		"test.log":     []byte(`"model": "ai01" at http://127.0.0.1:10011/v1`),
+		"summary.json": summary,
+		"test.log":     append([]byte("summary at http://127.0.0.1:10011/v1\n"), maskPublic(summary, []publicField{summaryPublic("", "ai01")})...),
 	}
 	exported := map[string]string{"model": "ai01", "base_url": "http://127.0.0.1:10011/v1", "agent": "opencode", "agent_version": "2.0.26", "note": "a<b", "enc": "dG9rM24="}
-	for _, key := range []string{"ai01-Synthetic-Long-Secret-9f3k", "AI01", "ai01", "10011", `\u003c`, "tok3n", "s3cr3t-Distinct-Value"} {
-		hits, inc := keyHits(key, meta)
+	for _, key := range []string{"ai01-Synthetic-Long-Secret-9f3k", "AI01", "ai01", "i0", "10011", `\u003c`, "tok3n", "s3cr3t-Distinct-Value"} {
+		hits, inc := keyHits(key, meta, summaryPublic("summary.json", "ai01"))
 		if inc != nil {
 			t.Fatalf("incomplete: %v", inc)
 		}
@@ -289,8 +428,8 @@ func TestLiveTrialCollisionNeedsNoRequest(t *testing.T) {
 	}()
 	t.Setenv("HINT_LIVE_MODEL_URL", "http://"+ln.Addr().String()+"/v1")
 	t.Setenv("HINT_LIVE_MODEL", "same-word")
-	for _, key := range []string{"same-word", "same", "word", "ame-wor"} {
-		t.Setenv("HINT_LOCAL_MODEL_KEY", key) // equal, and substrings of the model name
+	for _, key := range []string{"same", "word", "ame-wor", "opencode", "0.1.0"} {
+		t.Setenv("HINT_LOCAL_MODEL_KEY", key) // parts of the model name, other exported fields
 		refused, _ := liveGate(liveModel(t))
 		if refused == nil || !strings.Contains(refused.Error(), "0 model requests") || strings.Contains(refused.Error(), key) {
 			t.Fatalf("preflight: %v", refused)
@@ -300,15 +439,18 @@ func TestLiveTrialCollisionNeedsNoRequest(t *testing.T) {
 	if n := conns.Load(); n != 0 {
 		t.Fatalf("the endpoint was contacted %d times before the refusal", n)
 	}
-	t.Setenv("HINT_LOCAL_MODEL_KEY", "same-word-Synthetic-Long-Secret") // contains the model name: no collision
-	if refused, unreachable := liveGate(liveModel(t)); refused != nil || unreachable != nil {
-		t.Fatalf("prefix-only key: %v %v", refused, unreachable)
+	// equal to the declared model (supported), and a key that contains the model name
+	for _, key := range []string{"same-word", "same-word-Synthetic-Long-Secret"} {
+		t.Setenv("HINT_LOCAL_MODEL_KEY", key)
+		if refused, unreachable := liveGate(liveModel(t)); refused != nil || unreachable != nil {
+			t.Fatalf("accepted key: %v %v", refused, unreachable)
+		}
 	}
-	for deadline := time.Now().Add(2 * time.Second); conns.Load() != 1 && time.Now().Before(deadline); {
+	for deadline := time.Now().Add(2 * time.Second); conns.Load() != 2 && time.Now().Before(deadline); {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if n := conns.Load(); n != 1 {
-		t.Fatalf("connections %d, want the one TCP check", n)
+	if n := conns.Load(); n != 2 {
+		t.Fatalf("connections %d, want one TCP check per accepted key", n)
 	}
 }
 
@@ -384,8 +526,8 @@ func TestKeyHits(t *testing.T) {
 	if h, inc := keyHits("s3cr3t-Distinct-Value", meta); h != nil || inc != nil {
 		t.Errorf("benign metadata: %v %v", h, inc)
 	}
-	// the session-1 shape (key equal to the model name): the raw scan still fires, which is why
-	// the preflight refuses that configuration before any request
+	// the session-1 shape (key equal to the model name) without a declared public field: the raw
+	// scan fires on every occurrence (TestPublicModelField has the one exemption)
 	if h, _ := keyHits("ai01", meta); len(h) != 2 {
 		t.Errorf("colliding key: %v", h)
 	}
@@ -440,5 +582,224 @@ func TestKeyScanIncomplete(t *testing.T) {
 		if hits, inc := keyHits(key, map[string][]byte{"run.tar": out}); hits != nil || inc != nil {
 			t.Errorf("control: %v %v", hits, inc)
 		}
+	}
+}
+
+// session1Summary is the stored summary of §24 session 1 byte for byte, with the model name
+// (which was also the key) replaced by the synthetic declared model "lan-m1".
+const session1Summary = `{
+  "ledgers": [
+    {
+      "bypass": "enforced",
+      "counts": {
+        "admitted": 6,
+        "cancelled": 0,
+        "complete": 6,
+        "error": 0,
+        "late": 0,
+        "missing_usage": 0,
+        "rejected_limit": 0,
+        "truncated": 0,
+        "unknown": 0,
+        "unreadable": 0,
+        "usage_conflict": 0,
+        "usage_partial": 0
+      },
+      "reasons": [],
+      "state": "complete"
+    }
+  ],
+  "ledgers_not_written": 0,
+  "model_requests": 6,
+  "opencode": "2.0.26",
+  "outcomes": {
+    "passed": 1
+  },
+  "report_error": "\u003cnil\u003e",
+  "runner": "hint-docker 0.1.0",
+  "series_may_continue": false,
+  "trial": {
+    "agent": {
+      "model": "lan-m1",
+      "model_check": "verified",
+      "name": "opencode",
+      "version": "2.0.26"
+    },
+    "budget": {
+      "max_requests": 8,
+      "max_seconds": 300,
+      "stop_reason": "completed"
+    },
+    "checks": [
+      {
+        "check_id": "C1",
+        "status": "pass"
+      },
+      {
+        "check_id": "C2",
+        "status": "pass"
+      }
+    ],
+    "counters": {
+      "agent_seconds": 98.121723,
+      "cache_tokens": null,
+      "input_tokens": null,
+      "output_tokens": null,
+      "requests": 6,
+      "retries": 0,
+      "wall_seconds": 103.703054
+    },
+    "outcome": "passed",
+    "result_trust": "same_process",
+    "runner": {
+      "name": "hint-docker",
+      "version": "0.1.0"
+    }
+  },
+  "trials": 1,
+  "verdict": "the model key appears in an output",
+  "wall_seconds": 106
+}`
+
+// TestPublicModelField: with a key equal to the declared model, only the summary's one public
+// field (trial.agent.model, written exactly as JSON writes the declared value, once) is masked
+// in a scan copy; every other place of the same literal is still a hit, nothing is rewritten.
+func TestPublicModelField(t *testing.T) {
+	const model = "lan-m1"
+	pub := summaryPublic("summary.json", model)
+	scan := func(key string, outputs map[string][]byte) []string {
+		t.Helper()
+		before := map[string]string{}
+		for n, b := range outputs {
+			before[n] = string(b)
+		}
+		hits, inc := keyHits(key, outputs, pub)
+		if inc != nil {
+			t.Fatalf("incomplete: %v", inc)
+		}
+		for n, b := range outputs {
+			if string(b) != before[n] {
+				t.Fatalf("%s: the scan changed the stored output", n)
+			}
+		}
+		return hits
+	}
+	s1 := []byte(session1Summary)
+	if h := scan(model, map[string][]byte{"summary.json": s1}); h != nil {
+		t.Errorf("session 1 summary: %v", h)
+	}
+	if h, _ := keyHits(model, map[string][]byte{"summary.json": s1}); len(h) != 1 {
+		t.Errorf("session 1 summary without the public field: %v, want the one hit", h)
+	}
+	field := func(path string, v any) []byte { // session 1 with one more field set
+		var d map[string]any
+		json.Unmarshal(s1, &d)
+		m, parts := d, strings.Split(path, ".")
+		for _, p := range parts[:len(parts)-1] {
+			m = m[p].(map[string]any)
+		}
+		m[parts[len(parts)-1]] = v
+		b, _ := json.MarshalIndent(d, "", "  ")
+		return b
+	}
+	caught := map[string]map[string][]byte{
+		"unrelated summary field":     {"summary.json": field("trial.agent.name", model)},
+		"top-level summary field":     {"summary.json": field("note", "x "+model)},
+		"model field in a ledger":     {"summary.json": field("ledgers", []any{map[string]any{"model": model}})},
+		"same path in another output": {"summary.json": s1, "report.json": s1},
+		"agent stdout":                {"summary.json": s1, "stdout": []byte("using " + model)},
+		"authorization header":        {"summary.json": s1, "log": []byte("Authorization: Bearer " + model)},
+		"api key field":               {"summary.json": s1, "cfg": []byte(`{"apiKey": "` + model + `"}`)},
+		"environment dump":            {"summary.json": s1, "env": []byte("HINT_LOCAL_MODEL_KEY=" + model)},
+		"archive entry":               {"summary.json": s1, "run.tar": tarOf(false, entry{"agent/opencode.txt", "model " + model})},
+		"gzip archive entry":          {"summary.json": s1, "run.tar": tarOf(false, entry{"agent/final.tar.gz", string(tarOf(true, entry{"cfg.json", model}))})},
+		"base64 in stdout":            {"summary.json": s1, "stdout": []byte(base64.StdEncoding.EncodeToString([]byte(model)))},
+		// the field itself is exempt only as the harness writes it: once, exactly the declared value
+		"model field, another value":  {"summary.json": field("trial.agent.model", model+":latest")},
+		"model field, path twice":     {"summary.json": []byte(`{"trial":{"agent":{"model":"lan-m1","model":"other"}}}`)}, // JSON reads "other"
+		"model field not a string":    {"summary.json": []byte(`{"trial":{"agent":{"model":["lan-m1"]}}}`)},
+		"summary with trailing bytes": {"summary.json": append(append([]byte{}, s1...), '}')},
+		"summary cut after the field": {"summary.json": s1[:bytes.Index(s1, []byte(`"model_check"`))]},
+	}
+	for name, outputs := range caught {
+		h := scan(model, outputs)
+		if len(h) == 0 {
+			t.Errorf("%s: not caught", name)
+		}
+		if bytes.Equal(outputs["summary.json"], s1) && strings.Contains(fmt.Sprint(h), "summary.json:") {
+			t.Errorf("%s: the public field itself hit: %v", name, h)
+		}
+	}
+	// a longer key that starts with the model: no exemption, the whole key is still searched
+	long := model + "-Synthetic-Long-Secret"
+	if h := scan(long, map[string][]byte{"summary.json": s1, "stdout": []byte("using " + model)}); h != nil {
+		t.Errorf("longer key, model only: %v", h)
+	}
+	if h := scan(long, map[string][]byte{"summary.json": s1, "stdout": []byte("x " + long)}); fmt.Sprint(h) != "[stdout: raw]" {
+		t.Errorf("longer key in stdout: %v", h)
+	}
+	if h := scan(long, map[string][]byte{"summary.json": field("trial.agent.model", long)}); len(h) == 0 {
+		t.Errorf("longer key in the model field: not caught")
+	}
+	// the field as JSON writes it: a declared model with an escaped character is masked too
+	esc := field("trial.agent.model", "a<b")
+	if h, _ := keyHits("a<b", map[string][]byte{"summary.json": esc}, summaryPublic("summary.json", "a<b")); h != nil {
+		t.Errorf("escaped declared model: %v", h)
+	}
+	// the scan copy and the log rendering: valid JSON, only the field differs
+	masked := maskPublic(s1, []publicField{pub})
+	var a, b map[string]any
+	json.Unmarshal(s1, &a)
+	if err := json.Unmarshal(masked, &b); err != nil {
+		t.Fatal(err)
+	}
+	if b["trial"].(map[string]any)["agent"].(map[string]any)["model"] != publicPlaceholder {
+		t.Errorf("the field is not masked")
+	}
+	b["trial"].(map[string]any)["agent"].(map[string]any)["model"] = model
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("the rendering changes more than the field")
+	}
+	if string(s1) != session1Summary {
+		t.Errorf("the rendering changed the summary")
+	}
+	// an incomplete scan stays incomplete with the exemption
+	cut := tarOf(false, entry{"a", "clean"})[:600]
+	if _, inc := keyHits(model, map[string][]byte{"summary.json": s1, "run.tar": cut}, pub); inc == nil {
+		t.Errorf("a cut archive is complete")
+	}
+}
+
+// TestLiveOutputScanFiles: the runner's scan of the stored files agrees with the session's: the
+// actual summary file and the go test log as the harness writes them are clean for a key equal
+// to the model; the same literal in any other file or field is caught; an unreadable file fails.
+func TestLiveOutputScanFiles(t *testing.T) {
+	const model = "lan-m1"
+	dir, log := t.TempDir(), filepath.Join(t.TempDir(), "test.log")
+	pub := summaryPublic(liveSummaryFile, model)
+	os.WriteFile(filepath.Join(dir, liveSummaryFile), []byte(session1Summary), 0o600)
+	os.WriteFile(filepath.Join(dir, "opencode-trial-run.tar"), tarOf(false, entry{"agent/opencode.txt", "done"}), 0o600)
+	os.WriteFile(log, append([]byte("=== RUN   TestLiveOpenCodeTrial\n    live_test.go: summary:\n"), maskPublic([]byte(session1Summary), []publicField{pub})...), 0o600)
+	read := func() map[string][]byte {
+		t.Helper()
+		out, err := liveFiles([]string{dir, log})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if h, inc := keyHits(model, read(), pub); h != nil || inc != nil {
+		t.Fatalf("stored session: %v %v", h, inc)
+	}
+	// the old unmasked log line (session 1) and a summary under another name are caught
+	os.WriteFile(log, []byte(`"model": "`+model+`"`), 0o600)
+	os.WriteFile(filepath.Join(dir, "copy-of-summary.json"), []byte(session1Summary), 0o600)
+	if h, _ := keyHits(model, read(), pub); fmt.Sprint(h) != "[copy-of-summary.json: raw test.log: raw]" {
+		t.Errorf("hits %v", h)
+	}
+	// a symlink is not read: the scan fails instead of skipping it
+	os.Symlink(log, filepath.Join(dir, "link"))
+	if _, err := liveFiles([]string{dir}); err == nil {
+		t.Errorf("a symlink was accepted")
 	}
 }

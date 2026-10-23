@@ -90,9 +90,10 @@ func TestLiveRequirementMap(t *testing.T) {
 // 300 seconds of agent time, no trial retry. The endpoint is checked first by a TCP connect
 // only (no request); when it is unreachable nothing starts. Set HINT_DOCKER_TESTS=1 too;
 // HINT_OPENCODE_TGZ is a local copy of the pinned OpenCode archive (else it is fetched once).
-// A key that collides with an exported identifier (for example the model name) is refused first.
-// The run checks the chain (gate, ledger, result trust, report) and that the key appears in
-// no output; it does not measure canonical tokens or savings.
+// A key that collides with an exported identifier (for example a part of the model name) is
+// refused first; a key equal to the declared model is supported (keyCollision). The run checks
+// the chain (gate, ledger, result trust, report) and that the key appears in no output outside
+// the one declared public field of the summary; it does not measure canonical tokens or savings.
 func TestLiveOpenCodeTrial(t *testing.T) {
 	m := liveModel(t)
 	if os.Getenv("HINT_DOCKER_TESTS") != "1" {
@@ -168,17 +169,20 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	b, _ := json.MarshalIndent(summary, "", "  ")
 	outputs["summary.json"] = b
 	// the key appears in no output, in no form (raw, escaped, encoded; archives entry by entry, in
-	// order); a hit names the output and the form, never the value; a scan that could not read
+	// order), except as the declared model in the summary's one public field when the key equals
+	// it; a hit names the output and the form, never the value; a scan that could not read
 	// everything is not clean
-	sess.KeyHits, sess.KeyScanIncomplete = keyHits(os.Getenv(m.KeyEnv), outputs)
+	sess.KeyHits, sess.KeyScanIncomplete = keyHits(os.Getenv(m.KeyEnv), outputs, summaryPublic("summary.json", m.Model))
 	summary["key_hits"], summary["key_scan_incomplete"] = sess.KeyHits, sess.KeyScanIncomplete
 	// the series continues (macOS before Linux) only on a verified session, never on a test
 	// PASS alone; the actual result is kept either way
 	verr := sess.verdict()
 	summary["series_may_continue"], summary["verdict"] = verr == nil, fmt.Sprint(verr)
 	b, _ = json.MarshalIndent(summary, "", "  ")
-	liveOut(t, "opencode-trial-summary.json", b)
-	t.Logf("summary:\n%s", b)
+	liveOut(t, liveSummaryFile, b) // the actual summary; the runner's scan (TestLiveOutputScan) masks the same one field
+	// the log shows the summary with the public field masked, so the go test log never holds the
+	// declared model (and with it a key equal to it)
+	t.Logf("summary (trial.agent.model as %q):\n%s", publicPlaceholder, maskPublic(b, []publicField{summaryPublic("", m.Model)}))
 	if verr != nil {
 		t.Fatalf("the session did not verify the chain; stop the series: %v", verr)
 	}
@@ -194,13 +198,81 @@ func liveGate(m *evals.Model) (refused, unreachable error) {
 }
 
 // livePreflight refuses, before any model or agent request, a key that the output scan could
-// not tell from an identifier the session exports on purpose.
+// not tell from an identifier the session exports on purpose; the key may equal the model.
 func livePreflight(m *evals.Model) error {
 	return keyCollision(os.Getenv(m.KeyEnv), map[string]string{
 		"model": m.Model, "base_url": m.BaseURL, "model_use": m.Use, "key_env": m.KeyEnv,
 		"agent": "opencode", "agent_version": runner.DockerOpenCodeVersion,
 		"runner": "hint-docker", "runner_version": runner.DockerRunnerSemver, "arm": "baseline",
 	})
+}
+
+// liveSummaryFile is the stored session summary in HINT_LIVE_OUT.
+const liveSummaryFile = "opencode-trial-summary.json"
+
+// TestLiveOutputScan is the session runner's check after a session: the stored outputs and the
+// go test log (HINT_LIVE_SCAN: files or directories, separated by the OS path list separator)
+// with the same key scan and the same one public field (the stored summary's declared model,
+// HINT_LIVE_MODEL) as the session itself; no request, no other exemption.
+func TestLiveOutputScan(t *testing.T) {
+	paths := os.Getenv("HINT_LIVE_SCAN")
+	if paths == "" {
+		t.Skip("set HINT_LIVE_SCAN")
+	}
+	key, model := os.Getenv("HINT_LOCAL_MODEL_KEY"), os.Getenv("HINT_LIVE_MODEL")
+	if key == "" || model == "" {
+		t.Fatal("set HINT_LOCAL_MODEL_KEY and HINT_LIVE_MODEL")
+	}
+	outputs, err := liveFiles(filepath.SplitList(paths))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, incomplete := keyHits(key, outputs, summaryPublic(liveSummaryFile, model))
+	t.Logf("files %d, key hits %v, incomplete %v", len(outputs), hits, incomplete)
+	if hits != nil || incomplete != nil {
+		t.Fatal("the key scan of the stored outputs is not clean")
+	}
+}
+
+// liveFiles reads the named files (named by their base name) and every file in the named
+// directories (named by their path in it). Anything that is not a regular file, and two files
+// with one name, are refused: the scan reads everything or fails.
+func liveFiles(paths []string) (map[string][]byte, error) {
+	out := map[string][]byte{}
+	add := func(name, path string) error {
+		if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() {
+			return fmt.Errorf("%s: not a regular file", name)
+		}
+		if _, dup := out[name]; dup {
+			return fmt.Errorf("%s: two files with this name", name)
+		}
+		b, err := os.ReadFile(path)
+		out[name] = b
+		return err
+	}
+	for _, p := range paths {
+		fi, err := os.Lstat(p)
+		if err != nil {
+			return nil, err
+		}
+		if !fi.IsDir() {
+			if err := add(filepath.Base(p), p); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		err = filepath.WalkDir(p, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, _ := filepath.Rel(p, path)
+			return add(filepath.ToSlash(rel), path)
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // liveReachable is a TCP connect only (no request): an unreachable endpoint starts nothing.
