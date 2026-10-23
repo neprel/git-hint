@@ -175,11 +175,12 @@ func (lv *Live) Close() error {
 	return lv.srv.Shutdown(ctx)
 }
 
-// NewTrial registers a trial with its request limit.
+// NewTrial registers a trial with its request limit and anchors its ledger.
 func (lv *Live) NewTrial(limit int) *Counter {
 	b := make([]byte, 12)
 	rand.Read(b)
 	c := &Counter{token: hex.EncodeToString(b), limit: int64(limit)}
+	c.ledger.anchor() // the anchor precedes every container of the trial (agent_run offsets)
 	lv.mu.Lock()
 	lv.trials[c.token] = c
 	lv.mu.Unlock()

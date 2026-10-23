@@ -138,3 +138,32 @@ func TestProducedProxyErrorAndEmptyLedgersPassTheChecker(t *testing.T) {
 		t.Fatalf("an empty ledger must be aggregate-only and valid: %v %+v", p, e)
 	}
 }
+
+// The account's agent_run is copied to the record as recorded: over real proxy traffic an
+// enclosure from the anchor to the seal passes the public checker, the same outcome without
+// entries carries no offsets, and a refusal before the launch with an admitted request is
+// refused by the checker (the mapping never repairs a record).
+func TestProducedAgentRunPassesTheChecker(t *testing.T) {
+	_, c, url := proxy(t, "", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"usage":{"prompt_tokens":7,"completion_tokens":2}}`)
+	})
+	send(context.Background(), url)
+	r := c.Seal(time.Second, runner.BypassEnforced, runner.ScopeIsolatedContainer)
+	zero, code := int64(0), 0
+	digest := "sha256:" + strings.Repeat("b", 64)
+	r.AgentRun = &runner.ReportAgentRun{Outcome: runner.AgentExited, ExitCode: &code, EnclosureStartMs: &zero, EnclosureEndMs: r.SealedMs, ExecutionDigest: digest}
+	m := record(t, r)
+	if p := activity.LedgerProblems(m); len(p) != 0 || m.AgentRun == nil || *m.AgentRun.EnclosureEndMs != *m.SealedMs {
+		t.Fatalf("the produced agent_run fails the checker: %v %+v", p, m.AgentRun)
+	}
+	r.AgentRun = &runner.ReportAgentRun{Outcome: runner.AgentRefusedBeforeLaunch, ExecutionDigest: digest}
+	if p := activity.LedgerProblems(record(t, r)); len(p) == 0 {
+		t.Fatal("a refusal before the launch with an admitted request passed")
+	}
+	_, empty, _ := proxy(t, "http://127.0.0.1:1", nil)
+	e := empty.Seal(0, runner.BypassEnforced, runner.ScopeIsolatedContainer)
+	e.AgentRun = &runner.ReportAgentRun{Outcome: runner.AgentRefusedBeforeLaunch, ExecutionDigest: digest}
+	if p := activity.LedgerProblems(record(t, e)); len(p) != 0 {
+		t.Fatalf("a refusal before the launch without requests is refused: %v", p)
+	}
+}

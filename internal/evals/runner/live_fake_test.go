@@ -25,6 +25,9 @@ type liveFakeOpts struct {
 	blockWait         bool          // the agent never ends (wait blocks until the client gives up)
 	failNetworkDelete bool          // removing a network fails
 	cancelAfter       time.Duration // cancel the attempt's context
+	digest            bool          // the attempt has an execution digest (agent_run is recorded)
+	requestInWait     bool          // the one request arrives while the agent runs, not before the trial
+	refuseProbe       bool          // the gate probe fails: nothing is launched
 }
 
 func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
@@ -36,7 +39,10 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 		r := httptest.NewRequest("POST", "http://proxy/t/"+c.token+"/chat/completions", strings.NewReader(`{"model":"m"}`))
 		lv.srv.Handler.ServeHTTP(httptest.NewRecorder(), r)
 	}
-	request() // one complete request during the run
+	if !o.requestInWait {
+		request() // one complete request during the run
+	}
+	waited := false
 	var tree bytes.Buffer
 	tw := tar.NewWriter(&tree)
 	tw.WriteHeader(&tar.Header{Name: "app/", Typeflag: tar.TypeDir, Mode: 0o755})
@@ -60,6 +66,11 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 			w.Header().Set("X-Docker-Container-Path-Stat", "eyJuYW1lIjoiYXBwIiwic2l6ZSI6MCwibW9kZSI6MjE0NzQ4NDE0MSwibXRpbWUiOiIyMDI2LTEwLTIwVDAwOjAwOjAwWiIsImxpbmtUYXJnZXQiOiIifQ==")
 			w.Write(tree.Bytes())
 			return
+		case o.requestInWait && !waited && strings.HasSuffix(p, "/wait"): // the agent's wait
+			waited = true
+			request()
+			s.serve(w, r)
+			return
 		case o.blockWait && strings.HasSuffix(p, "/wait"):
 			<-r.Context().Done()
 			return
@@ -82,6 +93,13 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 		t.Fatal(err)
 	}
 	d.probes = map[string]GateProbe{key: {OK: true, Key: key, Image: fakeGateID}}
+	if o.refuseProbe {
+		d.probes, d.probeFn = nil, func(context.Context) GateProbe { return GateProbe{Reason: "synthetic probe failure"} }
+	}
+	digest := ""
+	if o.digest {
+		digest = "sha256:" + strings.Repeat("c", 64)
+	}
 	task := t.TempDir()
 	os.MkdirAll(filepath.Join(task, "environment", "repo"), 0o755)
 	dir := t.TempDir()
@@ -95,7 +113,7 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 	if o.blockWait && o.cancelAfter == 0 {
 		lim.agent = time.Second
 	}
-	d.trial(ctx, task, dir, "t__1", RunOptions{Agent: "test-agent", Attempts: 1, Live: lv, Counter: c, agentCmd: []string{"test"}},
+	d.trial(ctx, task, dir, "t__1", RunOptions{Agent: "test-agent", Attempts: 1, Live: lv, Counter: c, agentCmd: []string{"test"}, testDigest: digest},
 		lim, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
 	var r trialResult
 	b, err := os.ReadFile(filepath.Join(dir, "result.json"))
@@ -143,5 +161,28 @@ func TestLiveLedgerTeardownFailure(t *testing.T) {
 	errs, _ := r.Container["teardown_errors"].([]any)
 	if r.Container["ledger_final"] != false || len(errs) == 0 {
 		t.Fatalf("final %v errors %v", r.Container["ledger_final"], errs)
+	}
+}
+
+// The live phase records the agent's enclosure around the engine calls: a run whose request
+// arrives while the agent runs gives an exited record that passes the public rule; a refused
+// gate gives refused_before_launch without offsets; without a digest nothing is recorded.
+func TestLiveAgentRunWiring(t *testing.T) {
+	r, c := liveFake(t, liveFakeOpts{digest: true, requestInWait: true})
+	l := persisted(t, r)
+	if a := l.AgentRun; a == nil || a.Outcome != AgentExited || a.EnclosureStartMs == nil || a.EnclosureEndMs == nil || len(l.Entries) != 1 {
+		t.Fatalf("agent run %+v entries %d", a, len(l.Entries))
+	}
+	if p := checked(t, &l); p != "" || *l.AgentRun.EnclosureEndMs > *l.SealedMs || c.Report().AgentRun.Outcome != AgentExited {
+		t.Fatalf("the produced record fails the public rule: %s %+v", p, l.AgentRun)
+	}
+	r, _ = liveFake(t, liveFakeOpts{digest: true, requestInWait: true, refuseProbe: true})
+	l = persisted(t, r)
+	if a := l.AgentRun; r.ExceptionInfo == nil || a == nil || a.Outcome != AgentRefusedBeforeLaunch || a.EnclosureStartMs != nil || checked(t, &l) != "" {
+		t.Fatalf("refused: exception %v agent run %+v", r.ExceptionInfo, a)
+	}
+	r, _ = liveFake(t, liveFakeOpts{})
+	if l := persisted(t, r); l.AgentRun != nil {
+		t.Fatalf("a record without a digest: %+v", l.AgentRun)
 	}
 }

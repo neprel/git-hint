@@ -102,6 +102,35 @@ type ledger struct {
 	sealedWall    time.Time     // observed when admission was revoked (the ledger's sealed_at)
 	sealedMono    time.Duration
 	finalizedMono time.Duration
+	agentRun      *agentRun // the agent's launch/exit enclosure, recorded once before the seal
+}
+
+// agentRun is the agent container's outcome and its launch/exit enclosure as the runner observed
+// it, in monotonic offsets from the ledger's anchor (never the true process boundaries).
+type agentRun struct {
+	outcome                       string
+	exitCode                      *int
+	start, end                    *time.Duration
+	digest                        string
+	engineStarted, engineFinished *string
+}
+
+// mark is the monotonic offset of now from the ledger's anchor (anchored first when needed).
+func (c *Counter) mark() time.Duration {
+	c.ledger.mu.Lock()
+	defer c.ledger.mu.Unlock()
+	c.ledger.anchor()
+	return c.ledger.since()
+}
+
+// recordAgentRun keeps the first record made before the seal; a later record or one after the
+// seal changes nothing, so the enclosure is frozen with the account.
+func (c *Counter) recordAgentRun(a agentRun) {
+	c.ledger.mu.Lock()
+	defer c.ledger.mu.Unlock()
+	if c.ledger.agentRun == nil && !c.ledger.sealed {
+		c.ledger.agentRun = &a
+	}
 }
 
 // anchor sets the ledger's clock and anchor once (the caller holds the lock).
@@ -191,6 +220,21 @@ type LedgerReport struct {
 	SealedMs    *int64        `json:"sealed_ms,omitempty"`
 	FinalizedMs *int64        `json:"finalized_ms,omitempty"`
 	ClockStepMs *int64        `json:"clock_step_ms,omitempty"`
+	// the agent's launch/exit enclosure (draft v0.2); offsets only when the entries are present
+	AgentRun *ReportAgentRun `json:"agent_run,omitempty"`
+}
+
+// ReportAgentRun is the agent container's outcome as the runner observed it: the enclosure in
+// monotonic offsets from the anchor (never the true process start or end), the exit code of an
+// exit, the execution digest and the engine's own times (descriptive, engine clock).
+type ReportAgentRun struct {
+	Outcome          string  `json:"outcome"`
+	ExitCode         *int    `json:"exit_code"`
+	EnclosureStartMs *int64  `json:"enclosure_start_ms"`
+	EnclosureEndMs   *int64  `json:"enclosure_end_ms"`
+	ExecutionDigest  string  `json:"execution_digest"`
+	EngineStartedAt  *string `json:"engine_started_at"`
+	EngineFinishedAt *string `json:"engine_finished_at"`
 }
 
 // ReportEntry is one admitted request of the account: numbers and enums only (the opaque entry
@@ -328,6 +372,7 @@ func (c *Counter) Report() *LedgerReport {
 		r.Reasons = append(r.Reasons, "model_"+r.ModelCheck)
 	}
 	l.entryEvidence(r)
+	l.agentRunEvidence(r)
 	sort.Strings(r.Reasons)
 	r.State = "incomplete"
 	if len(r.Reasons) == 0 {
@@ -367,6 +412,39 @@ func (l *ledger) entryEvidence(r *LedgerReport) {
 	sealed, final := l.sealedMono.Milliseconds(), l.finalizedMono.Milliseconds()
 	step := z.Sub(a).Milliseconds() - sealed // observed minus derived; non-zero after a wall-clock step
 	r.Entries, r.AnchorUTC, r.SealedMs, r.FinalizedMs, r.ClockStepMs = entries, anchor, &sealed, &final, &step
+}
+
+// agentRunEvidence adds the agent's record (new values on every call); its offsets only when the
+// account has entries, since an account without entries has no timing. The caller holds the lock.
+func (l *ledger) agentRunEvidence(r *LedgerReport) {
+	a := l.agentRun
+	if a == nil {
+		return
+	}
+	str := func(p *string) *string {
+		if p == nil {
+			return nil
+		}
+		v := *p
+		return &v
+	}
+	x := &ReportAgentRun{Outcome: a.outcome, ExecutionDigest: a.digest, EngineStartedAt: str(a.engineStarted), EngineFinishedAt: str(a.engineFinished)}
+	if a.exitCode != nil {
+		v := *a.exitCode
+		x.ExitCode = &v
+	}
+	if len(r.Entries) > 0 {
+		for _, p := range []struct {
+			from *time.Duration
+			to   **int64
+		}{{a.start, &x.EnclosureStartMs}, {a.end, &x.EnclosureEndMs}} {
+			if p.from != nil {
+				v := p.from.Milliseconds()
+				*p.to = &v
+			}
+		}
+	}
+	r.AgentRun = x
 }
 
 // Bounds of the usage reader: the bytes of one usage value, one stream line and the nesting

@@ -82,7 +82,16 @@ type liveResult struct {
 func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, lim taskLimits, img, artifact string) liveResult {
 	var res liveResult
 	var cleanups []func() error
+	digest := "" // the attempt's execution digest; no agent_run is recorded without it
+	if o.Agent == "test-agent" {
+		digest = o.testDigest
+	}
 	finish := func(err error) liveResult {
+		// refused before the agent's launch; after the launch runAgentEnclosed has already
+		// recorded the outcome and the first record is kept
+		if digest != "" {
+			o.Counter.recordAgentRun(agentRun{outcome: AgentRefusedBeforeLaunch, digest: digest})
+		}
 		if o.Counter.Report() == nil { // revoke admission on every path that admitted nothing yet
 			o.Counter.Seal(5*time.Second, BypassUnverified, ScopeIsolatedContainer)
 			res.sealedAt = o.Counter.SealedAt()
@@ -118,7 +127,8 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 			return finish(agentInstallError{err})
 		}
 		cmd = openCodeArgv(o.Live.model, instr)
-		res.agentBinary["execution_digest"] = openCodeExecutionDigest(o.Live.model, instr, bin.prov)
+		digest = openCodeExecutionDigest(o.Live.model, instr, bin.prov)
+		res.agentBinary["execution_digest"] = digest
 	}
 	gateImg, err := d.gateImage(ctx)
 	if err != nil {
@@ -170,7 +180,7 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	if bypass != BypassEnforced {
 		return refuse(errors.New("the inspected topology is not the probed policy"))
 	}
-	runErr := d.runToEnd(ctx, id, lim.agent, "agent")
+	runErr := runAgentEnclosed(ctx, d.cli, id, lim.agent, o.Counter, digest)
 	o.Counter.Seal(5*time.Second, bypass, ScopeIsolatedContainer) // revoke admission and drain; not the final account
 	res.sealedAt = o.Counter.SealedAt()
 	if o.Agent == "opencode" {

@@ -88,6 +88,9 @@ type RunOptions struct {
 	// agentCmd is the agent command of the internal test agent ("test-agent"): the opencode
 	// installation is not wired into the container runner yet
 	agentCmd []string
+	// testDigest is the execution digest that agent_run records for a test-agent attempt (tests);
+	// an opencode attempt computes its own
+	testDigest string
 }
 
 // check IDs: C<n> (generated verifier) and B<n> (process-separated behavior checks, B1)

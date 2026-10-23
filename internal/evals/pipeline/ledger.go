@@ -112,7 +112,7 @@ func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
 
 // ledgerRecord maps the runner's account to the wire form: every count present (the runner's
 // account enumerates its entries, so an absent state count is a known zero), the components
-// with their coverage, the requested-model label.
+// with their coverage, the requested-model label, the agent's launch/exit enclosure.
 func ledgerRecord(r runner.LedgerReport) activity.ModelLedger {
 	m := activity.ModelLedger{State: r.State, Reasons: slices.Clone(r.Reasons), Counts: map[string]int{}, Components: map[string]*int64{},
 		ComponentCoverage: map[string]int{}, Bypass: r.Bypass, Scope: r.Scope}
@@ -137,6 +137,10 @@ func ledgerRecord(r runner.LedgerReport) activity.ModelLedger {
 	m.ModelCheck = map[string]string{"verified": "requested_model_observed"}[r.ModelCheck]
 	if m.ModelCheck == "" {
 		m.ModelCheck = r.ModelCheck
+	}
+	if a := r.AgentRun; a != nil { // the runner-observed enclosure (draft v0.2), copied as recorded
+		m.AgentRun = &activity.LedgerAgentRun{Outcome: a.Outcome, ExitCode: a.ExitCode, EnclosureStartMs: a.EnclosureStartMs, EnclosureEndMs: a.EnclosureEndMs,
+			ExecutionDigest: a.ExecutionDigest, EngineStartedAt: a.EngineStartedAt, EngineFinishedAt: a.EngineFinishedAt}
 	}
 	return m
 }
