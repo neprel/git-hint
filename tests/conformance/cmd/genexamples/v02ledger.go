@@ -388,3 +388,95 @@ func ledgerEntriesInvalid() []invalidCase {
 		}, nil},
 	}
 }
+
+// agentRun is a launch/exit enclosure record of the ledger's agent container (draft v0.2).
+func agentRun(outcome string, code, start, end any) M {
+	return M{"outcome": outcome, "exit_code": code, "enclosure_start_ms": start, "enclosure_end_ms": end,
+		"execution_digest":  "sha256:" + id("execution", "opencode", "2.0.26") + id("execution", "argv"),
+		"engine_started_at": "2026-10-11T10:55:00.400Z", "engine_finished_at": "2026-10-11T11:00:01Z"}
+}
+
+// ledgerAgentRunDoc is the per-entry example plus the agent container's launch/exit enclosure:
+// sampled before the start call (500 ms) and at the completed wait (302000 ms), every admission
+// inside it, the end before the seal (304990 ms); the agent exited with status 0.
+func ledgerAgentRunDoc(act M) M {
+	d := ledgerEntriesDoc(act)
+	d["document_id"] = id("document", "activity", "model-ledger-agent-run")
+	obj(d, "payload", "observations", 6, "model_ledger")["agent_run"] = agentRun("exited", 0, 500, 302000)
+	return reseal(d)
+}
+
+// ledgerAgentRunAggregateDoc is the aggregate-only example with an agent outcome but no offsets
+// (no entries, no timing): the lifecycle record exists, its enclosure is unknown.
+func ledgerAgentRunAggregateDoc(act M) M {
+	d := ledgerDoc(act)
+	d["document_id"] = id("document", "activity", "model-ledger-agent-run-aggregate")
+	obj(d, "payload", "observations", 6, "model_ledger")["agent_run"] = agentRun("exited", 0, nil, nil)
+	return reseal(d)
+}
+
+// ledgerAgentRunInvalid are the negative cases of the launch/exit enclosure.
+func ledgerAgentRunInvalid() []invalidCase {
+	const base, agg = "activity-model-ledger-agent-run.json", "activity-model-ledger.json"
+	l := func(d M) M { return obj(d, "payload", "observations", 6, "model_ledger") }
+	a := func(d M) M { return l(d)["agent_run"].(map[string]any) }
+	semantic := func(name string, f func(d M)) invalidCase {
+		return invalidCase{name, base, "semantic", "ledger_inconsistent", f, nil}
+	}
+	schema := func(name string, f func(d M)) invalidCase {
+		return invalidCase{name, base, "schema", "observation", f, nil}
+	}
+	revision := func(d M, change func(x M)) {
+		obs := obj(d, "payload")["observations"].([]any)
+		r := plain(obs[6].(map[string]any))
+		r["observation_id"] = id("ledger-usage", "agent-run", "1")
+		x := r["model_ledger"].(map[string]any)
+		x["revision"], x["state"] = 1, "incomplete"
+		x["reasons"] = append(x["reasons"].([]any), "late_requests")
+		x["counts"].(map[string]any)["late"] = 1
+		change(x)
+		obj(d, "payload")["observations"] = append(obs, r)
+	}
+	set := func(outcome string, code, start, end any) func(d M) {
+		return func(d M) {
+			x := a(d)
+			x["outcome"], x["exit_code"], x["enclosure_start_ms"], x["enclosure_end_ms"] = outcome, code, start, end
+		}
+	}
+	return []invalidCase{
+		schema("agent-run-unknown-outcome", func(d M) { a(d)["outcome"] = "finished" }),
+		schema("agent-run-extra-field", func(d M) { a(d)["pid"] = 42 }),
+		schema("agent-run-bad-digest", func(d M) { a(d)["execution_digest"] = "opencode-2.0.26" }),
+		schema("agent-run-missing-field", func(d M) { delete(a(d), "engine_finished_at") }),
+		semantic("agent-run-exited-with-nonzero-code", set("exited", 3, 500, 302000)),
+		semantic("agent-run-nonzero-with-zero-code", set("exited_nonzero", 0, 500, 302000)),
+		semantic("agent-run-stopped-with-exit-code", set("stopped_after_timeout", 137, 500, 302000)),
+		semantic("agent-run-exited-without-start", set("exited", 0, nil, 302000)),
+		semantic("agent-run-exited-without-end", set("exited", 0, 500, nil)),
+		semantic("agent-run-unconfirmed-stop-with-end", set("stop_unconfirmed", nil, 500, 302000)),
+		semantic("agent-run-unconfirmed-start-with-end", set("start_unconfirmed", nil, 500, 302000)),
+		semantic("agent-run-refused-with-entries", set("refused_before_launch", nil, nil, nil)),
+		semantic("agent-run-admission-before-start", set("exited", 0, 1500, 302000)),
+		semantic("agent-run-admission-after-end", set("exited", 0, 500, 299999)),
+		semantic("agent-run-end-after-seal", set("exited", 0, 500, 305000)),
+		semantic("agent-run-revision-changes-it", func(d M) { revision(d, func(x M) { x["agent_run"].(map[string]any)["enclosure_end_ms"] = 302001 }) }),
+		semantic("agent-run-revision-removes-it", func(d M) { revision(d, func(x M) { delete(x, "agent_run") }) }),
+		{"agent-run-offsets-without-entries", agg, "semantic", "ledger_inconsistent", func(d M) {
+			l(d)["agent_run"] = agentRun("exited", 0, 500, 302000)
+		}, nil},
+		{"agent-run-refused-with-admitted-requests", agg, "semantic", "ledger_inconsistent", func(d M) {
+			l(d)["agent_run"] = agentRun("refused_before_launch", nil, nil, nil)
+		}, nil},
+		{"agent-run-revision-enriches-aggregate", agg, "semantic", "ledger_inconsistent", func(d M) {
+			// revision 1 of a ledger without a lifecycle adds one: refused (no later enrichment)
+			obs := obj(d, "payload")["observations"].([]any)
+			r := plain(obs[6].(map[string]any))
+			r["observation_id"] = id("ledger-usage", "agent-run-enriched")
+			x := r["model_ledger"].(map[string]any)
+			x["revision"], x["state"], x["reasons"] = 1, "incomplete", A{"late_requests"}
+			x["counts"].(map[string]any)["late"] = 1
+			x["agent_run"] = agentRun("exited", 0, nil, nil)
+			obj(d, "payload")["observations"] = append(obs, r)
+		}, nil},
+	}
+}

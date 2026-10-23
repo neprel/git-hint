@@ -61,6 +61,21 @@ type ModelLedger struct {
 	SealedMs    *int64        `json:"sealed_ms,omitempty"`     // monotonic offset of the admission revocation
 	FinalizedMs *int64        `json:"finalized_ms,omitempty"`  // monotonic offset when the drain ended
 	ClockStepMs *int64        `json:"clock_step_ms,omitempty"` // observed (sealed_at - anchor_utc) minus sealed_ms
+	// The launch/exit enclosure of the run's agent container (draft v0.2); nil: lifecycle unknown.
+	AgentRun *LedgerAgentRun `json:"agent_run,omitempty"`
+}
+
+// LedgerAgentRun is the runner-observed launch/exit enclosure of the agent container: offsets
+// from the ledger's anchor (only with entries), never the true process start or end; the engine
+// times are the engine's own reports (another clock), descriptive only.
+type LedgerAgentRun struct {
+	Outcome          string  `json:"outcome"`
+	ExitCode         *int    `json:"exit_code"`
+	EnclosureStartMs *int64  `json:"enclosure_start_ms"`
+	EnclosureEndMs   *int64  `json:"enclosure_end_ms"`
+	ExecutionDigest  string  `json:"execution_digest"`
+	EngineStartedAt  *string `json:"engine_started_at"`
+	EngineFinishedAt *string `json:"engine_finished_at"`
 }
 
 // LedgerEntry is one admitted model request of a ledger: numbers, enums and an opaque ID only.
@@ -165,6 +180,9 @@ func LedgerProblems(m ModelLedger) []string {
 		if e := hint.LedgerEntriesProblem(wire); e != "" {
 			p = append(p, e)
 		}
+		if e := hint.LedgerAgentRunProblem(wire); e != "" {
+			p = append(p, e)
+		}
 	} else {
 		p = append(p, "ledger not encodable")
 	}
@@ -202,7 +220,7 @@ func LedgerLifecycleProblem(prev, next ModelLedger) bool {
 	}
 	// entries and their timing are frozen: the same presence and the same values in every revision
 	frozen := func(m ModelLedger) string {
-		b, _ := json.Marshal([]any{m.Entries, m.AnchorUTC, m.SealedMs, m.FinalizedMs, m.ClockStepMs})
+		b, _ := json.Marshal([]any{m.Entries, m.AnchorUTC, m.SealedMs, m.FinalizedMs, m.ClockStepMs, m.AgentRun})
 		return string(b)
 	}
 	if frozen(prev) != frozen(next) {

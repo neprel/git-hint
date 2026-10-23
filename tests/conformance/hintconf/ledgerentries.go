@@ -184,3 +184,72 @@ func LedgerEntriesProblem(l map[string]any) string {
 	}
 	return ""
 }
+
+// ledgerAgentEnd says which outcomes have an enclosure end (when the ledger has entries); every
+// outcome except refused_before_launch has an enclosure start then.
+var ledgerAgentEnd = map[string]bool{
+	"exited": true, "exited_nonzero": true, "stopped_after_timeout": true, "stopped_after_cancel": true, "stopped_after_wait_error": true,
+	"stop_unconfirmed": false, "start_unconfirmed": false, "refused_before_launch": false,
+}
+
+// LedgerAgentRunProblem checks the optional launch/exit enclosure of a decoded model ledger
+// (draft v0.2) against the outcome table and the entries: exit_code exactly for exited (0) and
+// exited_nonzero (not 0); offsets only when the ledger has entries, then a start for every
+// outcome except refused_before_launch and an end only for the outcomes that completed a wait or
+// a confirmed stop; refused_before_launch with no admitted request; every admission inside the
+// enclosure on the shared monotonic offsets (no clock slack), the end not after the seal. It
+// returns the first violated rule, or "" when agent_run is absent (lifecycle unknown) or agrees.
+func LedgerAgentRunProblem(l map[string]any) string {
+	raw, has := l["agent_run"]
+	if !has {
+		return ""
+	}
+	a, ok := raw.(map[string]any)
+	if !ok {
+		return "agent_run is not an object"
+	}
+	outcome := str(a["outcome"])
+	hasEnd, known := ledgerAgentEnd[outcome]
+	if !known {
+		return "unknown agent outcome"
+	}
+	code, isCode := a["exit_code"].(float64)
+	switch {
+	case outcome == "exited" && !(isCode && code == 0),
+		outcome == "exited_nonzero" && !(isCode && code != 0 && code == math.Trunc(code)),
+		outcome != "exited" && outcome != "exited_nonzero" && a["exit_code"] != nil:
+		return "exit code disagrees with the outcome"
+	}
+	lc, _ := l["counts"].(map[string]any)
+	if admitted, _ := lc["admitted"].(float64); outcome == "refused_before_launch" && admitted != 0 {
+		return "requests admitted although the agent was refused before launch"
+	}
+	nat := func(v any) (int64, bool) {
+		f, ok := v.(float64)
+		return int64(f), ok && f >= 0 && f <= 1<<53-1 && f == math.Trunc(f)
+	}
+	start, okS := nat(a["enclosure_start_ms"])
+	end, okE := nat(a["enclosure_end_ms"])
+	entries, withEntries := l["entries"].([]any)
+	if !withEntries {
+		if a["enclosure_start_ms"] != nil || a["enclosure_end_ms"] != nil {
+			return "enclosure offsets without entries"
+		}
+		return ""
+	}
+	wantStart := outcome != "refused_before_launch"
+	if okS != wantStart || (a["enclosure_start_ms"] != nil && !okS) || okE != hasEnd || (a["enclosure_end_ms"] != nil && !okE) {
+		return "enclosure offsets disagree with the outcome"
+	}
+	if sealed, _ := nat(l["sealed_ms"]); okE && (end < start || end > sealed) {
+		return "enclosure end before its start or after the seal"
+	}
+	for _, x := range entries {
+		e, _ := x.(map[string]any)
+		adm, _ := nat(e["admitted_ms"])
+		if adm < start || (okE && adm > end) {
+			return "an admission outside the launch/exit enclosure"
+		}
+	}
+	return ""
+}

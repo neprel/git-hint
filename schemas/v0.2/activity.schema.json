@@ -1581,6 +1581,10 @@
           "minimum": -9007199254740991,
           "maximum": 9007199254740991,
           "description": "Observed minus derived: (sealed_at - anchor_utc) - sealed_ms. Non-zero after a wall-clock step; derived UTC times are never claimed to equal observed ones."
+        },
+        "agent_run": {
+          "description": "Optional launch/exit enclosure of the run's agent container (draft v0.2); absent on older ledgers (lifecycle unknown).",
+          "$ref": "#/$defs/LedgerAgentRun"
         }
       },
       "required": [
@@ -1771,6 +1775,92 @@
         "admitted_ms",
         "finished_ms",
         "components"
+      ]
+    },
+    "LedgerAgentRun": {
+      "description": "The runner-observed launch/exit enclosure of the agent container of the ledger's run (draft v0.2): enclosure_start_ms is sampled before the container start call, enclosure_end_ms when the wait (or a stop and a confirming wait) completed, as monotonic offsets from anchor_utc. It encloses the process run as the runner observed it; it is not the true process start or end. Offsets exist only when the ledger has entries. engine_started_at and engine_finished_at are the engine's own reports (another clock), descriptive only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "exited",
+            "exited_nonzero",
+            "stopped_after_timeout",
+            "stopped_after_cancel",
+            "stopped_after_wait_error",
+            "stop_unconfirmed",
+            "start_unconfirmed",
+            "refused_before_launch"
+          ]
+        },
+        "exit_code": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enclosure_start_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enclosure_end_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "execution_digest": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+        },
+        "engine_started_at": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "engine_finished_at": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "outcome",
+        "exit_code",
+        "enclosure_start_ms",
+        "enclosure_end_ms",
+        "execution_digest",
+        "engine_started_at",
+        "engine_finished_at"
       ]
     }
   }

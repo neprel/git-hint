@@ -100,3 +100,61 @@ func TestLedgerEntriesLifecycle(t *testing.T) {
 		t.Fatal("a revision that adds entries to an aggregate-only ledger passed")
 	}
 }
+
+func TestLedgerAgentRun(t *testing.T) {
+	m := exampleLedger(t, "activity-model-ledger-agent-run.json")
+	if p := LedgerProblems(m); len(p) != 0 || m.AgentRun == nil || m.AgentRun.Outcome != "exited" {
+		t.Fatalf("the agent-run example is refused: %v", p)
+	}
+	i64 := func(v int64) *int64 { return &v }
+	code := func(v int) *int { return &v }
+	for name, change := range map[string]func(a *LedgerAgentRun){
+		"exited with code 3":   func(a *LedgerAgentRun) { a.ExitCode = code(3) },
+		"stopped with a code":  func(a *LedgerAgentRun) { a.Outcome = "stopped_after_timeout" },
+		"unconfirmed stop end": func(a *LedgerAgentRun) { a.Outcome, a.ExitCode = "stop_unconfirmed", nil },
+		"refused with entries": func(a *LedgerAgentRun) {
+			a.Outcome, a.ExitCode, a.EnclosureStartMs, a.EnclosureEndMs = "refused_before_launch", nil, nil, nil
+		},
+		"admission before start": func(a *LedgerAgentRun) { a.EnclosureStartMs = i64(1500) },
+		"admission after end":    func(a *LedgerAgentRun) { a.EnclosureEndMs = i64(299999) },
+		"end after seal":         func(a *LedgerAgentRun) { a.EnclosureEndMs = i64(305000) },
+		"exited without end":     func(a *LedgerAgentRun) { a.EnclosureEndMs = nil },
+	} {
+		c := clone(t, m)
+		change(c.AgentRun)
+		if len(LedgerProblems(c)) == 0 {
+			t.Errorf("%s: an inconsistent enclosure passed", name)
+		}
+	}
+	// an aggregate-only ledger may carry the outcome, never offsets
+	agg := exampleLedger(t, "activity-model-ledger.json")
+	agg.AgentRun = &LedgerAgentRun{Outcome: "exited", ExitCode: code(0), ExecutionDigest: m.AgentRun.ExecutionDigest}
+	if p := LedgerProblems(agg); len(p) != 0 {
+		t.Fatalf("an aggregate ledger with an outcome only is refused: %v", p)
+	}
+	agg.AgentRun.EnclosureStartMs = i64(500)
+	if len(LedgerProblems(agg)) == 0 {
+		t.Fatal("offsets without entries passed")
+	}
+	// frozen across revisions: no change, no removal, no enrichment
+	next := func(c ModelLedger) ModelLedger {
+		c.Revision, c.Counts["late"], c.Reasons = c.Revision+1, c.Counts["late"]+1, append(c.Reasons, "late_requests")
+		return c
+	}
+	if LedgerLifecycleProblem(m, next(clone(t, m))) {
+		t.Fatal("an identical revision is refused")
+	}
+	changed := next(clone(t, m))
+	changed.AgentRun.EnclosureEndMs = i64(302001)
+	removed := next(clone(t, m))
+	removed.AgentRun = nil
+	plain := exampleLedger(t, "activity-model-ledger.json")
+	enriched := next(clone(t, plain))
+	enriched.State = "incomplete"
+	enriched.AgentRun = &LedgerAgentRun{Outcome: "exited", ExitCode: code(0), ExecutionDigest: m.AgentRun.ExecutionDigest}
+	for name, pair := range map[string][2]ModelLedger{"changed": {m, changed}, "removed": {m, removed}, "enriched": {plain, enriched}} {
+		if !LedgerLifecycleProblem(pair[0], pair[1]) {
+			t.Errorf("%s: a revision that rewrites the enclosure passed", name)
+		}
+	}
+}

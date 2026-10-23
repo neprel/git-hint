@@ -1,4 +1,104 @@
 {
+  "agent-run-admission-after-end.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-admission-before-start.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-bad-digest.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "agent-run-end-after-seal.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-exited-with-nonzero-code.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-exited-without-end.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-exited-without-start.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-extra-field.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "agent-run-missing-field.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "agent-run-nonzero-with-zero-code.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-offsets-without-entries.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-refused-with-admitted-requests.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-refused-with-entries.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-revision-changes-it.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-revision-enriches-aggregate.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-revision-removes-it.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-stopped-with-exit-code.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-unconfirmed-start-with-end.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-unconfirmed-stop-with-end.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "agent-run-unknown-outcome.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "observation",
+    "level": "schema"
+  },
   "aggregate-with-observations.json": {
     "base": "activity-trace.json",
     "code": "policy_violation",
