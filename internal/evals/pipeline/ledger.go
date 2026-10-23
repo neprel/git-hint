@@ -54,6 +54,10 @@ func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
 		m.State, m.Reasons = "incomplete", append(m.Reasons, "teardown_incomplete")
 	}
 	m.LedgerRef, m.Revision, m.SealedAt = activity.LedgerRef(key, runRef), in.Revision, in.SealedAt
+	if in.Report.SealedAt != "" && in.Report.SealedAt != in.SealedAt {
+		return "", fmt.Errorf("%w: the account's seal time is not the handed-over seal time", ErrLedger)
+	}
+	ledgerEntries(&m, key, in.Report)
 	m.Binding = activity.LedgerBinding{RunRef: runRef, TaskID: project.TaskID(key, in.Task), TaskFamilyID: activity.FamilyRef(key, in.Family),
 		ConfigurationDigest: in.Configuration.Digest(), UnitRef: hint.EvalRef(key, "work-unit", "controlled", in.Run, in.Eval),
 		AttemptRef: hint.EvalRef(key, "attempt", "controlled", in.Run, in.Eval, fmt.Sprint(in.Attempt))}
@@ -135,6 +139,30 @@ func ledgerRecord(r runner.LedgerReport) activity.ModelLedger {
 		m.ModelCheck = r.ModelCheck
 	}
 	return m
+}
+
+// ledgerEntries copies the account's per-entry evidence and timing to the record (draft v0.2),
+// with each entry's opaque ID derived from the project key and the ledger reference. An account
+// without entries (no request, or over the bound) stays aggregate-only: no entries and no timing.
+func ledgerEntries(m *activity.ModelLedger, key []byte, r runner.LedgerReport) {
+	if len(r.Entries) == 0 {
+		return
+	}
+	model := map[string]string{"verified": "requested_model_observed", "mismatch": "mismatch"}
+	for _, e := range r.Entries {
+		mc := model[e.Model]
+		if mc == "" {
+			mc = "unverified" // a request without a readable model field
+		}
+		comps := map[string]*int64{}
+		for _, k := range activity.LedgerComponents {
+			comps[k] = e.Components[k]
+		}
+		m.Entries = append(m.Entries, activity.LedgerEntry{Ordinal: e.Ordinal, EntryID: activity.LedgerEntryRef(key, m.LedgerRef, e.Ordinal),
+			State: e.State, Termination: e.Termination, ResponseStarted: e.ResponseStarted, StreamDone: e.StreamDone, StatusClass: e.StatusClass,
+			ModelCheck: mc, AdmittedMs: e.AdmittedMs, FinishedMs: e.FinishedMs, Components: comps})
+	}
+	m.AnchorUTC, m.SealedMs, m.FinalizedMs, m.ClockStepMs = r.AnchorUTC, r.SealedMs, r.FinalizedMs, r.ClockStepMs
 }
 
 func sameJSON(a, b any) bool {

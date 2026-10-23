@@ -106,7 +106,12 @@ func StartLive(cfg LiveConfig) (*Live, error) {
 			r.Out.Host = u.Host
 			r.Out.Header.Set("Authorization", "Bearer "+lv.key)
 		},
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) { w.WriteHeader(http.StatusBadGateway) },
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if rec, ok := w.(*usageRecorder); ok {
+				rec.proxyErr = true // a transport failure, told apart from an upstream 502
+			}
+			w.WriteHeader(http.StatusBadGateway)
+		},
 	}
 	lv.srv = &http.Server{ReadHeaderTimeout: 30 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// path: /t/<token>/<upstream path below the base URL>
@@ -139,21 +144,25 @@ func StartLive(cfg LiveConfig) (*Live, error) {
 			// mid-response: the entry is cancelled (what arrived is kept), then the abort goes on
 			if p := recover(); p != nil {
 				_, u := rec.result()
-				c.finish(e, EntryCancelled, u)
+				c.finish(e, EntryCancelled, u, rec.facts("handler_abort"))
 				panic(p)
 			}
 		}()
 		rp.ServeHTTP(rec, r)
+		// the termination says how the handler ended, independent of usage completeness
 		state, u := rec.result()
+		term := "response_ended"
 		switch {
 		case r.Context().Err() != nil:
-			state = EntryCancelled // the agent went away; what arrived is kept
+			state, term = EntryCancelled, "context_lost" // the agent went away; what arrived is kept
 		case !rec.started:
-			state = EntryCancelled
+			state, term = EntryCancelled, "no_response"
+		case rec.proxyErr:
+			state, term = EntryError, "proxy_error"
 		case rec.status < 200 || rec.status > 299:
-			state = EntryError
+			state, term = EntryError, "error_status"
 		}
-		c.finish(e, state, u)
+		c.finish(e, state, u, rec.facts(term))
 	})}
 	go lv.srv.Serve(ln)
 	return lv, nil

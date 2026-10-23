@@ -84,8 +84,8 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	var cleanups []func() error
 	finish := func(err error) liveResult {
 		if o.Counter.Report() == nil { // revoke admission on every path that admitted nothing yet
-			res.sealedAt = time.Now().UTC().Format(time.RFC3339Nano)
 			o.Counter.Seal(5*time.Second, BypassUnverified, ScopeIsolatedContainer)
+			res.sealedAt = o.Counter.SealedAt()
 		}
 		res.final = true
 		for i := len(cleanups) - 1; i >= 0; i-- {
@@ -171,8 +171,8 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		return refuse(errors.New("the inspected topology is not the probed policy"))
 	}
 	runErr := d.runToEnd(ctx, id, lim.agent, "agent")
-	res.sealedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	o.Counter.Seal(5*time.Second, bypass, ScopeIsolatedContainer) // revoke admission and drain; not the final account
+	res.sealedAt = o.Counter.SealedAt()
 	if o.Agent == "opencode" {
 		res.output = d.saveOutput(ctx, id, filepath.Join(filepath.Dir(artifact), "opencode"))
 	}

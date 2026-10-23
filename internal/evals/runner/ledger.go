@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/neprel/git-hint/internal/hint"
 )
 
 // UsageNormalization labels the provider usage that the ledger records: the OpenAI-compatible
@@ -61,6 +63,26 @@ type ledgerEntry struct {
 	state string
 	usage *usageComponents
 	done  chan struct{}
+	// per-entry evidence (draft v0.2): numbers and enums only
+	ordinal     int
+	termination string        // how the proxy handler ended (see the termination table of LedgerEntry)
+	started     bool          // a response header was written
+	streamDone  *bool         // SSE [DONE] seen; nil for a non-stream response
+	statusClass string        // 2xx..5xx or none
+	admitted    time.Duration // monotonic, since the ledger's anchor
+	finished    time.Duration
+}
+
+// ledgerClock reads the wall clock and the monotonic time since the ledger's anchor separately,
+// so a wall-clock step never reorders entries (tests replace both).
+type ledgerClock struct {
+	wall func() time.Time
+	mono func() time.Duration
+}
+
+func realClock() ledgerClock {
+	start := time.Now()
+	return ledgerClock{wall: func() time.Time { return time.Now().Round(0).UTC() }, mono: func() time.Duration { return time.Since(start) }}
 }
 
 // ledger is the per-run model ledger of one trial counter.
@@ -73,7 +95,28 @@ type ledger struct {
 	scope     string
 	late      int // requests refused because they came after the seal
 	rejected  int // requests refused at the limit
+	// timing (draft v0.2): the anchor is observed once; seal and finalization are monotonic
+	clock         *ledgerClock
+	anchorWall    time.Time
+	anchorMono    time.Duration // the monotonic reading of the anchor instant; offsets are measured from it
+	sealedWall    time.Time     // observed when admission was revoked (the ledger's sealed_at)
+	sealedMono    time.Duration
+	finalizedMono time.Duration
 }
+
+// anchor sets the ledger's clock and anchor once (the caller holds the lock).
+func (l *ledger) anchor() {
+	if l.clock == nil {
+		c := realClock()
+		l.clock = &c
+	}
+	if l.anchorWall.IsZero() {
+		l.anchorWall, l.anchorMono = l.clock.wall(), l.clock.mono()
+	}
+}
+
+// since is the monotonic offset of now from the anchor (the caller holds the lock).
+func (l *ledger) since() time.Duration { return l.clock.mono() - l.anchorMono }
 
 // admit decides one request atomically against the seal and the limit: a request after the
 // seal is late, one over the limit is rejected; otherwise it is admitted before it is forwarded.
@@ -92,7 +135,8 @@ func (c *Counter) admit() (*ledgerEntry, int) {
 		return nil, http.StatusTooManyRequests
 	}
 	c.requests.Add(1)
-	e := &ledgerEntry{state: EntryInFlight, done: make(chan struct{})}
+	l.anchor()
+	e := &ledgerEntry{state: EntryInFlight, done: make(chan struct{}), ordinal: len(l.entries) + 1, admitted: l.since()}
 	l.entries = append(l.entries, e)
 	return e, 0
 }
@@ -103,11 +147,21 @@ func (c *Counter) setModel(e *ledgerEntry, label string) {
 	e.model = label
 }
 
-func (c *Counter) finish(e *ledgerEntry, state string, u *usageComponents) {
+// entryFacts are the transport facts of one finished request (no content).
+type entryFacts struct {
+	termination string
+	started     bool
+	streamDone  *bool
+	statusClass string
+}
+
+func (c *Counter) finish(e *ledgerEntry, state string, u *usageComponents, f entryFacts) {
 	c.ledger.mu.Lock()
 	defer c.ledger.mu.Unlock()
 	if e.state == EntryInFlight { // an entry declared unknown by the seal stays unknown
 		e.state, e.usage = state, u
+		e.termination, e.started, e.streamDone, e.statusClass = f.termination, f.started, f.streamDone, f.statusClass
+		e.finished = c.ledger.since()
 		close(e.done)
 	}
 }
@@ -130,6 +184,28 @@ type LedgerReport struct {
 	ModelCheck    string           `json:"model_check"` // verified: every admitted request named the selected model
 	Bypass        string           `json:"bypass"`
 	Scope         string           `json:"scope"`
+	// per-entry evidence and timing (draft v0.2); absent when the entries exceed the bound
+	SealedAt    string        `json:"sealed_at"` // wall clock observed when admission was revoked
+	Entries     []ReportEntry `json:"entries,omitempty"`
+	AnchorUTC   string        `json:"anchor_utc,omitempty"`
+	SealedMs    *int64        `json:"sealed_ms,omitempty"`
+	FinalizedMs *int64        `json:"finalized_ms,omitempty"`
+	ClockStepMs *int64        `json:"clock_step_ms,omitempty"`
+}
+
+// ReportEntry is one admitted request of the account: numbers and enums only (the opaque entry
+// ID is derived by the pipeline from the project key and the ledger reference).
+type ReportEntry struct {
+	Ordinal         int               `json:"ordinal"`
+	State           string            `json:"state"`
+	Termination     string            `json:"termination"`
+	ResponseStarted bool              `json:"response_started"`
+	StreamDone      *bool             `json:"stream_done"`
+	StatusClass     string            `json:"status_class"`
+	Model           string            `json:"model"` // verified | mismatch | unverified
+	AdmittedMs      int64             `json:"admitted_ms"`
+	FinishedMs      int64             `json:"finished_ms"`
+	Components      map[string]*int64 `json:"components"`
 }
 
 // Seal revokes admission atomically, waits for the already admitted requests until one shared
@@ -142,6 +218,8 @@ func (c *Counter) Seal(drain time.Duration, bypass, scope string) *LedgerReport 
 	first := l.finalized == nil
 	if first {
 		l.sealed, l.finalized, l.bypass, l.scope = true, make(chan struct{}), bypass, scope
+		l.anchor()
+		l.sealedWall, l.sealedMono = l.clock.wall(), l.since() // the instant admission is revoked
 	}
 	pending := append([]*ledgerEntry(nil), l.entries...)
 	done := l.finalized
@@ -161,15 +239,27 @@ wait:
 		}
 	}
 	l.mu.Lock()
+	l.finalizedMono = l.since()
 	for _, e := range l.entries {
 		if e.state == EntryInFlight {
-			e.state = EntryUnknown
+			e.state, e.termination, e.finished = EntryUnknown, "seal_timeout", l.finalizedMono
 			close(e.done)
 		}
 	}
 	close(l.finalized)
 	l.mu.Unlock()
 	return c.Report()
+}
+
+// SealedAt is the wall clock that Seal observed when it revoked admission (RFC 3339 with
+// nanoseconds), or "" before the first seal.
+func (c *Counter) SealedAt() string {
+	c.ledger.mu.Lock()
+	defer c.ledger.mu.Unlock()
+	if c.ledger.sealedWall.IsZero() {
+		return ""
+	}
+	return c.ledger.sealedWall.Format(time.RFC3339Nano)
 }
 
 // Report is the current account of a sealed run, or nil before the first seal is final. A
@@ -237,12 +327,46 @@ func (c *Counter) Report() *LedgerReport {
 	if r.ModelCheck != "verified" {
 		r.Reasons = append(r.Reasons, "model_"+r.ModelCheck)
 	}
+	l.entryEvidence(r)
 	sort.Strings(r.Reasons)
 	r.State = "incomplete"
 	if len(r.Reasons) == 0 {
 		r.State, r.TotalComplete = "complete", true
 	}
 	return r
+}
+
+// entryEvidence adds the per-entry evidence and its timing to the account (draft v0.2), or, when
+// the entries would exceed 1000 or hint.LedgerEntryBytes serialized, no entries and the reason
+// entries_over_limit (never a truncated list). The caller holds the lock.
+func (l *ledger) entryEvidence(r *LedgerReport) {
+	r.SealedAt = l.sealedWall.Format(time.RFC3339Nano)
+	entries := make([]ReportEntry, 0, len(l.entries))
+	for _, e := range l.entries {
+		x := ReportEntry{Ordinal: e.ordinal, State: e.state, Termination: e.termination, ResponseStarted: e.started, StreamDone: e.streamDone,
+			StatusClass: e.statusClass, Model: e.model, AdmittedMs: e.admitted.Milliseconds(), FinishedMs: e.finished.Milliseconds(),
+			Components: map[string]*int64{"prompt": nil, "completion": nil, "cached": nil, "reasoning": nil}}
+		if x.StatusClass == "" {
+			x.StatusClass = "none"
+		}
+		if u := e.usage; u != nil {
+			x.Components = map[string]*int64{"prompt": u.Prompt, "completion": u.Completion, "cached": u.Cached, "reasoning": u.Reasoning}
+		}
+		entries = append(entries, x)
+	}
+	if len(entries) == 0 {
+		return // no admitted request: an aggregate-only account (no entries, no timing; reason no_requests)
+	}
+	if b, _ := json.Marshal(entries); len(entries) > 1000 || len(b) > hint.LedgerEntryBytes {
+		r.Reasons = append(r.Reasons, "entries_over_limit") // aggregate-only, no timing; never a truncated list
+		return
+	}
+	anchor := l.anchorWall.Format(time.RFC3339Nano)
+	a, _ := time.Parse(time.RFC3339Nano, anchor)
+	z, _ := time.Parse(time.RFC3339Nano, r.SealedAt)
+	sealed, final := l.sealedMono.Milliseconds(), l.finalizedMono.Milliseconds()
+	step := z.Sub(a).Milliseconds() - sealed // observed minus derived; non-zero after a wall-clock step
+	r.Entries, r.AnchorUTC, r.SealedMs, r.FinalizedMs, r.ClockStepMs = entries, anchor, &sealed, &final, &step
 }
 
 // Bounds of the usage reader: the bytes of one usage value, one stream line and the nesting
@@ -267,6 +391,25 @@ type usageRecorder struct {
 	stream  usageSet  // usage of the stream's data lines
 	bad     bool      // a skipped, undecodable or unusable data line before [DONE]
 	done    bool      // the stream sent its [DONE] marker
+	// proxyErr: the reverse proxy's error handler ran (no upstream response)
+	proxyErr bool
+}
+
+// facts are the transport facts of the finished request for its ledger entry: whether a
+// response started, its status class, and for a stream whether [DONE] arrived.
+func (w *usageRecorder) facts(termination string) entryFacts {
+	f := entryFacts{termination: termination, started: w.started, statusClass: "none"}
+	if w.started {
+		f.statusClass = map[int]string{2: "2xx", 3: "3xx", 4: "4xx", 5: "5xx"}[w.status/100]
+		if f.statusClass == "" {
+			f.statusClass = "5xx" // an out-of-range status is treated as a server error class
+		}
+	}
+	if w.sse {
+		d := w.done
+		f.streamDone = &d
+	}
+	return f
 }
 
 func (w *usageRecorder) WriteHeader(code int) {
