@@ -250,3 +250,141 @@ func ledgerSelectionVectors(base M) []any {
 		vector("later revision drops a reason", "ledger_lifecycle_violation", both, withAgents(lateFirst, dropped)...),
 	}
 }
+
+// ledgerEntriesDoc is the ledger example with per-entry evidence (draft v0.2): four admitted
+// requests that ended in four ways (a complete response, an upstream error status, a request
+// whose context ended with partial usage kept, a request still open at the drain deadline), the
+// aggregates derived from them, and the timing anchor with a 10 ms observed-minus-derived clock
+// step. The aggregate-only example stays as it is.
+func ledgerEntriesDoc(act M) M {
+	d := ledgerDoc(act)
+	d["document_id"] = id("document", "activity", "model-ledger-entries")
+	l := obj(d, "payload", "observations", 6, "model_ledger")
+	ledger := l["ledger_ref"].(string)
+	n := func(v int) any { return v }
+	tru, fal := true, false
+	entry := func(ord int, state, term string, started bool, done any, class string, adm, fin int, p, c, k any) M {
+		return M{"ordinal": ord, "entry_id": id("ledger-entry", ledger, string(rune('0'+ord))), "state": state, "termination": term,
+			"response_started": started, "stream_done": done, "status_class": class, "model_check": "requested_model_observed",
+			"admitted_ms": adm, "finished_ms": fin, "components": M{"prompt": p, "completion": c, "cached": k, "reasoning": nil}}
+	}
+	l["entries"] = A{
+		entry(1, "complete", "response_ended", true, tru, "2xx", 1000, 40000, n(3000), n(300), n(2400)),
+		entry(2, "error", "error_status", true, nil, "5xx", 41000, 41500, nil, nil, nil),
+		entry(3, "cancelled", "context_lost", true, fal, "2xx", 42000, 90000, n(3091), nil, n(2400)),
+		entry(4, "unknown", "seal_timeout", true, fal, "2xx", 300000, 309990, nil, nil, nil),
+	}
+	l["anchor_utc"], l["sealed_ms"], l["finalized_ms"], l["clock_step_ms"] = "2026-10-11T10:55:00Z", 304990, 309990, 10
+	l["state"], l["reasons"] = "incomplete", A{"error", "cancelled", "unknown"}
+	l["counts"] = M{"admitted": 4, "late": 0, "rejected_limit": 0, "complete": 1, "usage_partial": 0, "missing_usage": 0, "usage_conflict": 0,
+		"unreadable": 0, "truncated": 0, "error": 1, "cancelled": 1, "unknown": 1}
+	l["components"] = M{"prompt": 6091, "completion": 300, "cached": 4800, "reasoning": nil}
+	l["component_coverage"] = M{"prompt": 2, "completion": 1, "cached": 2, "reasoning": 0}
+	return reseal(d)
+}
+
+// ledgerEntriesRevisionDoc adds revision 1 of the same ledger: one late request, the entries and
+// their timing repeated exactly (a valid revision).
+func ledgerEntriesRevisionDoc(act M) M {
+	d := ledgerEntriesDoc(act)
+	d["document_id"] = id("document", "activity", "model-ledger-entries-revision")
+	obs := obj(d, "payload")["observations"].([]any)
+	r := plain(obs[6].(map[string]any))
+	r["observation_id"] = id("ledger-usage", "entries", "1")
+	x := r["model_ledger"].(map[string]any)
+	x["revision"], x["reasons"] = 1, A{"error", "cancelled", "unknown", "late_requests"}
+	x["counts"].(map[string]any)["late"] = 1
+	obj(d, "payload")["observations"] = append(obs, r)
+	return reseal(d)
+}
+
+// ledgerEntriesInvalid are the negative cases of the per-entry evidence.
+func ledgerEntriesInvalid() []invalidCase {
+	const base, agg = "activity-model-ledger-entries.json", "activity-model-ledger.json"
+	l := func(d M) M { return obj(d, "payload", "observations", 6, "model_ledger") }
+	e := func(d M, i int) M { return l(d)["entries"].([]any)[i].(map[string]any) }
+	comps := func(d M, i int) M { return e(d, i)["components"].(map[string]any) }
+	semantic := func(name string, f func(d M)) invalidCase {
+		return invalidCase{name, base, "semantic", "ledger_inconsistent", f, nil}
+	}
+	schema := func(name string, f func(d M)) invalidCase {
+		return invalidCase{name, base, "schema", "observation", f, nil}
+	}
+	revision := func(d M, change func(x M)) {
+		obs := obj(d, "payload")["observations"].([]any)
+		r := plain(obs[6].(map[string]any))
+		r["observation_id"] = id("ledger-usage", "entries", "1")
+		x := r["model_ledger"].(map[string]any)
+		x["revision"], x["state"] = 1, "incomplete"
+		x["reasons"] = append(x["reasons"].([]any), "late_requests")
+		x["counts"].(map[string]any)["late"] = 1
+		change(x)
+		obj(d, "payload")["observations"] = append(obs, r)
+	}
+	return []invalidCase{
+		schema("entries-unknown-termination", func(d M) { e(d, 0)["termination"] = "completed" }),
+		schema("entries-content-field", func(d M) { e(d, 0)["prompt_text"] = "x" }),
+		schema("entries-missing-field", func(d M) { delete(e(d, 1), "stream_done") }),
+		schema("entries-exact-status-code", func(d M) { e(d, 1)["status_class"] = "502" }),
+		schema("entries-negative-time", func(d M) { e(d, 0)["admitted_ms"] = -1 }),
+		schema("entries-timing-without-entries", func(d M) { delete(l(d), "entries") }),
+		schema("entries-without-timing", func(d M) { delete(l(d), "anchor_utc") }),
+		schema("entries-raw-entry-id", func(d M) { e(d, 0)["entry_id"] = "request-1" }),
+		semantic("entries-duplicate-ordinal", func(d M) { e(d, 1)["ordinal"] = 1 }),
+		semantic("entries-ordinal-gap", func(d M) { e(d, 3)["ordinal"] = 5 }),
+		semantic("entries-duplicate-id", func(d M) { e(d, 1)["entry_id"] = e(d, 0)["entry_id"] }),
+		semantic("entries-fewer-than-admitted", func(d M) {
+			l(d)["entries"] = l(d)["entries"].([]any)[:3]
+		}),
+		semantic("entries-state-count-mismatch", func(d M) {
+			e(d, 2)["state"], e(d, 2)["termination"], e(d, 2)["status_class"] = "error", "error_status", "5xx"
+		}),
+		semantic("entries-sum-mismatch", func(d M) { comps(d, 0)["prompt"] = 3001 }),
+		semantic("entries-partial-error-value-not-in-sum", func(d M) { comps(d, 1)["completion"] = 7 }),
+		semantic("entries-coverage-mismatch", func(d M) { comps(d, 2)["cached"] = nil }),
+		semantic("entries-termination-state-mismatch", func(d M) { e(d, 0)["termination"] = "context_lost" }),
+		semantic("entries-response-ended-not-2xx", func(d M) { e(d, 0)["status_class"] = "4xx" }),
+		semantic("entries-no-response-started", func(d M) {
+			e(d, 2)["termination"], e(d, 2)["status_class"] = "no_response", "2xx"
+		}),
+		semantic("entries-truncated-with-done", func(d M) {
+			e(d, 0)["state"] = "truncated"
+			l(d)["counts"].(map[string]any)["complete"], l(d)["counts"].(map[string]any)["truncated"] = 0, 1
+		}),
+		semantic("entries-complete-without-completion", func(d M) {
+			comps(d, 0)["completion"] = nil
+			l(d)["components"].(map[string]any)["completion"] = nil
+			l(d)["component_coverage"].(map[string]any)["completion"] = 0
+		}),
+		semantic("entries-admitted-after-seal", func(d M) { e(d, 3)["admitted_ms"] = 305000 }),
+		semantic("entries-admission-out-of-order", func(d M) { e(d, 1)["admitted_ms"] = 500 }),
+		semantic("entries-finish-after-drain", func(d M) { e(d, 2)["finished_ms"] = 400000 }),
+		semantic("entries-seal-timeout-before-drain-end", func(d M) { e(d, 3)["finished_ms"] = 305000 }),
+		semantic("entries-clock-step-not-observed", func(d M) { l(d)["clock_step_ms"] = 0 }),
+		semantic("entries-with-over-limit-reason", func(d M) { l(d)["reasons"] = append(l(d)["reasons"].([]any), "entries_over_limit") }),
+		semantic("entries-model-check-not-derived", func(d M) { e(d, 0)["model_check"] = "mismatch" }),
+		semantic("entries-revision-changes-an-entry", func(d M) {
+			revision(d, func(x M) { x["entries"].([]any)[0].(map[string]any)["finished_ms"] = 40001 })
+		}),
+		semantic("entries-revision-removes-entries", func(d M) {
+			revision(d, func(x M) {
+				for _, k := range append([]string{"entries"}, "anchor_utc", "sealed_ms", "finalized_ms", "clock_step_ms") {
+					delete(x, k)
+				}
+			})
+		}),
+		semantic("entries-revision-rewrites-timing", func(d M) { revision(d, func(x M) { x["anchor_utc"] = "2026-10-11T10:54:59Z" }) }),
+		{"entries-revision-enriches-aggregate", agg, "semantic", "ledger_inconsistent", func(d M) {
+			// revision 1 of the aggregate-only ledger adds entries: refused (no later enrichment)
+			obs := obj(d, "payload")["observations"].([]any)
+			r := plain(obs[6].(map[string]any))
+			r["observation_id"] = id("ledger-usage", "enriched")
+			x := r["model_ledger"].(map[string]any)
+			x["revision"], x["state"], x["reasons"] = 1, "incomplete", A{"late_requests"}
+			x["counts"].(map[string]any)["late"] = 1
+			x["entries"] = A{}
+			x["anchor_utc"], x["sealed_ms"], x["finalized_ms"], x["clock_step_ms"] = "2026-10-11T11:00:05Z", 0, 0, 0
+			obj(d, "payload")["observations"] = append(obs, r)
+		}, nil},
+	}
+}

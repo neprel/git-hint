@@ -1,6 +1,7 @@
 package activity
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -53,6 +54,34 @@ type ModelLedger struct {
 	Scope             string            `json:"scope"`              // isolated_container | restricted
 	SealedAt          string            `json:"sealed_at"`
 	Binding           LedgerBinding     `json:"binding"`
+	// Per-entry evidence (draft v0.2), frozen at the first seal; absent on aggregate-only ledgers.
+	// The timing fields exist exactly with the entries (hint.LedgerTiming).
+	Entries     []LedgerEntry `json:"entries,omitempty"`
+	AnchorUTC   string        `json:"anchor_utc,omitempty"`    // wall clock observed at ledger creation
+	SealedMs    *int64        `json:"sealed_ms,omitempty"`     // monotonic offset of the admission revocation
+	FinalizedMs *int64        `json:"finalized_ms,omitempty"`  // monotonic offset when the drain ended
+	ClockStepMs *int64        `json:"clock_step_ms,omitempty"` // observed (sealed_at - anchor_utc) minus sealed_ms
+}
+
+// LedgerEntry is one admitted model request of a ledger: numbers, enums and an opaque ID only.
+// Termination says how the proxy handler ended, independent of usage completeness.
+type LedgerEntry struct {
+	Ordinal         int               `json:"ordinal"`
+	EntryID         string            `json:"entry_id"`
+	State           string            `json:"state"`
+	Termination     string            `json:"termination"`
+	ResponseStarted bool              `json:"response_started"`
+	StreamDone      *bool             `json:"stream_done"`
+	StatusClass     string            `json:"status_class"`
+	ModelCheck      string            `json:"model_check"`
+	AdmittedMs      int64             `json:"admitted_ms"`
+	FinishedMs      int64             `json:"finished_ms"`
+	Components      map[string]*int64 `json:"components"`
+}
+
+// LedgerEntryRef is the opaque ID of the entry with the given ordinal of a ledger.
+func LedgerEntryRef(key []byte, ledgerRef string, ordinal int) string {
+	return hint.DeriveID(key, "ledger-entry", ledgerRef, strconv.Itoa(ordinal))
 }
 
 // RunRef is the opaque reference of one agent run: the eval-report trial reference of the run.
@@ -129,6 +158,16 @@ func LedgerProblems(m ModelLedger) []string {
 	for _, v := range []string{m.LedgerRef, b.RunRef, b.TaskID, b.TaskFamilyID, b.UnitRef, b.AttemptRef} {
 		bad(!opaque.MatchString(v), "reference %q is not opaque", v)
 	}
+	// the per-entry rules are shared with the document checker (one Go implementation)
+	var wire map[string]any
+	raw, _ := json.Marshal(m)
+	if json.Unmarshal(raw, &wire) == nil {
+		if e := hint.LedgerEntriesProblem(wire); e != "" {
+			p = append(p, e)
+		}
+	} else {
+		p = append(p, "ledger not encodable")
+	}
 	return p
 }
 
@@ -159,6 +198,14 @@ func LedgerLifecycleProblem(prev, next ModelLedger) bool {
 		}
 	}
 	if prev.State == "incomplete" && next.State != "incomplete" {
+		return true
+	}
+	// entries and their timing are frozen: the same presence and the same values in every revision
+	frozen := func(m ModelLedger) string {
+		b, _ := json.Marshal([]any{m.Entries, m.AnchorUTC, m.SealedMs, m.FinalizedMs, m.ClockStepMs})
+		return string(b)
+	}
+	if frozen(prev) != frozen(next) {
 		return true
 	}
 	for _, r := range prev.Reasons {

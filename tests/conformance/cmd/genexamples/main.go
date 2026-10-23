@@ -536,6 +536,7 @@ func main() {
 	docs["activity-context.json"], docs["recommendation-findings.json"], docs["change-set-declared.json"] = writeV02(*root, act, pol, rec, changes)
 	docs["activity-model-call.json"] = modelCallDoc(act)
 	docs["activity-model-ledger.json"] = ledgerDoc(act)
+	docs["activity-model-ledger-entries.json"] = ledgerEntriesDoc(act)
 	writeValidExtras(conf, act)
 	writeInvalid(conf, docs)
 	writeResolve(conf, rec, single)

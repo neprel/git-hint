@@ -780,6 +780,9 @@ func ledgerProblem(m, l map[string]any, norms, seen map[string]string) bool {
 			return true
 		}
 	}
+	if LedgerEntriesProblem(l) != "" {
+		return true
+	}
 	full := admitted > 0 && complete == admitted && int(num(cov["prompt"])) == admitted && int(num(cov["completion"])) == admitted &&
 		l["model_check"] == "requested_model_observed" && l["scope"] == "isolated_container" && l["bypass"] == "enforced" && late == 0 && rejected == 0
 	reasons := list(l["reasons"])
@@ -826,8 +829,11 @@ func ledgerLifecycle(prev, next map[string]any) bool {
 		b, _ := json.Marshal(next[k])
 		return string(a) == string(b)
 	}
-	for _, k := range []string{"ledger_ref", "binding", "sealed_at", "model_check", "scope", "bypass", "components", "component_coverage"} {
-		if !same(k) {
+	// entries and their timing are frozen at the first seal: present or absent in every revision alike
+	for _, k := range append([]string{"ledger_ref", "binding", "sealed_at", "model_check", "scope", "bypass", "components", "component_coverage", "entries"}, LedgerTiming...) {
+		_, inPrev := prev[k]
+		_, inNext := next[k]
+		if !same(k) || inPrev != inNext {
 			return true
 		}
 	}

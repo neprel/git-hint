@@ -524,6 +524,166 @@
     "code": "time_order",
     "level": "semantic"
   },
+  "entries-admission-out-of-order.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-admitted-after-seal.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-clock-step-not-observed.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-complete-without-completion.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-content-field.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "entries-coverage-mismatch.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-duplicate-id.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-duplicate-ordinal.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-exact-status-code.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "entries-fewer-than-admitted.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-finish-after-drain.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-missing-field.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "entries-model-check-not-derived.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-negative-time.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "entries-no-response-started.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-ordinal-gap.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-partial-error-value-not-in-sum.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-raw-entry-id.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "entries-response-ended-not-2xx.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-revision-changes-an-entry.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-revision-enriches-aggregate.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-revision-removes-entries.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-revision-rewrites-timing.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-seal-timeout-before-drain-end.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-state-count-mismatch.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-sum-mismatch.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-termination-state-mismatch.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-timing-without-entries.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "entries-truncated-with-done.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-unknown-termination.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "entries-with-over-limit-reason.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "entries-without-timing.json": {
+    "base": "activity-model-ledger-entries.json",
+    "code": "observation",
+    "level": "schema"
+  },
   "expires-before-created.json": {
     "base": "recommendation.json",
     "code": "time_order",
