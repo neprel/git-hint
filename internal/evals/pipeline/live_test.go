@@ -167,10 +167,11 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	outputs["report.json"] = doc
 	b, _ := json.MarshalIndent(summary, "", "  ")
 	outputs["summary.json"] = b
-	// the key appears in no output, in no form (raw, escaped, encoded; archives entry by entry);
-	// a hit names the output and the form, never the value
-	sess.KeyHits = keyHits(os.Getenv(m.KeyEnv), outputs)
-	summary["key_hits"] = sess.KeyHits
+	// the key appears in no output, in no form (raw, escaped, encoded; archives entry by entry, in
+	// order); a hit names the output and the form, never the value; a scan that could not read
+	// everything is not clean
+	sess.KeyHits, sess.KeyScanIncomplete = keyHits(os.Getenv(m.KeyEnv), outputs)
+	summary["key_hits"], summary["key_scan_incomplete"] = sess.KeyHits, sess.KeyScanIncomplete
 	// the series continues (macOS before Linux) only on a verified session, never on a test
 	// PASS alone; the actual result is kept either way
 	verr := sess.verdict()

@@ -22,18 +22,22 @@ type liveSession struct {
 	CompleteResponses int // ledger entries with a 2xx response and known usage
 	ReportErr         error
 	KeyHits           []string // output and form of each key hit, never the value
+	KeyScanIncomplete []string // parts the key scan could not read to the end
 }
 
 // verdict says whether the session verified the intended chain, so that the series may go on
 // (macOS before Linux). A Go test PASS alone never allows the next session: the trial must
 // pass, the model must have answered at least once with usage, the ledger must be one final,
-// complete, enforced record, the report must build and the key must appear nowhere. Anything
-// else stops the series with the actual result.
+// complete, enforced record, the report must build and a complete key scan must find nothing.
+// Anything else stops the series with the actual result.
 func (l liveSession) verdict() error {
 	var errs []error
 	fail := func(f string, a ...any) { errs = append(errs, fmt.Errorf(f, a...)) }
 	if len(l.KeyHits) > 0 {
 		fail("the model key appears in an output: %v", l.KeyHits)
+	}
+	if len(l.KeyScanIncomplete) > 0 {
+		fail("the key scan is incomplete: %v", l.KeyScanIncomplete)
 	}
 	if l.Trials != 1 {
 		fail("trials %d, want 1", l.Trials)
@@ -85,6 +89,7 @@ func TestLiveSessionVerdict(t *testing.T) {
 		"teardown incomplete":  func(l *liveSession) { l.LedgerReasons = []string{"teardown_incomplete"} },
 		"report failed":        func(l *liveSession) { l.ReportErr = errors.New("x") },
 		"key in an output":     func(l *liveSession) { l.KeyHits = []string{"stdout: raw"} },
+		"key scan incomplete":  func(l *liveSession) { l.KeyScanIncomplete = []string{"run.tar: byte limit"} },
 		"no trial":             func(l *liveSession) { l.Trials = 0 },
 		"infrastructure error": func(l *liveSession) { l.Outcome = "infrastructure_error" },
 	} {

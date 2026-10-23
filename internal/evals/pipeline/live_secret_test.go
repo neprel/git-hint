@@ -67,80 +67,145 @@ var credentialForms = map[string]*regexp.Regexp{
 	"key_env":              regexp.MustCompile(`(?i)[A-Z0-9_]*(KEY|TOKEN|SECRET)\s*=\s*["']?`),
 }
 
-// keyHits scans every named output (archives entry by entry, also nested and gzip-compressed
-// ones) for every form of the key. A hit is "output[/entry]: form[+credential label]"; the
-// key value is never part of it.
-func keyHits(key string, outputs map[string][]byte) []string {
+// Limits of the archive scan. Reaching one makes the scan incomplete, never clean.
+var (
+	scanMaxDepth   = 4         // nested containers (tar, gzip) below an output
+	scanMaxEntries = 10000     // archive entries in all outputs together
+	scanMaxBytes   = 256 << 20 // extracted and decompressed bytes in all outputs together
+)
+
+// keyScan is one scan of the outputs of a session. hits are "output[/entry#n...]: form[+label]";
+// incomplete names every part that could not be read to its end (parse, decompression or read
+// error, a limit). Neither ever holds the key value. An incomplete scan is not a clean scan.
+type keyScan struct {
+	forms      map[string][]byte
+	hits       []string
+	incomplete []string
+	entries    int
+	bytes      int
+}
+
+// keyHits scans every named output in name order; archives are read entry by entry in their
+// order (a later entry with the same name never replaces an earlier one), also nested and
+// gzip-compressed ones.
+func keyHits(key string, outputs map[string][]byte) (hits, incomplete []string) {
 	if key == "" {
-		return nil
+		return nil, nil
 	}
-	forms := keyForms(key)
-	var hits []string
-	var scan func(name string, b []byte, depth int)
-	scan = func(name string, b []byte, depth int) {
-		for form, f := range forms {
-			for i := 0; ; {
-				j := bytes.Index(b[i:], f)
-				if j < 0 {
-					break
-				}
-				at := i + j
-				h := name + ": " + form
-				before := b[max(0, at-40):at]
-				for label, re := range credentialForms {
-					if loc := re.FindAllIndex(before, -1); len(loc) > 0 && loc[len(loc)-1][1] == len(before) {
-						h += "+" + label
-					}
-				}
-				hits = append(hits, h)
-				i = at + len(f)
-			}
-		}
-		if depth < 3 {
-			for entry, data := range archiveEntries(b) {
-				scan(name+"/"+entry, data, depth+1)
-			}
-		}
-	}
+	ks := &keyScan{forms: keyForms(key)}
 	names := make([]string, 0, len(outputs))
 	for n := range outputs {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		scan(n, outputs[n], 0)
+		ks.scan(n, outputs[n], 0)
 	}
-	sort.Strings(hits)
-	return hits
+	sort.Strings(ks.hits)
+	return ks.hits, ks.incomplete
 }
 
-// archiveEntries reads b as a tar archive (plain or gzip); anything else has no entries.
-func archiveEntries(b []byte) map[string][]byte {
-	var r io.Reader = bytes.NewReader(b)
-	if len(b) > 2 && b[0] == 0x1f && b[1] == 0x8b {
-		z, err := gzip.NewReader(r)
-		if err != nil {
-			return nil
+func (ks *keyScan) scan(name string, b []byte, depth int) {
+	for form, f := range ks.forms {
+		for i := 0; ; {
+			j := bytes.Index(b[i:], f)
+			if j < 0 {
+				break
+			}
+			at := i + j
+			h := name + ": " + form
+			before := b[max(0, at-40):at]
+			for label, re := range credentialForms {
+				if loc := re.FindAllIndex(before, -1); len(loc) > 0 && loc[len(loc)-1][1] == len(before) {
+					h += "+" + label
+				}
+			}
+			ks.hits = append(ks.hits, h)
+			i = at + len(f)
 		}
-		r = z
 	}
-	out := map[string][]byte{}
+	gz, tr := len(b) >= 2 && b[0] == 0x1f && b[1] == 0x8b, len(b) >= 263 && string(b[257:262]) == "ustar"
+	if !gz && !tr {
+		return
+	}
+	if depth >= scanMaxDepth {
+		ks.incomplete = append(ks.incomplete, name+": depth limit")
+		return
+	}
+	if gz {
+		ks.gunzip(name, b, depth)
+	} else {
+		ks.untar(name, b, depth)
+	}
+}
+
+// take reads r to its end within the remaining byte budget; ok is false (and the part is
+// recorded as incomplete) on a read error or when the budget is spent.
+func (ks *keyScan) take(name string, r io.Reader) ([]byte, bool) {
+	left := scanMaxBytes - ks.bytes
+	data, err := io.ReadAll(io.LimitReader(r, int64(left)+1))
+	ks.bytes += len(data)
+	switch {
+	case err != nil:
+		ks.incomplete = append(ks.incomplete, fmt.Sprintf("%s: read: %v", name, err))
+		return nil, false
+	case len(data) > left:
+		ks.incomplete = append(ks.incomplete, name+": byte limit")
+		return nil, false
+	}
+	return data, true
+}
+
+func (ks *keyScan) gunzip(name string, b []byte, depth int) {
+	z, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		ks.incomplete = append(ks.incomplete, fmt.Sprintf("%s: gzip: %v", name, err))
+		return
+	}
+	if data, ok := ks.take(name, z); ok {
+		ks.scan(name+"|gunzip", data, depth+1)
+	}
+}
+
+func (ks *keyScan) untar(name string, b []byte, depth int) {
+	r := bytes.NewReader(b)
 	tr := tar.NewReader(r)
-	for {
+	end := 0 // where the last entry's data and padding end
+	for n := 1; ; n++ {
 		h, err := tr.Next()
-		if err != nil {
-			break
+		if err == io.EOF {
+			// the reader also reports EOF for an archive cut at an entry boundary: a complete
+			// archive has the two zero blocks of the end marker after the last entry
+			if len(b) < end+1024 || !bytes.Equal(b[end:end+1024], make([]byte, 1024)) {
+				ks.incomplete = append(ks.incomplete, fmt.Sprintf("%s: tar end marker missing after entry %d", name, n-1))
+			}
+			return
 		}
-		if h.Typeflag != tar.TypeReg {
+		if err != nil {
+			ks.incomplete = append(ks.incomplete, fmt.Sprintf("%s: tar entry %d: %v", name, n, err))
+			return
+		}
+		if ks.entries++; ks.entries > scanMaxEntries {
+			ks.incomplete = append(ks.incomplete, name+": entry limit")
+			return
+		}
+		end = len(b) - r.Len() + int((h.Size+511)/512*512)
+		entry := fmt.Sprintf("%s/%s#%d", name, h.Name, n)
+		switch h.Typeflag {
+		case tar.TypeReg:
+		case tar.TypeDir, tar.TypeSymlink, tar.TypeLink:
+			ks.scan(entry+"(link)", []byte(h.Linkname), depth+1) // a link target is text too
+			continue
+		default:
+			ks.incomplete = append(ks.incomplete, fmt.Sprintf("%s: entry type %q not scanned", entry, h.Typeflag))
 			continue
 		}
-		data, err := io.ReadAll(io.LimitReader(tr, 64<<20))
-		if err != nil {
-			break
+		data, ok := ks.take(entry, tr)
+		if !ok {
+			return
 		}
-		out[h.Name] = data
+		ks.scan(entry, data, depth+1)
 	}
-	return out
 }
 
 func TestKeyCollisionPreflight(t *testing.T) {
@@ -202,29 +267,41 @@ func TestLiveTrialCollisionNeedsNoRequest(t *testing.T) {
 	}
 }
 
+type entry struct{ name, data string }
+
+// tarOf builds a tar archive with the entries in the given order (optionally gzip-compressed).
+func tarOf(gz bool, entries ...entry) []byte {
+	var buf bytes.Buffer
+	var w io.Writer = &buf
+	var z *gzip.Writer
+	if gz {
+		z = gzip.NewWriter(&buf)
+		w = z
+	}
+	tw := tar.NewWriter(w)
+	for _, e := range entries {
+		tw.WriteHeader(&tar.Header{Name: e.name, Mode: 0o600, Size: int64(len(e.data)), Typeflag: tar.TypeReg})
+		tw.Write([]byte(e.data))
+	}
+	tw.Close()
+	if z != nil {
+		z.Close()
+	}
+	return buf.Bytes()
+}
+
+func gzipOf(data []byte) []byte {
+	var buf bytes.Buffer
+	z := gzip.NewWriter(&buf)
+	z.Write(data)
+	z.Close()
+	return buf.Bytes()
+}
+
 func TestKeyHits(t *testing.T) {
 	const key = `Zq7<k"ey\x`
 	j, _ := json.Marshal(map[string]string{"note": key})
-	tarOf := func(gz bool, files map[string]string) []byte {
-		var buf bytes.Buffer
-		var w io.Writer = &buf
-		var z *gzip.Writer
-		if gz {
-			z = gzip.NewWriter(&buf)
-			w = z
-		}
-		tw := tar.NewWriter(w)
-		for n, c := range files {
-			tw.WriteHeader(&tar.Header{Name: n, Mode: 0o600, Size: int64(len(c)), Typeflag: tar.TypeReg})
-			tw.Write([]byte(c))
-		}
-		tw.Close()
-		if z != nil {
-			z.Close()
-		}
-		return buf.Bytes()
-	}
-	inner := tarOf(true, map[string]string{"agent/opencode.txt": "tool output " + base64.StdEncoding.EncodeToString([]byte(key))})
+	inner := tarOf(true, entry{"agent/opencode.txt", "tool output " + base64.StdEncoding.EncodeToString([]byte(key))})
 	cases := map[string]struct {
 		outputs map[string][]byte
 		want    []string
@@ -237,13 +314,19 @@ func TestKeyHits(t *testing.T) {
 		"json escaped":              {map[string][]byte{"summary.json": j}, []string{"summary.json: json_escaped"}},
 		"url escaped":               {map[string][]byte{"log": []byte("GET /v1?k=" + url.QueryEscape(key))}, []string{"log: url_escaped"}},
 		"basic bearer base64":       {map[string][]byte{"log": []byte("x " + base64.StdEncoding.EncodeToString([]byte("Bearer "+key)))}, []string{"log: base64_bearer"}},
-		"archive entry, nested gz":  {map[string][]byte{"run.tar": tarOf(false, map[string]string{"result.json": "{}", "agent/final.tar.gz": string(inner)})}, []string{"run.tar/agent/final.tar.gz/agent/opencode.txt: base64"}},
-		"summary and log, clean":    {map[string][]byte{"summary.json": []byte(`{"model":"ai01"}`), "test.log": []byte(`"model": "ai01"`)}, nil},
+		"plain archive entry":       {map[string][]byte{"run.tar": tarOf(false, entry{"result.json", "{}"}, entry{"agent/opencode.txt", key})}, []string{"run.tar/agent/opencode.txt#2: raw", "run.tar: raw"}},
+		"nested gzip archive entry": {map[string][]byte{"run.tar": tarOf(false, entry{"result.json", "{}"}, entry{"agent/final.tar.gz", string(inner)})}, []string{"run.tar/agent/final.tar.gz#2|gunzip/agent/opencode.txt#1: base64", "run.tar/agent/final.tar.gz#2|gunzip: base64"}},
+		"gzip text":                 {map[string][]byte{"log.gz": gzipOf([]byte("x=" + key))}, []string{"log.gz: raw", "log.gz|gunzip: raw"}}, // short text is stored nearly literally,
+		// C7BJ-19: a later entry with the same name does not hide an earlier one
+		"duplicate name, secret first": {map[string][]byte{"run.tar": tarOf(false, entry{"same.tar.gz", string(tarOf(true, entry{"out", key}))}, entry{"same.tar.gz", "clean"})}, []string{"run.tar/same.tar.gz#1|gunzip/out#1: raw", "run.tar/same.tar.gz#1|gunzip: raw"}},
+		"duplicate name, secret last":  {map[string][]byte{"run.tar": tarOf(false, entry{"same.tar.gz", "clean"}, entry{"same.tar.gz", string(tarOf(true, entry{"out", key}))})}, []string{"run.tar/same.tar.gz#2|gunzip/out#1: raw", "run.tar/same.tar.gz#2|gunzip: raw"}},
+		"summary and log, clean":       {map[string][]byte{"summary.json": []byte(`{"model":"ai01"}`), "test.log": []byte(`"model": "ai01"`)}, nil},
+		"clean archives":               {map[string][]byte{"run.tar": tarOf(false, entry{"a", "x"}, entry{"b.tar.gz", string(tarOf(true, entry{"c", "y"}))})}, nil},
 	}
 	for name, c := range cases {
-		got := keyHits(key, c.outputs)
-		if fmt.Sprint(got) != fmt.Sprint(c.want) {
-			t.Errorf("%s: hits %v, want %v", name, got, c.want)
+		got, incomplete := keyHits(key, c.outputs)
+		if fmt.Sprint(got) != fmt.Sprint(c.want) || incomplete != nil {
+			t.Errorf("%s: hits %v incomplete %v, want %v", name, got, incomplete, c.want)
 		}
 		for _, h := range got {
 			if strings.Contains(h, key) {
@@ -253,12 +336,64 @@ func TestKeyHits(t *testing.T) {
 	}
 	// benign model metadata under a distinct credential: the model name is everywhere, no hit
 	meta := map[string][]byte{"summary.json": []byte(`{"agent":{"model":"ai01","name":"opencode","version":"2.0.26"}}`), "test.log": []byte(`model ai01 at http://127.0.0.1:10011/v1`)}
-	if h := keyHits("s3cr3t-Distinct-Value", meta); h != nil {
-		t.Errorf("benign metadata: %v", h)
+	if h, inc := keyHits("s3cr3t-Distinct-Value", meta); h != nil || inc != nil {
+		t.Errorf("benign metadata: %v %v", h, inc)
 	}
 	// the session-1 shape (key equal to the model name): the raw scan still fires, which is why
 	// the preflight refuses that configuration before any request
-	if h := keyHits("ai01", meta); len(h) != 2 {
+	if h, _ := keyHits("ai01", meta); len(h) != 2 {
 		t.Errorf("colliding key: %v", h)
+	}
+}
+
+// TestKeyScanIncomplete: a part that cannot be read to its end makes the scan incomplete,
+// never clean, and the session verdict fails.
+func TestKeyScanIncomplete(t *testing.T) {
+	const key = "s3cr3t-Distinct-Value"
+	good := tarOf(false, entry{"a", "clean"}, entry{"b", "clean too"})
+	gz := tarOf(true, entry{"a", "clean"})
+	nest := func(levels int) []byte {
+		b := tarOf(false, entry{"leaf", "clean"})
+		for range levels {
+			b = tarOf(false, entry{"next.tar", string(b)})
+		}
+		return b
+	}
+	for name, c := range map[string]struct {
+		out  []byte
+		want string
+		set  func()
+	}{
+		"tar cut in entry data": {tarOf(false, entry{"a", strings.Repeat("x", 2000)})[:1000], "read", nil},
+		"tar cut in padding":    {good[:600], "end marker missing after entry 1", nil},
+		"tar cut at an entry":   {good[:1024], "end marker missing after entry 1", nil},
+		"corrupt tar header":    {append(append([]byte{}, good[:148]...), append([]byte("XXXXXXXX"), good[156:]...)...), "tar entry 1", nil},
+		"truncated gzip":        {gz[:len(gz)-10], "read", nil},
+		"corrupt gzip header":   {append([]byte{0x1f, 0x8b, 0xff}, gz[3:]...), "gzip", nil},
+		"depth limit":           {nest(6), "depth limit", nil},
+		"entry limit":           {good, "entry limit", func() { scanMaxEntries = 1 }},
+		"byte limit":            {good, "byte limit", func() { scanMaxBytes = 6 }},
+		"gzip bomb, byte limit": {gzipOf(make([]byte, 1<<20)), "byte limit", func() { scanMaxBytes = 1 << 10 }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, e, b := scanMaxDepth, scanMaxEntries, scanMaxBytes
+			defer func() { scanMaxDepth, scanMaxEntries, scanMaxBytes = d, e, b }()
+			if c.set != nil {
+				c.set()
+			}
+			hits, inc := keyHits(key, map[string][]byte{"run.tar": c.out})
+			if hits != nil || len(inc) == 0 || !strings.Contains(fmt.Sprint(inc), c.want) {
+				t.Fatalf("hits %v incomplete %v, want %q", hits, inc, c.want)
+			}
+			if (liveSession{KeyScanIncomplete: inc}).verdict() == nil {
+				t.Fatal("an incomplete scan passes the verdict")
+			}
+		})
+	}
+	// controls: the same shapes within the limits are complete
+	for _, out := range [][]byte{good, gz, nest(3)} {
+		if hits, inc := keyHits(key, map[string][]byte{"run.tar": out}); hits != nil || inc != nil {
+			t.Errorf("control: %v %v", hits, inc)
+		}
 	}
 }
