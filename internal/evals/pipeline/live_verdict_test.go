@@ -21,7 +21,7 @@ type liveSession struct {
 	LedgerReasons     []string
 	CompleteResponses int // ledger entries with a 2xx response and known usage
 	ReportErr         error
-	KeyFound          bool
+	KeyHits           []string // output and form of each key hit, never the value
 }
 
 // verdict says whether the session verified the intended chain, so that the series may go on
@@ -32,8 +32,8 @@ type liveSession struct {
 func (l liveSession) verdict() error {
 	var errs []error
 	fail := func(f string, a ...any) { errs = append(errs, fmt.Errorf(f, a...)) }
-	if l.KeyFound {
-		fail("the model key appears in an output")
+	if len(l.KeyHits) > 0 {
+		fail("the model key appears in an output: %v", l.KeyHits)
 	}
 	if l.Trials != 1 {
 		fail("trials %d, want 1", l.Trials)
@@ -84,7 +84,7 @@ func TestLiveSessionVerdict(t *testing.T) {
 		"bypass not enforced":  func(l *liveSession) { l.LedgerBypass = "unverified" },
 		"teardown incomplete":  func(l *liveSession) { l.LedgerReasons = []string{"teardown_incomplete"} },
 		"report failed":        func(l *liveSession) { l.ReportErr = errors.New("x") },
-		"key in an output":     func(l *liveSession) { l.KeyFound = true },
+		"key in an output":     func(l *liveSession) { l.KeyHits = []string{"stdout: raw"} },
 		"no trial":             func(l *liveSession) { l.Trials = 0 },
 		"infrastructure error": func(l *liveSession) { l.Outcome = "infrastructure_error" },
 	} {

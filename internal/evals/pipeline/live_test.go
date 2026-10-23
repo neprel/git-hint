@@ -1,7 +1,6 @@
 package pipeline
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -91,6 +90,7 @@ func TestLiveRequirementMap(t *testing.T) {
 // 300 seconds of agent time, no trial retry. The endpoint is checked first by a TCP connect
 // only (no request); when it is unreachable nothing starts. Set HINT_DOCKER_TESTS=1 too;
 // HINT_OPENCODE_TGZ is a local copy of the pinned OpenCode archive (else it is fetched once).
+// A key that collides with an exported identifier (for example the model name) is refused first.
 // The run checks the chain (gate, ledger, result trust, report) and that the key appears in
 // no output; it does not measure canonical tokens or savings.
 func TestLiveOpenCodeTrial(t *testing.T) {
@@ -98,14 +98,10 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	if os.Getenv("HINT_DOCKER_TESTS") != "1" {
 		t.Skip("set HINT_DOCKER_TESTS=1")
 	}
-	u, err := url.Parse(m.BaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c, err := net.DialTimeout("tcp", u.Host, 3*time.Second); err != nil {
-		t.Skipf("the LAN endpoint is not reachable (TCP %s): 0 model requests", u.Host)
-	} else {
-		c.Close()
+	if refused, unreachable := liveGate(m); refused != nil {
+		t.Fatal(refused)
+	} else if unreachable != nil {
+		t.Skip(unreachable)
 	}
 	const maxRequests, maxSeconds = 8, 300
 	ctx := context.Background()
@@ -133,7 +129,7 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	summary := map[string]any{"runner": "hint-docker " + runner.DockerRunnerSemver, "opencode": runner.DockerOpenCodeVersion, "trials": rep.Trials, "outcomes": rep.Outcomes,
 		"model_requests": deref(rep.Requests), "ledgers_not_written": rep.LedgersNotWritten, "wall_seconds": time.Since(start).Round(time.Second).Seconds()}
 	sess := liveSession{Trials: rep.Trials, Stop: rep.Stopped, Requests: rep.Requests, MaxRequests: maxRequests, LedgersNotWritten: rep.LedgersNotWritten}
-	var outputs [][]byte
+	outputs := map[string][]byte{}
 	names, _ := l.Manifests("trial")
 	for _, n := range names {
 		var tr map[string]any
@@ -144,7 +140,7 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 		summary["trial"] = map[string]any{"outcome": tr["outcome"], "checks": tr["checks"], "counters": tr["counters"], "budget": tr["budget"], "agent": tr["agent"], "runner": tr["runner"], "result_trust": tr["result_trust"]}
 		if arts, ok := tr["artifacts"].([]any); ok && len(arts) == 1 {
 			if a, err := l.GetObject(arts[0].(string)); err == nil {
-				outputs = append(outputs, a)
+				outputs["opencode-trial-run.tar"] = a
 				liveOut(t, "opencode-trial-run.tar", a)
 			}
 		}
@@ -168,15 +164,13 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	doc, _, rerr := report.Builder{Key: s.Key(), Namespace: s.Cfg.ProjectNamespace, WorkUnits: revs}.Build(l, names, time.Now())
 	summary["report_error"] = fmt.Sprint(rerr)
 	sess.ReportErr = rerr
-	outputs = append(outputs, doc)
+	outputs["report.json"] = doc
 	b, _ := json.MarshalIndent(summary, "", "  ")
-	outputs = append(outputs, b)
-	// the key never appears in an output (the value is not printed)
-	if key := os.Getenv(m.KeyEnv); key != "" {
-		for _, o := range outputs {
-			sess.KeyFound = sess.KeyFound || bytes.Contains(o, []byte(key))
-		}
-	}
+	outputs["summary.json"] = b
+	// the key appears in no output, in no form (raw, escaped, encoded; archives entry by entry);
+	// a hit names the output and the form, never the value
+	sess.KeyHits = keyHits(os.Getenv(m.KeyEnv), outputs)
+	summary["key_hits"] = sess.KeyHits
 	// the series continues (macOS before Linux) only on a verified session, never on a test
 	// PASS alone; the actual result is kept either way
 	verr := sess.verdict()
@@ -187,6 +181,38 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	if verr != nil {
 		t.Fatalf("the session did not verify the chain; stop the series: %v", verr)
 	}
+}
+
+// liveGate runs before any model or agent request: first the key preflight (a refusal fails
+// the test), then the TCP check (unreachable skips it).
+func liveGate(m *evals.Model) (refused, unreachable error) {
+	if err := livePreflight(m); err != nil {
+		return err, nil
+	}
+	return nil, liveReachable(m)
+}
+
+// livePreflight refuses, before any model or agent request, a key that the output scan could
+// not tell from an identifier the session exports on purpose.
+func livePreflight(m *evals.Model) error {
+	return keyCollision(os.Getenv(m.KeyEnv), map[string]string{
+		"model": m.Model, "base_url": m.BaseURL, "model_use": m.Use, "key_env": m.KeyEnv,
+		"agent": "opencode", "agent_version": runner.DockerOpenCodeVersion,
+		"runner": "hint-docker", "runner_version": runner.DockerRunnerSemver, "arm": "baseline",
+	})
+}
+
+// liveReachable is a TCP connect only (no request): an unreachable endpoint starts nothing.
+func liveReachable(m *evals.Model) error {
+	u, err := url.Parse(m.BaseURL)
+	if err != nil {
+		return err
+	}
+	c, err := net.DialTimeout("tcp", u.Host, 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("the LAN endpoint is not reachable (TCP %s): 0 model requests", u.Host)
+	}
+	return c.Close()
 }
 
 func deref(p *int64) any {
