@@ -19,20 +19,25 @@ import (
 )
 
 // keyCollision is the preflight of a live session, run before any model or agent request: the
-// raw secret scan of the outputs cannot tell the key from an identifier that the harness
-// exports on purpose (the model name, the endpoint, the agent and runner names and versions),
-// so a key that equals, contains or is contained in such a field is refused. The names of the
-// fields are reported, never the key.
+// output scan cannot tell the key from an identifier that the harness exports on purpose (the
+// model name, the endpoint, the agent and runner names and versions) when such a field contains
+// the whole key in a form the scan searches (keyForms; case-sensitive like the scan), as the
+// field is written and as JSON writes it. Such a key is refused. A key that merely contains a
+// field is no collision: the field alone never matches the whole key. The names of the fields
+// are reported, never the key.
 func keyCollision(key string, exported map[string]string) error {
 	if key == "" {
 		return nil
 	}
-	k := strings.ToLower(key)
+	forms := keyForms(key)
 	var hit []string
 	for name, v := range exported {
-		v = strings.ToLower(v)
-		if v != "" && (strings.Contains(v, k) || strings.Contains(k, v)) {
-			hit = append(hit, name)
+		j, _ := json.Marshal(v)
+		for _, f := range forms {
+			if bytes.Contains([]byte(v), f) || bytes.Contains(j, f) {
+				hit = append(hit, name)
+				break
+			}
 		}
 	}
 	if len(hit) == 0 {
@@ -209,17 +214,55 @@ func (ks *keyScan) untar(name string, b []byte, depth int) {
 }
 
 func TestKeyCollisionPreflight(t *testing.T) {
-	exported := map[string]string{"model": "ai01", "base_url": "http://127.0.0.1:10011/v1", "agent": "opencode", "agent_version": "2.0.26", "runner": "hint-docker 0.1.0"}
-	for _, key := range []string{"ai01", "AI01", "opencode", "2.0.26", "10011", "hint-docker 0.1.0 extra"} {
-		if err := keyCollision(key, exported); err == nil {
-			t.Errorf("a key that collides with an exported field is accepted")
+	exported := map[string]string{"model": "ai01", "base_url": "http://127.0.0.1:10011/v1", "agent": "opencode", "agent_version": "2.0.26", "runner": "hint-docker 0.1.0", "note": "a<b", "enc": "dG9rM24=", "query": "q=a+b"}
+	refused := map[string]string{
+		"equal to a field":      "ai01",
+		"substring of a field":  "10011",
+		"substring, other":      "docker 0.1",
+		"json-escaped in field": `\u003c`, // "a<b" is written as "a\u003cb" in JSON output
+		"base64 form in field":  "tok3n",  // "enc" holds base64("tok3n")
+		"url-escaped in field":  "a b",    // "query" holds url.QueryEscape("a b")
+	}
+	for name, key := range refused {
+		err := keyCollision(key, exported)
+		if err == nil {
+			t.Errorf("%s: accepted", name)
 		} else if strings.Contains(err.Error(), key) {
-			t.Errorf("the refusal prints the key")
+			t.Errorf("%s: the refusal prints the key", name)
 		}
 	}
-	for _, key := range []string{"", "s3cr3t-Distinct-Value"} {
+	accepted := map[string]string{
+		"empty":                        "",
+		"distinct":                     "s3cr3t-Distinct-Value",
+		"prefix-only (contains model)": "ai01-Synthetic-Long-Secret-9f3k",
+		"contains a whole field":       "x-hint-docker 0.1.0-y",
+		"other case than the field":    "AI01", // the scan is case-sensitive: "ai01" never matches "AI01"
+	}
+	for name, key := range accepted {
 		if err := keyCollision(key, exported); err != nil {
-			t.Errorf("a distinct key is refused: %v", err)
+			t.Errorf("%s: refused: %v", name, err)
+		}
+	}
+}
+
+// TestPreflightAgreesWithTheScan: the preflight accepts exactly the keys whose scan over
+// exported metadata is clean, and the scan still catches the whole key.
+func TestPreflightAgreesWithTheScan(t *testing.T) {
+	meta := map[string][]byte{
+		"summary.json": []byte(`{"agent":{"model":"ai01","name":"opencode","version":"2.0.26"},"note":"a\u003cb","enc":"dG9rM24="}`),
+		"test.log":     []byte(`"model": "ai01" at http://127.0.0.1:10011/v1`),
+	}
+	exported := map[string]string{"model": "ai01", "base_url": "http://127.0.0.1:10011/v1", "agent": "opencode", "agent_version": "2.0.26", "note": "a<b", "enc": "dG9rM24="}
+	for _, key := range []string{"ai01-Synthetic-Long-Secret-9f3k", "AI01", "ai01", "10011", `\u003c`, "tok3n", "s3cr3t-Distinct-Value"} {
+		hits, inc := keyHits(key, meta)
+		if inc != nil {
+			t.Fatalf("incomplete: %v", inc)
+		}
+		if refused := keyCollision(key, exported) != nil; refused != (len(hits) > 0) {
+			t.Errorf("key %d chars: preflight refused %v, metadata hits %v", len(key), refused, hits)
+		}
+		if h, _ := keyHits(key, map[string][]byte{"stdout": []byte("x " + key + " y")}); len(h) == 0 {
+			t.Errorf("key %d chars: the whole key in stdout is not caught", len(key))
 		}
 	}
 }
@@ -246,18 +289,20 @@ func TestLiveTrialCollisionNeedsNoRequest(t *testing.T) {
 	}()
 	t.Setenv("HINT_LIVE_MODEL_URL", "http://"+ln.Addr().String()+"/v1")
 	t.Setenv("HINT_LIVE_MODEL", "same-word")
-	t.Setenv("HINT_LOCAL_MODEL_KEY", "same-word")
-	refused, _ := liveGate(liveModel(t))
-	if refused == nil || !strings.Contains(refused.Error(), "0 model requests") || strings.Contains(refused.Error(), "same-word") {
-		t.Fatalf("preflight: %v", refused)
+	for _, key := range []string{"same-word", "same", "word", "ame-wor"} {
+		t.Setenv("HINT_LOCAL_MODEL_KEY", key) // equal, and substrings of the model name
+		refused, _ := liveGate(liveModel(t))
+		if refused == nil || !strings.Contains(refused.Error(), "0 model requests") || strings.Contains(refused.Error(), key) {
+			t.Fatalf("preflight: %v", refused)
+		}
 	}
 	time.Sleep(100 * time.Millisecond)
 	if n := conns.Load(); n != 0 {
 		t.Fatalf("the endpoint was contacted %d times before the refusal", n)
 	}
-	t.Setenv("HINT_LOCAL_MODEL_KEY", "s3cr3t-Distinct-Value")
+	t.Setenv("HINT_LOCAL_MODEL_KEY", "same-word-Synthetic-Long-Secret") // contains the model name: no collision
 	if refused, unreachable := liveGate(liveModel(t)); refused != nil || unreachable != nil {
-		t.Fatalf("distinct key: %v %v", refused, unreachable)
+		t.Fatalf("prefix-only key: %v %v", refused, unreachable)
 	}
 	for deadline := time.Now().Add(2 * time.Second); conns.Load() != 1 && time.Now().Before(deadline); {
 		time.Sleep(10 * time.Millisecond)
