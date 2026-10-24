@@ -174,6 +174,7 @@ func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M)
 	write(ex("activity-model-ledger-entries.json"), ledgerEntriesDoc(act))
 	write(ex("activity-model-ledger-agent-run.json"), ledgerAgentRunDoc(act))
 	write(ex("activity-model-ledger-backend-capture.json"), ledgerBackendCaptureDoc(act))
+	write(ex("activity-cli-root.json"), cliRootDoc(act))
 	for name, d := range ledgerBackendCaptureValid(act) {
 		write(filepath.Join(root, "tests", "conformance", "valid", name), d)
 	}

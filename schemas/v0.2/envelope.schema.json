@@ -85,6 +85,7 @@
                 "type": "string",
                 "enum": [
                   "opencode-plugin",
+                  "opencode-cli-root",
                   "claude-code-hook",
                   "codex-hook",
                   "otlp-receiver",

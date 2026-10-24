@@ -61,7 +61,84 @@ const (
 	// source is not a descriptive ledger source, or a second body, binding or seal time for the
 	// same ledger revision or ledger in one document
 	CodeLedger = "ledger_inconsistent"
+	// CodeSourceCLIRoot: a source of the root CLI adapter (opencode-cli-root) whose declaration is
+	// not the adapter's fixed measurement scope, or an observation of it that is not log-derived
+	// or claims what the scope cannot observe (usage, a model call or ledger, a context
+	// measurement, a turn)
+	CodeSourceCLIRoot = "source_cli_root_inconsistent"
 )
+
+// The root CLI adapter: its version fixes the measurement scope (opencode-cli-root 0.1.0: the
+// terminal tool records of the root session in OpenCode 2.0.26 run JSON output).
+const CLIRootAdapter = "opencode-cli-root"
+
+var (
+	cliRootCapabilities = []string{"time.start", "time.end", "targets", "outcome.status", "outcome.exit_code", "size", "content_delivery",
+		"command_class", "correlation.session_id", "correlation.tool_call_id"}
+	cliRootOptional    = []string{"correlation.task_id", "correlation.task_family_id", "correlation.run_ref"}
+	cliRootUnavailable = []string{"usage", "request_kind", "collection", "correlation.turn_id", "correlation.trace_id", "correlation.span_id",
+		"coordination", "context"}
+)
+
+// SourceCLIRootProblem reports whether a root CLI adapter source declares anything else than its
+// scope: every fixed capability, optionally the declared task, family and run correlations,
+// nothing more; every unobservable field listed as unavailable; no usage normalization.
+func SourceCLIRootProblem(src map[string]any) bool {
+	caps, unavail := strs(src["capabilities"]), strs(src["unavailable"])
+	for _, c := range cliRootCapabilities {
+		if !contains(caps, c) {
+			return true
+		}
+	}
+	for _, c := range caps {
+		if !contains(cliRootCapabilities, c) && !contains(cliRootOptional, c) {
+			return true
+		}
+	}
+	for _, u := range cliRootUnavailable {
+		if !contains(unavail, u) {
+			return true
+		}
+	}
+	_, norm := src["usage_normalization"]
+	return norm
+}
+
+// ObservationCLIRootProblem reports whether an observation of a root CLI adapter source claims
+// more than the scope: it must be log-derived and never carry usage, a model call, a model
+// ledger, a context measurement or a turn.
+func ObservationCLIRootProblem(o map[string]any) bool {
+	if str(o["source"]) != "log" || str(o["op"]) == "MODEL_CALL" || str(o["op"]) == "USAGE" {
+		return true
+	}
+	for _, k := range []string{"usage", "model_ledger", "context", "request_kind"} {
+		if _, ok := o[k]; ok {
+			return true
+		}
+	}
+	corr, _ := o["correlation"].(map[string]any)
+	_, turn := corr["turn_id"]
+	return turn
+}
+
+func strs(v any) []string {
+	var out []string
+	for _, x := range list(v) {
+		if s, ok := x.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func contains(xs []string, x string) bool {
+	for _, y := range xs {
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
 
 // Canary values of the public research conventions; also used by the negative tests.
 var Canaries = []string{"HINTCANARY_", "canary_dir_e1d2", "canarySymbolQ7"}
@@ -347,9 +424,16 @@ func (c *checker) activity(payload map[string]any) {
 	obs := c.uniq(payload, "observations", "observation_id")
 	c.uniq(payload, "metrics", "metric_id")
 	sources := map[string]bool{}
-	for _, s := range list(c.doc["sources"]) {
+	cliRoot := map[string]bool{} // root CLI adapter sources
+	for i, s := range list(c.doc["sources"]) {
 		m, _ := s.(map[string]any)
 		sources[str(m["source_id"])] = true
+		if a, _ := m["adapter"].(map[string]any); str(a["name"]) == CLIRootAdapter {
+			cliRoot[str(m["source_id"])] = true
+			if SourceCLIRootProblem(m) {
+				c.add(CodeSourceCLIRoot, "sources[%d]", i)
+			}
+		}
 	}
 	measured := map[string]bool{}
 	family := map[string]string{} // task -> its declared family
@@ -383,6 +467,9 @@ func (c *checker) activity(payload map[string]any) {
 		}
 		if !sources[str(m["source_id"])] {
 			c.add(CodeDangling, "payload.observations[%d].source_id", i)
+		}
+		if cliRoot[str(m["source_id"])] && ObservationCLIRootProblem(m) {
+			c.add(CodeSourceCLIRoot, "payload.observations[%d]", i)
 		}
 		t, _ := m["time"].(map[string]any)
 		s, e := str(t["start"]), str(t["end"])

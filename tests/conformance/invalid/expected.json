@@ -299,6 +299,46 @@
     "code": "observation",
     "level": "schema"
   },
+  "cli-root-claims-collection.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
+  "cli-root-claims-usage.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
+  "cli-root-collection-not-unavailable.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
+  "cli-root-missing-capability.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
+  "cli-root-observation-not-log.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
+  "cli-root-observation-turn.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
+  "cli-root-unknown-adapter-name.json": {
+    "base": "activity-cli-root.json",
+    "code": "source",
+    "level": "schema"
+  },
+  "cli-root-usage-normalization.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
   "coarse-with-seconds.json": {
     "base": "activity-trace.json",
     "code": "time_resolution",

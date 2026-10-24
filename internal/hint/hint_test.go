@@ -235,7 +235,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			name := src["properties"].(map[string]any)["adapter"].(map[string]any)["properties"].(map[string]any)["name"].(map[string]any)
 			var names []any
 			for _, x := range name["enum"].([]any) {
-				if x != "hint-model-ledger" { // the model ledger source (draft v0.2)
+				if x != "hint-model-ledger" && x != "opencode-cli-root" { // the model ledger and root CLI sources (draft v0.2)
 					names = append(names, x)
 				}
 			}
