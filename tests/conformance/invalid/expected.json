@@ -324,6 +324,21 @@
     "code": "source_cli_root_inconsistent",
     "level": "semantic"
   },
+  "cli-root-observation-session-collection.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
+  "cli-root-observation-session.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
+  "cli-root-observation-trace.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
   "cli-root-observation-turn.json": {
     "base": "activity-cli-root.json",
     "code": "source_cli_root_inconsistent",

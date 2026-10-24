@@ -39,8 +39,9 @@ func cliRootDoc(act M) M {
 	return reseal(d)
 }
 
-// cliRootInvalid are the negative cases of the root CLI adapter source and its observations.
-func cliRootInvalid() []invalidCase {
+// cliRootInvalid are the negative cases of the root CLI adapter source and its observations;
+// calls is the model-call example (its flushed SESSION closure is copied as a forged CLI record).
+func cliRootInvalid(calls M) []invalidCase {
 	const base = "activity-cli-root.json"
 	src := func(d M) M {
 		ss := d["sources"].([]any)
@@ -71,5 +72,30 @@ func cliRootInvalid() []invalidCase {
 		semantic("cli-root-usage-normalization", func(d M) { src(d)["usage_normalization"] = "openai-compat-usage-v1" }),
 		semantic("cli-root-observation-not-log", func(d M) { last(d)["source"] = "plugin" }),
 		semantic("cli-root-observation-turn", func(d M) { last(d)["correlation"].(map[string]any)["turn_id"] = id("turn", "t") }),
+		semantic("cli-root-observation-trace", func(d M) { last(d)["correlation"].(map[string]any)["trace_id"] = id("trace", "t") }),
+		// a terminal-only record never gains closure authority: a flushed SESSION closure, or a
+		// SESSION record at all, copied onto the CLI source is refused
+		semantic("cli-root-observation-session-collection", func(d M) { appendSession(d, calls, src(d)["source_id"], true) }),
+		semantic("cli-root-observation-session", func(d M) { appendSession(d, calls, src(d)["source_id"], false) }),
 	}
+}
+
+// appendSession appends the model-call example's SESSION record (with or without its collection)
+// as a log-derived record of the CLI source.
+func appendSession(d, calls M, source any, withCollection bool) {
+	for _, o := range obj(calls, "payload")["observations"].([]any) {
+		m := o.(map[string]any)
+		if m["op"] != "SESSION" || m["collection"] == nil {
+			continue
+		}
+		r := plain(m)
+		r["observation_id"] = id("cli-root-session", m["observation_id"].(string))
+		r["source"], r["source_id"] = "log", source
+		if !withCollection {
+			delete(r, "collection")
+		}
+		obj(d, "payload")["observations"] = append(obj(d, "payload")["observations"].([]any), r)
+		return
+	}
+	panic("the model-call example has no SESSION closure")
 }

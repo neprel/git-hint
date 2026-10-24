@@ -105,20 +105,29 @@ func SourceCLIRootProblem(src map[string]any) bool {
 }
 
 // ObservationCLIRootProblem reports whether an observation of a root CLI adapter source claims
-// more than the scope: it must be log-derived and never carry usage, a model call, a model
-// ledger, a context measurement or a turn.
+// more than the scope: it must be a log-derived terminal tool record, never a session, turn, model
+// call or usage record, and never carry usage, a model ledger, a context measurement, a request
+// kind, a collection (closure authority), coordination, or a turn, trace or span correlation.
 func ObservationCLIRootProblem(o map[string]any) bool {
-	if str(o["source"]) != "log" || str(o["op"]) == "MODEL_CALL" || str(o["op"]) == "USAGE" {
+	switch str(o["op"]) {
+	case "MODEL_CALL", "USAGE", "SESSION", "TURN":
 		return true
 	}
-	for _, k := range []string{"usage", "model_ledger", "context", "request_kind"} {
+	if str(o["source"]) != "log" {
+		return true
+	}
+	for _, k := range []string{"usage", "model_ledger", "context", "request_kind", "collection", "coordination"} {
 		if _, ok := o[k]; ok {
 			return true
 		}
 	}
 	corr, _ := o["correlation"].(map[string]any)
-	_, turn := corr["turn_id"]
-	return turn
+	for _, k := range []string{"turn_id", "trace_id", "span_id"} {
+		if _, ok := corr[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func strs(v any) []string {
