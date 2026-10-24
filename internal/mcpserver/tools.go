@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/neprel/git-hint/internal/evals/pipeline"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/neprel/git-hint/internal/api"
 	"github.com/neprel/git-hint/internal/hint"
 	"github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/snapshot"
@@ -45,7 +48,7 @@ func (h *handlers) register(s *mcp.Server) {
 	add(s, &mcp.Tool{Name: "hint_export_preview", Annotations: ro,
 		Description: "Side effect: none. Build and validate the export package under the local policy; report documents, sizes, record counts and fields removed by the policy."}, h.exportPreview)
 	add(s, &mcp.Tool{Name: "hint_recommend", Annotations: net,
-		Description: "Side effect: network upload to the configured HINT server, only if the user's local rule allows it (otherwise the result is approval_required and nothing is sent). Sends the validated package and fetches the recommendations."}, h.recommend)
+		Description: "Side effect: network upload to the configured HINT server, only if the user's local rule allows it (otherwise the result is approval_required and nothing is sent). Sends the validated package and fetches the recommendations. Optional forecast policy fields use an explicit horizon; threshold is a decimal string, and assumed cost needs both bounds. A forecast remains conditional on server evidence gates."}, h.recommend)
 	add(s, &mcp.Tool{Name: "hint_plan", Annotations: local,
 		Description: "Side effect: local write (one Markdown plan file). Validate a stored recommendation against the current work trees and write the local plan with real file and symbol names. HINT never changes code."}, h.plan)
 	add(s, &mcp.Tool{Name: "hint_import_recommendation", Annotations: local,
@@ -294,7 +297,26 @@ func (h *handlers) exportPreview(ctx context.Context, _ *mcp.CallToolRequest, _ 
 // ---------------------------------------------------------------------------
 // hint_recommend
 
-type RecommendIn struct{}
+type RecommendIn struct {
+	ForecastHorizonTasks   *int64  `json:"forecast_horizon_tasks,omitempty" jsonschema:"explicit future-task horizon, integer 1 to 100000; omit for no forecast policy"`
+	ForecastThreshold      *string `json:"forecast_threshold,omitempty" jsonschema:"decimal STRING in (0,1] with at most six fractional digits; requires forecast_horizon_tasks; server default is heuristic 0.9"`
+	AssumedCostTokensLower *int64  `json:"assumed_cost_tokens_lower,omitempty" jsonschema:"assumed one-time cost lower bound in tokens, 0 to 1000000000000; requires upper bound and explicit horizon; a scenario only"`
+	AssumedCostTokensUpper *int64  `json:"assumed_cost_tokens_upper,omitempty" jsonschema:"assumed one-time cost upper bound in tokens, 0 to 1000000000000; requires lower bound and explicit horizon; upper must not be below lower"`
+}
+
+func (in RecommendIn) forecastPolicy() (url.Values, error) {
+	query := url.Values{}
+	for key, value := range map[string]*int64{"forecast_horizon_tasks": in.ForecastHorizonTasks,
+		"assumed_cost_tokens_lower": in.AssumedCostTokensLower, "assumed_cost_tokens_upper": in.AssumedCostTokensUpper} {
+		if value != nil {
+			query.Set(key, strconv.FormatInt(*value, 10))
+		}
+	}
+	if in.ForecastThreshold != nil {
+		query.Set("forecast_threshold", *in.ForecastThreshold)
+	}
+	return api.ValidateForecastPolicy(query)
+}
 
 type Forecast struct {
 	Metric   string   `json:"metric"`
@@ -336,7 +358,11 @@ type RecommendOut struct {
 
 const notAcceptance = "A fetched recommendation is not an accepted change. Read the plan from hint_plan, review it, and run the checks before any code change."
 
-func (h *handlers) recommend(ctx context.Context, _ *mcp.CallToolRequest, _ RecommendIn) (*mcp.CallToolResult, RecommendOut, error) {
+func (h *handlers) recommend(ctx context.Context, _ *mcp.CallToolRequest, in RecommendIn) (*mcp.CallToolResult, RecommendOut, error) {
+	policy, err := in.forecastPolicy()
+	if err != nil {
+		return nil, RecommendOut{}, h.fail("hint_recommend", toolErr("invalid_argument"))
+	}
 	s, err := h.open()
 	if err != nil {
 		return nil, RecommendOut{}, h.fail("hint_recommend", err)
@@ -370,7 +396,7 @@ func (h *handlers) recommend(ctx context.Context, _ *mcp.CallToolRequest, _ Reco
 		return nil, out, h.fail("hint_recommend", err)
 	}
 	out.SideEffect, out.Status, out.DocumentsSent, out.ServerOrigin = effectNetwork, "sent", len(p.Docs), c.Origin()
-	raw, err := c.Recommendations(ctx, s.Cfg.ProjectNamespace)
+	raw, err := c.RecommendationsWith(ctx, s.Cfg.ProjectNamespace, policy)
 	if err != nil {
 		return nil, out, h.fail("hint_recommend", err)
 	}

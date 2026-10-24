@@ -24,7 +24,7 @@ Tool input and output schemas use one `type` per property (no nullable type list
 | `hint_evals` | optional `eval` | local evals: state, family, qualification checks, reasons; raw trial results per arm. No session text, path or solution | none |
 | `hint_eval_run` | optional `evals` (a list; omit it for every validated eval), `agent` (`oracle`, `nop`, `opencode`), `attempts`, `arm` | suite ID, trials, outcomes, model requests | runs trials in local containers; image builds/dependency downloads can use the network, and live runs contact the configured LAN model through its gate; only when the user's rule `mcp.eval_run` is `allow` (`git hint init --mcp-eval-run allow`) and the eval policy allows container runs |
 | `hint_export_preview` | — | validity, documents and sizes, record counts, fields removed by the policy, profile | none |
-| `hint_recommend` | — | `approval_required` (nothing sent) or `sent` with plan summaries: status, affected repositories, forecasts marked as forecasts | network upload, only with the user's rule |
+| `hint_recommend` | optional forecast policy fields (below) | `approval_required` (nothing sent) or `sent` with plan summaries: status, affected repositories, forecasts marked as forecasts | network upload, only with the user's rule |
 | `hint_plan` | optional `recommendation_id`, `output_path` | validation result, plan summaries, Markdown path and text | local write (one plan file) |
 | `hint_import_recommendation` | `path`, optional `output_path` | as `hint_plan` (file mode) | local write |
 | `hint_changes` | optional `limit` | changes between the last two snapshots, with local names | none |
@@ -37,7 +37,18 @@ Tool input and output schemas use one `type` per property (no nullable type list
 
 `hint_collect` and `hint_eval_run` carry open-world annotations because their explicitly permitted eval processing can use the network. This annotation grants no permission. Repository scanning is local by default; eval model requests and container execution still require their existing policy permissions. A `local_write` result label identifies the local state update, not a guarantee that enabled eval processing used no network. HINT server uploads keep their separate consent rules.
 
-`hint_recommend` currently accepts no forecast policy arguments. The CLI exposes `--forecast-horizon`, `--forecast-threshold`, and `--assumed-cost`. MCP tools can inspect and render forecasts in stored or imported recommendations. A conditional L3 result does not establish calibrated support for arbitrary project data. The ordinary intervention cost model remains unavailable.
+`hint_recommend` accepts the same four existing forecast query keys as optional tool arguments:
+
+| Argument | Type | Rule |
+|---|---|---|
+| `forecast_horizon_tasks` | integer | Explicit future-task horizon, 1–100,000. Omit all policy fields for the ordinary request; no horizon is supplied by default. |
+| `forecast_threshold` | decimal **string**, for example `"0.95"` | In (0, 1], at most six fractional digits. A numeric JSON value is refused. Requires an explicit horizon. The server's default 0.9 is heuristic. |
+| `assumed_cost_tokens_lower` | integer | Nonnegative token bound, at most 1,000,000,000,000. Requires the upper bound and an explicit horizon. |
+| `assumed_cost_tokens_upper` | integer | Same range; must not be below the lower bound. Requires the lower bound and an explicit horizon. |
+
+Omit unused fields; explicit `null` is refused. Invalid policies fail before any HTTP request, including document uploads. Policy arguments grant no upload consent and cannot select a server or enable producer evidence. `hint_recommend` still requires the local MCP upload rule and uses only the configured HINT server.
+
+The CLI exposes the corresponding `--forecast-horizon`, `--forecast-threshold`, and `--assumed-cost` flags. Forecasts remain conditional on server calibration, distribution, effect, cost, and correctness gates. Conditional L3 does not establish calibrated support for arbitrary project data. MCP tools can inspect and render forecasts in stored or imported recommendations. The ordinary intervention cost model remains unavailable.
 
 The three navigation tools answer from the local index of the last collected snapshot. They read no file content and write nothing.
 
@@ -62,7 +73,7 @@ No tool runs a shell command, changes source files, or executes a plan step. A s
 git hint init --mcp-upload allow     # or deny (default)
 ```
 
-The rule is in `.hint/state/project.json` (`mcp.upload`). No tool can change it. The tool has no arguments: the agent cannot choose the server, the record types or the approval. It uses the configured `server_url` only (not `HINT_SERVER_URL`) and the local export policy. With `deny` the result is `approval_required` and nothing leaves the machine. The user can then inspect and send with the CLI (`git hint export --dry-run --privacy-report`, `git hint recommend`).
+The rule is in `.hint/state/project.json` (`mcp.upload`). No tool can change it. Its optional arguments specify only the bounded forecast policy; the agent cannot choose the server, the record types, or the approval. It uses the configured `server_url` only (not `HINT_SERVER_URL`) and the local export policy. With `deny` the result is `approval_required` and nothing leaves the machine. The user can then inspect and send with the CLI (`git hint export --dry-run --privacy-report`, `git hint recommend`).
 
 ## 4. Paths
 

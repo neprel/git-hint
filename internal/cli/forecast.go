@@ -6,63 +6,39 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 
+	"github.com/neprel/git-hint/internal/api"
 	"github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/store"
 )
 
-// The forecast request policy of `git hint recommend` (server design §9): the same strict
-// forms and bounds as the server, checked before any network or write action.
-const (
-	maxForecastHorizon = 100000
-	maxAssumedCost     = 1_000_000_000_000
-)
-
-var (
-	intForm  = regexp.MustCompile(`^[0-9]{1,13}$`)
-	probForm = regexp.MustCompile(`^(0(\.[0-9]{1,6})?|1(\.0{1,6})?)$`)
-	hexID    = regexp.MustCompile(`^[0-9a-f]{32}$`)
-)
+var hexID = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 // forecastPolicy maps the set flags to the query parameters; nil without forecast flags.
 func forecastPolicy(fs *flag.FlagSet, horizon, threshold, cost string) (url.Values, error) {
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	if !set["forecast-horizon"] && !set["forecast-threshold"] && !set["assumed-cost"] {
-		return nil, nil
+	q := url.Values{}
+	if set["forecast-horizon"] {
+		q.Set("forecast_horizon_tasks", horizon)
 	}
-	if !set["forecast-horizon"] {
-		return nil, errors.New("--forecast-threshold and --assumed-cost need an explicit --forecast-horizon")
-	}
-	if !intForm.MatchString(horizon) {
-		return nil, errors.New("--forecast-horizon must be an integer 1-100000")
-	}
-	if h, _ := strconv.Atoi(horizon); h < 1 || h > maxForecastHorizon {
-		return nil, errors.New("--forecast-horizon must be an integer 1-100000")
-	}
-	q := url.Values{"forecast_horizon_tasks": {horizon}}
 	if set["forecast-threshold"] {
-		if !probForm.MatchString(threshold) || strings.Trim(threshold, "0.") == "" {
-			return nil, errors.New("--forecast-threshold must be a decimal in (0, 1] with at most 6 fraction digits")
-		}
 		q.Set("forecast_threshold", threshold)
 	}
 	if set["assumed-cost"] {
-		lo, hi, ok := strings.Cut(cost, ":")
-		if !ok || !intForm.MatchString(lo) || !intForm.MatchString(hi) {
-			return nil, errors.New("--assumed-cost must be LO:HI in tokens (integers)")
+		// Keep the existing dependency error before parsing the CLI's combined bounds.
+		if !set["forecast-horizon"] {
+			return nil, errors.New("--forecast-threshold and --assumed-cost need an explicit --forecast-horizon")
 		}
-		l, _ := strconv.ParseInt(lo, 10, 64)
-		u, _ := strconv.ParseInt(hi, 10, 64)
-		if u > maxAssumedCost || l > u {
-			return nil, errors.New("--assumed-cost must satisfy 0 <= LO <= HI <= 1000000000000")
+		lo, hi, ok := strings.Cut(cost, ":")
+		if !ok {
+			return nil, errors.New("--assumed-cost must be LO:HI in tokens (integers)")
 		}
 		q.Set("assumed_cost_tokens_lower", lo)
 		q.Set("assumed_cost_tokens_upper", hi)
 	}
-	return q, nil
+	return api.ValidateForecastPolicy(q)
 }
 
 // declarePlan records a declared plan application (git hint changes --declare-plan). It reads

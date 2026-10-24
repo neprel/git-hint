@@ -200,7 +200,7 @@ func TestRecommendFailsClosedWithoutLocalApproval(t *testing.T) {
 	if r["status"] != "approval_required" || r["side_effect"] != "none" || len(srv.Posted()) != 0 {
 		t.Fatalf("upload without local approval: %v, posted %d", r, len(srv.Posted()))
 	}
-	// the agent cannot pass a server, an approval or any other argument
+	// Forecast policy arguments cannot supply a server or grant upload approval.
 	for _, args := range []map[string]any{{"server": "http://127.0.0.1:1"}, {"approved": true}} {
 		if _, errText := call(t, cs, "hint_recommend", args); errText == "" {
 			t.Errorf("argument %v accepted", args)

@@ -35,7 +35,7 @@ An allowed LAN-model policy can send request text or code to the configured LAN 
 
 Invalid values stop before any upload. The server can return a conditional forecast only after its calibration gate passes; distribution, effect, cost, and correctness gates still apply. An option does not establish calibrated support for arbitrary data. Unknown cost stays unknown. The ordinary intervention comparison still has no cost model, net value, or break-even.
 
-MCP `hint_recommend` currently accepts no forecast options. Request a forecast through the CLI, or import a returned document with `plan --from FILE` / `hint_import_recommendation`. These paths use the existing plan validation and rendering rules.
+MCP `hint_recommend` accepts the corresponding optional `forecast_horizon_tasks` integer, `forecast_threshold` decimal string, and paired `assumed_cost_tokens_lower` / `assumed_cost_tokens_upper` integers. Omit unused fields; explicit `null` is refused. The same validator checks CLI and MCP policy values before HTTP requests. Forecast arguments grant no upload consent or server selection. See [MCP policy arguments](mcp.md). Returned documents use the existing plan validation and rendering rules.
 
 ## Eval collection and review
 
