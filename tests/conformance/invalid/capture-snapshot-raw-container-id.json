@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:7b6edfc23be6d91ecb32e702d33d23fc6c1fe634b019c5b54c9b3f51590ffb83",
+  "content_digest": "sha256:15dff71bbefd1eef3ee8349cf934d97df0f7e4db79da01ddafb1e399d59c9def",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "5efcf1d9d592e7b39c3ad074601a2613",
   "document_type": "activity_stream",
@@ -349,7 +349,7 @@
               "recv_ms": 480,
               "send_ms": 120,
               "snapshot": {
-                "container_ref": "ai-qwen38-27b",
+                "container_ref": "example-model-container",
                 "flags": {
                   "max_model_len": 262144,
                   "prefix_caching": true,

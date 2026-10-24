@@ -583,7 +583,7 @@ func ledgerBackendCaptureInvalid() []invalidCase {
 		schema("capture-extra-field", func(d M) { side(d, "start")["captured_at"] = "2026-10-11T10:54:59Z" }),
 		schema("capture-negative-offset", func(d M) { side(d, "start")["send_ms"] = -1 }),
 		schema("capture-snapshot-extra-field", func(d M) { snap(d)["env"] = "A=B" }),
-		schema("capture-snapshot-raw-container-id", func(d M) { snap(d)["container_ref"] = "ai-qwen38-27b" }),
+		schema("capture-snapshot-raw-container-id", func(d M) { snap(d)["container_ref"] = "example-model-container" }),
 		schema("capture-snapshot-bad-image-id", func(d M) { snap(d)["image_id"] = "ghcr.io/x/y:latest" }),
 		schema("capture-snapshot-local-time", func(d M) { snap(d)["started_at"] = "2026-10-11T11:00:00+02:00" }),
 		schema("capture-snapshot-missing-field", func(d M) { delete(snap(d), "restart_count") }),

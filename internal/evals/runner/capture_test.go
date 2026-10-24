@@ -54,7 +54,7 @@ func (f *fakeTransport) Inspect(ctx context.Context) (rawCapture, error) {
 
 func raw() rawCapture {
 	t, n, l := true, int64(0), int64(262144)
-	return rawCapture{ImageID: "sha256:" + strings.Repeat("a", 64), Host: "nai01.lan", Container: "ai-qwen38-27b-0f1e2d", ServedModel: "qwen3.6-27b",
+	return rawCapture{ImageID: "sha256:" + strings.Repeat("a", 64), Host: "capture-host.example.invalid", Container: "example-model-container-0f1e2d", ServedModel: "qwen3.6-27b",
 		StartedAt: "2026-10-24T09:00:00Z", RestartCount: &n, PromptTokensDetails: &t, PrefixCaching: &t, MaxModelLen: &l,
 		ReasoningParser: "qwen3", ToolCallParser: "qwen3_coder"}
 }
@@ -138,12 +138,12 @@ func TestCaptureBracketAndSanitizing(t *testing.T) {
 		t.Fatalf("equal readings %+v", b)
 	}
 	js, _ := json.Marshal([]any{a.snap, b.snap})
-	for _, secret := range []string{"nai01", "ai-qwen38", "qwen3.6"} {
+	for _, secret := range []string{"capture-host.example.invalid", "example-model-cont", "example-model-name"} {
 		if strings.Contains(string(js), secret) {
 			t.Fatalf("a raw identifier is recorded: %s", js)
 		}
 	}
-	if a.snap.HostRef != testRef("capture-host", "nai01.lan") || *a.snap.Flags.ServedModelRef != testRef("capture-served-model", "qwen3.6-27b") {
+	if a.snap.HostRef != testRef("capture-host", "capture-host.example.invalid") || *a.snap.Flags.ServedModelRef != testRef("capture-served-model", "qwen3.6-27b") {
 		t.Fatalf("references %+v", a.snap)
 	}
 	fl := b.snap.Flags

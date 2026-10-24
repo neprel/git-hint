@@ -18,12 +18,12 @@ import (
 )
 
 const (
-	sshImage  = "sha256:e267016589c17bcb3bcb5647de8bc1a10a6c1438990acff1c573afe19c776d95"
+	sshImage  = "sha256:5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
 	sshSecret = "sk-capture-secret-never-leaves"
 )
 
 func TestNewSSHCaptureRefusesUnusableNames(t *testing.T) {
-	if _, err := NewSSHCapture("192.168.1.111", "ai-qwen38-27b"); err != nil {
+	if _, err := NewSSHCapture("capture-target.example.invalid", "example-model-container"); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range [][2]string{{"", "c"}, {"-oProxyCommand=x", "c"}, {"user@host", "c"}, {"a b", "c"}, {"h;id", "c"}, {"h", ""},
@@ -35,9 +35,9 @@ func TestNewSSHCaptureRefusesUnusableNames(t *testing.T) {
 }
 
 func TestSSHCaptureArgvIsFixed(t *testing.T) {
-	s, _ := NewSSHCapture("nai01", "ai-qwen38-27b")
+	s, _ := NewSSHCapture("capture-host.example.invalid", "example-model-container")
 	want := []string{"ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ClearAllForwardings=yes",
-		"-o", "RequestTTY=no", "-o", "ControlMaster=no", "-o", "ControlPath=none", "--", "nai01", "python3", "-I", "-", "ai-qwen38-27b"}
+		"-o", "RequestTTY=no", "-o", "ControlMaster=no", "-o", "ControlPath=none", "--", "capture-host.example.invalid", "python3", "-I", "-", "example-model-container"}
 	if got := s.argv(); !slices.Equal(got, want) {
 		t.Fatalf("argv %q", got)
 	}
@@ -51,8 +51,8 @@ func TestSSHCaptureArgvIsFixed(t *testing.T) {
 
 // hostLine is a valid host output with every key; edit changes it.
 func hostLine(edit func(m map[string]any)) []byte {
-	m := map[string]any{"image_id": sshImage, "host": "nai01", "container": "bfc9dc16e98a", "started_at": "2026-10-24T04:58:49.645319482Z",
-		"restart_count": 0, "prompt_tokens_details": true, "prefix_caching": true, "max_model_len": 262144, "served_model": "ai01",
+	m := map[string]any{"image_id": sshImage, "host": "capture-host.example.invalid", "container": "c0ffeec0ffee", "started_at": "2026-01-02T03:04:05.000000006Z",
+		"restart_count": 0, "prompt_tokens_details": true, "prefix_caching": true, "max_model_len": 262144, "served_model": "example-model",
 		"reasoning_parser": "qwen3", "tool_call_parser": "qwen3_coder"}
 	if edit != nil {
 		edit(m)
@@ -74,7 +74,7 @@ func fakeRun(out []byte, err error, got *[]string, stdin *[]byte) func(context.C
 }
 
 func TestSSHCaptureInspect(t *testing.T) {
-	s, _ := NewSSHCapture("nai01", "ai-qwen38-27b")
+	s, _ := NewSSHCapture("capture-host.example.invalid", "example-model-container")
 	var argv []string
 	var stdin []byte
 	s.run = fakeRun(hostLine(nil), nil, &argv, &stdin)
@@ -89,13 +89,13 @@ func TestSSHCaptureInspect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snap.ImageID != sshImage || *snap.StartedAt != "2026-10-24T04:58:49.645319482Z" || *snap.RestartCount != 0 || !*snap.Flags.PromptTokensDetails ||
+	if snap.ImageID != sshImage || *snap.StartedAt != "2026-01-02T03:04:05.000000006Z" || *snap.RestartCount != 0 || !*snap.Flags.PromptTokensDetails ||
 		*snap.Flags.MaxModelLen != 262144 || *snap.Flags.ReasoningParser != "qwen3" || *snap.Flags.ToolCallParser != "qwen3_coder" ||
-		*snap.Flags.ServedModelRef != testRef("capture-served-model", "ai01") || snap.HostRef != testRef("capture-host", "nai01") {
+		*snap.Flags.ServedModelRef != testRef("capture-served-model", "example-model") || snap.HostRef != testRef("capture-host", "capture-host.example.invalid") {
 		t.Fatalf("%+v", snap)
 	}
 	b, _ := json.Marshal(snap)
-	for _, raw := range []string{"nai01", "bfc9dc16e98a", "\"ai01\""} {
+	for _, raw := range []string{"capture-host.example.invalid", "c0ffeec0ffee", "\"example-model\""} {
 		if bytes.Contains(b, []byte(raw)) {
 			t.Fatalf("raw %s recorded", raw)
 		}
@@ -113,7 +113,7 @@ func TestSSHCaptureRefusesUnusableOutput(t *testing.T) {
 		"trailing data":    append(bytes.TrimSuffix(good, []byte("\n")), []byte(" {}\n")...),
 		"extra member":     hostLine(func(m map[string]any) { m["env"] = "x" }),
 		"missing member":   hostLine(func(m map[string]any) { delete(m, "restart_count") }),
-		"duplicate member": []byte(strings.Replace(string(good), `"host":"nai01"`, `"host":"nai01","host":"other"`, 1)),
+		"duplicate member": []byte(strings.Replace(string(good), `"host":"capture-host.example.invalid"`, `"host":"capture-host.example.invalid","host":"other"`, 1)),
 		"wrong type":       hostLine(func(m map[string]any) { m["restart_count"] = "0" }),
 		"bool as string":   hostLine(func(m map[string]any) { m["prefix_caching"] = "true" }),
 		"served marker":    hostLine(func(m map[string]any) { m["served_model"] = "\x00invalid" }),
@@ -125,14 +125,14 @@ func TestSSHCaptureRefusesUnusableOutput(t *testing.T) {
 		t.Fatal("duplicate case not built")
 	}
 	for name, out := range cases {
-		s, _ := NewSSHCapture("nai01", "c")
+		s, _ := NewSSHCapture("capture-host.example.invalid", "c")
 		s.run = fakeRun(out, nil, nil, nil)
 		if _, err := s.Inspect(context.Background()); !errors.Is(err, errUnusableCapture) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
 	// a runner that ignores the refused write still yields no capture
-	s, _ := NewSSHCapture("nai01", "c")
+	s, _ := NewSSHCapture("capture-host.example.invalid", "c")
 	s.run = func(_ context.Context, _ []string, _ []byte, w io.Writer) error {
 		_, _ = w.Write(good)
 		_, _ = w.Write(bytes.Repeat([]byte(" "), captureStdoutLimit)) // refused; the kept part alone is valid
@@ -148,7 +148,7 @@ func TestSSHCaptureRefusesUnusableOutput(t *testing.T) {
 }
 
 func TestSSHCaptureUnknownValues(t *testing.T) {
-	s, _ := NewSSHCapture("nai01", "c")
+	s, _ := NewSSHCapture("capture-host.example.invalid", "c")
 	s.run = fakeRun(hostLine(func(m map[string]any) {
 		for _, k := range []string{"restart_count", "prompt_tokens_details", "prefix_caching", "max_model_len", "served_model", "reasoning_parser"} {
 			m[k] = nil
@@ -171,7 +171,7 @@ func TestSSHCaptureUnknownValues(t *testing.T) {
 }
 
 func TestCaptureOptionsOptIn(t *testing.T) {
-	s, _ := NewSSHCapture("nai01", "c")
+	s, _ := NewSSHCapture("capture-host.example.invalid", "c")
 	if tr, ref := (RunOptions{}).captureOptions(); tr != nil || ref != nil {
 		t.Fatal("capture without opt-in")
 	}
@@ -183,11 +183,11 @@ func TestCaptureOptionsOptIn(t *testing.T) {
 	}
 	key := []byte("k")
 	tr, ref := (RunOptions{BackendCapture: s, CaptureKey: key}).captureOptions()
-	if tr != captureTransport(s) || ref("capture-host", "nai01") != hint.DeriveID([]byte("k"), "capture-host", "nai01") {
+	if tr != captureTransport(s) || ref("capture-host", "capture-host.example.invalid") != hint.DeriveID([]byte("k"), "capture-host", "capture-host.example.invalid") {
 		t.Fatal("not the opt-in transport and keyed references")
 	}
 	key[0] = 'x' // the derivation owns its key
-	if ref("capture-host", "nai01") != hint.DeriveID([]byte("k"), "capture-host", "nai01") {
+	if ref("capture-host", "capture-host.example.invalid") != hint.DeriveID([]byte("k"), "capture-host", "capture-host.example.invalid") {
 		t.Fatal("the reference follows a changed caller key")
 	}
 }
@@ -199,7 +199,7 @@ type inspectFixture struct {
 	env  []string
 	rc   int
 	raw  string // replaces the inspect document when set
-	name string // the container argument (default "ai-qwen38-27b")
+	name string // the container argument (default "example-model-container")
 }
 
 func runHostScript(t *testing.T, f inspectFixture) (map[string]any, string, int) {
@@ -211,8 +211,8 @@ func runHostScript(t *testing.T, f inspectFixture) (map[string]any, string, int)
 	dir := t.TempDir()
 	doc := f.raw
 	if doc == "" {
-		b, _ := json.Marshal([]map[string]any{{"Id": "bfc9dc16e98a08e5a99dcb931acd3812c457055e2ec9e7e4f1c1e86805ef17a4", "Image": sshImage,
-			"RestartCount": 0, "State": map[string]any{"StartedAt": "2026-10-24T04:58:49.645319482Z"},
+		b, _ := json.Marshal([]map[string]any{{"Id": "c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ff", "Image": sshImage,
+			"RestartCount": 0, "State": map[string]any{"StartedAt": "2026-01-02T03:04:05.000000006Z"},
 			"Config": map[string]any{"Cmd": f.cmd, "Env": f.env}}})
 		doc = string(b)
 	}
@@ -225,7 +225,7 @@ func runHostScript(t *testing.T, f inspectFixture) (map[string]any, string, int)
 	}
 	name := f.name
 	if name == "" {
-		name = "ai-qwen38-27b"
+		name = "example-model-container"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -249,7 +249,7 @@ func runHostScript(t *testing.T, f inspectFixture) (map[string]any, string, int)
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
 
-var servedCmd = []string{"vllm", "serve", "/models/ai-model", "--served-model-name", "ai01", "--api-key", sshSecret, "--max-model-len", "262144",
+var servedCmd = []string{"vllm", "serve", "/models/ai-model", "--served-model-name", "example-model", "--api-key", sshSecret, "--max-model-len", "262144",
 	"--enable-prefix-caching", "--enable-auto-tool-choice", "--tool-call-parser", "qwen3_coder", "--reasoning-parser", "qwen3", "--enable-prompt-tokens-details"}
 
 func TestHostScriptFiltersOnTheHost(t *testing.T) {
@@ -263,7 +263,7 @@ func TestHostScriptFiltersOnTheHost(t *testing.T) {
 	if strings.Count(out, "\n") != 1 || !exactKeys(bytes.TrimSpace([]byte(out)), hostCaptureKeys) {
 		t.Fatalf("not one line with exactly the allowlisted keys: %s", out)
 	}
-	if m["prompt_tokens_details"] != true || m["prefix_caching"] != true || m["max_model_len"] != 262144.0 || m["served_model"] != "ai01" ||
+	if m["prompt_tokens_details"] != true || m["prefix_caching"] != true || m["max_model_len"] != 262144.0 || m["served_model"] != "example-model" ||
 		m["reasoning_parser"] != "qwen3" || m["tool_call_parser"] != "qwen3_coder" || m["image_id"] != sshImage || m["restart_count"] != 0.0 {
 		t.Fatalf("%v", m)
 	}
@@ -282,7 +282,7 @@ func TestHostScriptAmbiguousFlagsAreUnknown(t *testing.T) {
 	}{
 		{"absent", base, map[string]any{"prompt_tokens_details": nil, "prefix_caching": nil, "max_model_len": nil, "served_model": nil}},
 		{"explicit off", append(slices.Clone(base), "--no-enable-prefix-caching"), map[string]any{"prefix_caching": false}},
-		{"equals form", append(slices.Clone(base), "--max-model-len=4096", "--served-model-name=ai01"), map[string]any{"max_model_len": 4096.0, "served_model": "ai01"}},
+		{"equals form", append(slices.Clone(base), "--max-model-len=4096", "--served-model-name=example-model"), map[string]any{"max_model_len": 4096.0, "served_model": "example-model"}},
 		{"bool repeated", append(slices.Clone(base), "--enable-prefix-caching", "--enable-prefix-caching"), map[string]any{"prefix_caching": nil}},
 		{"bool both forms", append(slices.Clone(base), "--enable-prefix-caching", "--no-enable-prefix-caching"), map[string]any{"prefix_caching": nil}},
 		{"bool with value", append(slices.Clone(base), "--enable-prompt-tokens-details=true"), map[string]any{"prompt_tokens_details": nil}},
@@ -351,7 +351,7 @@ func TestSSHCaptureChainThroughCapturer(t *testing.T) {
 	if code != 0 {
 		t.Fatal(out)
 	}
-	s, _ := NewSSHCapture("nai01", "ai-qwen38-27b")
+	s, _ := NewSSHCapture("capture-host.example.invalid", "example-model-container")
 	s.run = fakeRun([]byte(out), nil, nil, nil)
 	k := newCapturer(s, testRef)
 	c, _ := agentCounter()
