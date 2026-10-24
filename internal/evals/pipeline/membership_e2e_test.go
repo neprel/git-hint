@@ -1,9 +1,12 @@
 package pipeline
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,9 +16,10 @@ import (
 	"github.com/neprel/git-hint/internal/project"
 )
 
-// One project execution end to end, offline: enrollment, the launch hook, the project ledger
-// through the shared writer, the finish from that ledger and the published seal. The execution's
-// own ledger and its own published record are never foreign owners.
+// One project execution end to end, offline: enrollment, the launch hook, the run's root CLI
+// behavior (the real decoder), the project ledger through the shared writer, the finish from that
+// ledger and the published seal. The execution's own behavior, own ledger and own published
+// record are never foreign owners.
 func TestMembershipProjectExecutionEndToEnd(t *testing.T) {
 	s, _ := e2eProject(t)
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
@@ -46,6 +50,19 @@ func TestMembershipProjectExecutionEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := e.LaunchHook(s, x)(runner.LaunchFacts{LaunchDigest: launch, ExecutionDigest: execDigest, GatePolicyDigest: runner.GatePolicyDigest(), Target: "linux-arm64", Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "activity", "testdata", "cli-root", "p3.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	behavior, err := activity.DecodeCLIRoot(bytes.NewReader(raw), activity.CLIRootOptions{Key: key, AgentVersion: activity.CLIRootAgentVersion, Configuration: &cfg,
+		TaskID: x.TaskID, TaskFamilyID: activity.FamilyRef(key, "fam"), RunRef: x.RunRef, Cwd: "/app",
+		Resolve: func(string) (string, bool) { return strings.Repeat("1", 32), true }, CaptureComplete: true, CapturedAt: now})
+	if err != nil || len(behavior.Observations) == 0 {
+		t.Fatalf("decode: %v", err)
+	}
+	if err := project.WriteActivityBatch(s, behavior.Source, behavior.Observations); err != nil {
 		t.Fatal(err)
 	}
 	_, c, url := proxy(t, "", func(w http.ResponseWriter, r *http.Request) {

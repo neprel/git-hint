@@ -676,3 +676,108 @@ func TestMembershipGlobalEpochReadsAreBounded(t *testing.T) {
 		t.Fatalf("an oversized foreign spool was read: %v", err)
 	}
 }
+
+// memBehavior decodes the root CLI fixture as the behavior of a run with the given task, family
+// and configuration (the real decoder, synthetic data).
+func memBehavior(t *testing.T, f memFixture, cfg activity.Configuration, task, family, run string) activity.CLIRootImport {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "activity", "testdata", "cli-root", "p3.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := activity.DecodeCLIRoot(bytes.NewReader(raw), activity.CLIRootOptions{Key: f.s.Key(), AgentVersion: activity.CLIRootAgentVersion, Configuration: &cfg,
+		TaskID: task, TaskFamilyID: family, RunRef: run, Cwd: "/app", Resolve: func(string) (string, bool) { return strings.Repeat("1", 32), true },
+		CaptureComplete: true, CapturedAt: memNow})
+	if err != nil || len(d.Observations) == 0 {
+		t.Fatalf("decode: %v", err)
+	}
+	return d
+}
+
+// The execution's own root CLI behavior is not a foreign owner, before and after the seal event
+// and in a published replay.
+func TestMembershipOwnBehaviorIsNotForeign(t *testing.T) {
+	for _, afterSealEvent := range []bool{false, true} {
+		f := membershipFixture(t)
+		e := mustOpen(t, f)
+		x := mustEnroll(t, f, e, "task-1", "run-1")
+		if err := e.LaunchHook(f.s, x)(f.facts); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.Finish(f.s, x, nil); err != nil {
+			t.Fatal(err)
+		}
+		if afterSealEvent {
+			le, _ := e.reload(f.s)
+			_, rev, _ := latestRevision(le.unit)
+			if err := appendEvent(f.s, memLabel, 1, le.view, map[string]any{"kind": "epoch_seal", "frozen_open_revision_digest": rev, "executions": 1}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		d := memBehavior(t, f, f.cfg, x.TaskID, activity.FamilyRef(f.s.Key(), "family"), x.RunRef)
+		if err := WriteActivityBatch(f.s, d.Source, d.Observations); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.Seal(f.s, memNow); err != nil {
+			t.Fatalf("after seal event %v: own behavior prevents publication: %v", afterSealEvent, err)
+		}
+		if _, err := e.Seal(f.s, memNow.Add(3*time.Hour)); err != nil {
+			t.Fatalf("published replay: %v", err)
+		}
+	}
+}
+
+// Behavior that is not exactly the execution's own stays a foreign owner.
+func TestMembershipOtherBehaviorStaysForeign(t *testing.T) {
+	cases := map[string]func(t *testing.T, f memFixture, x Execution){
+		"other task": func(t *testing.T, f memFixture, x Execution) {
+			d := memBehavior(t, f, f.cfg, TaskID(f.s.Key(), "task-other"), activity.FamilyRef(f.s.Key(), "family"), x.RunRef)
+			if err := WriteActivityBatch(f.s, d.Source, d.Observations); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"other family": func(t *testing.T, f memFixture, x Execution) {
+			d := memBehavior(t, f, f.cfg, x.TaskID, activity.FamilyRef(f.s.Key(), "family-other"), x.RunRef)
+			if err := WriteActivityBatch(f.s, d.Source, d.Observations); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"other configuration": func(t *testing.T, f memFixture, x Execution) {
+			cfg := f.cfg
+			cfg.Budget.MaxRequests.Value = 6
+			d := memBehavior(t, f, cfg, x.TaskID, activity.FamilyRef(f.s.Key(), "family"), x.RunRef)
+			if err := WriteActivityBatch(f.s, d.Source, d.Observations); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"inconsistent source declaration": func(t *testing.T, f memFixture, x Execution) {
+			d := memBehavior(t, f, f.cfg, x.TaskID, activity.FamilyRef(f.s.Key(), "family"), x.RunRef)
+			d.Source.Capabilities = append(d.Source.Capabilities, "usage")
+			if err := RegisterSource(f.s, d.Source); err != nil {
+				t.Fatal(err)
+			}
+			for _, o := range d.Observations {
+				if err := AppendObservation(f.s, o); err != nil {
+					t.Fatal(err)
+				}
+			}
+		},
+	}
+	for name, write := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := membershipFixture(t)
+			e := mustOpen(t, f)
+			x := mustEnroll(t, f, e, "task-1", "run-1")
+			write(t, f, x)
+			if err := e.LaunchHook(f.s, x)(f.facts); !errors.Is(err, ErrMembership) {
+				t.Fatalf("launched beside foreign behavior: %v", err)
+			}
+			if err := e.Finish(f.s, x, nil); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := e.Seal(f.s, memNow); !errors.Is(err, ErrMembership) {
+				t.Fatalf("published beside foreign behavior: %v", err)
+			}
+		})
+	}
+}

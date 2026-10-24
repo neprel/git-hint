@@ -467,11 +467,36 @@ const maxControlledRunBytes = 64 << 20
 
 // refOwner is one record that names a run or execution reference.
 type refOwner struct {
-	kind    string // spool, membership, ledger, observation, controlled
-	scope   string // spool: membership directory; membership: unit_ref
-	epoch   int
-	exec    string // the execution an enrollment names
-	binding activity.LedgerBinding
+	kind     string // spool, membership, ledger, observation, controlled
+	scope    string // spool: membership directory; membership: unit_ref
+	epoch    int
+	exec     string // the execution an enrollment names
+	binding  activity.LedgerBinding
+	behavior *behaviorEvidence // observation: the root CLI behavior evidence, when it is one
+}
+
+// behaviorEvidence is what a run-correlated observation proves about its owner: a root CLI
+// adapter observation of a consistent root CLI source with the source's configuration digest and
+// the observation's task, family and run.
+type behaviorEvidence struct {
+	configuration, task, family, run string
+}
+
+// cliRootEvidence is the behavior evidence of an observation, or nil unless the observation and
+// its source pass the shared root CLI source and observation rules and the source declares its
+// configuration.
+func cliRootEvidence(o activity.Observation, sources map[string]activity.Source) *behaviorEvidence {
+	src, ok := sources[o.SourceID]
+	if !ok || src.Adapter.Name != hint.CLIRootAdapter || src.Configuration == nil {
+		return nil
+	}
+	var ps, po map[string]any
+	bs, _ := json.Marshal(src)
+	bo, _ := json.Marshal(o)
+	if json.Unmarshal(bs, &ps) != nil || json.Unmarshal(bo, &po) != nil || hint.SourceCLIRootProblem(ps) || hint.ObservationCLIRootProblem(po) {
+		return nil
+	}
+	return &behaviorEvidence{configuration: src.Configuration.Digest(), task: o.Correlation["task_id"], family: o.Correlation["task_family_id"], run: o.Correlation["run_ref"]}
 }
 
 // refOwners indexes every record of the store that names a run ("run:") or execution
@@ -526,6 +551,10 @@ func refOwners(s *store.Store) (map[string][]refOwner, error) {
 	if damage.Any() {
 		return nil, fmt.Errorf("%w: the activity spool is damaged", ErrMembership)
 	}
+	sources, err := Sources(s)
+	if err != nil {
+		return nil, err
+	}
 	for _, o := range obs {
 		if l := o.ModelLedger; l != nil {
 			add("run:"+l.Binding.RunRef, refOwner{kind: "ledger", binding: l.Binding})
@@ -535,7 +564,7 @@ func refOwners(s *store.Store) (map[string][]refOwner, error) {
 		}
 		// a ledger observation's run correlation mirrors its binding; any other is an owner
 		if r := o.Correlation["run_ref"]; r != "" && (o.ModelLedger == nil || o.ModelLedger.Binding.RunRef != r) {
-			add("run:"+r, refOwner{kind: "observation"})
+			add("run:"+r, refOwner{kind: "observation", behavior: cliRootEvidence(o, sources)})
 		}
 		if m := o.Membership; m != nil && len(m.Events) > 0 {
 			n, _ := m.Events[0]["epoch"].(float64)
@@ -581,9 +610,13 @@ func refOwners(s *store.Store) (map[string][]refOwner, error) {
 }
 
 // foreignOwner reports whether a record other than the execution's own enrollment, published
-// membership or own project ledger names its run or execution reference (a later controlled run,
-// ledger, correlation or another enrollment poisons the execution).
-func (e *Epoch) foreignOwner(s *store.Store, owners map[string][]refOwner, unitRef string, enroll map[string]any) bool {
+// membership, own project ledger or own root CLI behavior names its run or execution reference
+// (a later controlled run, ledger, other correlation or another enrollment poisons the execution).
+// Own behavior is a root CLI observation of a consistent source whose configuration digest is
+// the planned one, with the enrolled task and run and the unit's family.
+func (e *Epoch) foreignOwner(s *store.Store, owners map[string][]refOwner, u *WorkUnit, enroll map[string]any) bool {
+	unitRef := u.UnitRef
+	family, _ := u.Scope["family_ref"].(string)
 	x := evStr(enroll, "execution_ref")
 	dir := hint.DeriveID(s.Key(), "membership-file", e.label)
 	want := activity.LedgerBinding{RunRef: evStr(enroll, "run_ref"), TaskID: evStr(enroll, "task_id"), ConfigurationDigest: evStr(enroll, "planned_configuration_digest"),
@@ -592,9 +625,11 @@ func (e *Epoch) foreignOwner(s *store.Store, owners map[string][]refOwner, unitR
 		for _, o := range owners[ref] {
 			b := o.binding
 			b.TaskFamilyID = ""
+			ownBehavior := behaviorEvidence{configuration: want.ConfigurationDigest, task: want.TaskID, family: family, run: want.RunRef}
 			own := o.kind == "spool" && o.scope == dir && o.epoch == e.n && o.exec == x ||
 				o.kind == "membership" && o.scope == unitRef && o.epoch == e.n && o.exec == x ||
-				o.kind == "ledger" && b == want
+				o.kind == "ledger" && b == want ||
+				o.kind == "observation" && o.behavior != nil && family != "" && *o.behavior == ownBehavior
 			if !own {
 				return true
 			}
@@ -829,7 +864,7 @@ func (e *Epoch) LaunchHook(s *store.Store, x Execution) func(runner.LaunchFacts)
 		if err != nil {
 			return err
 		}
-		if e.foreignOwner(s, owners, le.unit.UnitRef, enroll) {
+		if e.foreignOwner(s, owners, le.unit, enroll) {
 			return fmt.Errorf("%w: another record owns the execution's run or execution reference", ErrMembership)
 		}
 		cfg, err := loadConfiguration(s, e.label, x.PlannedConfigurationDigest)
@@ -1058,7 +1093,7 @@ func (e *Epoch) Seal(s *store.Store, now time.Time) (string, error) {
 		return "", err
 	}
 	for _, x := range le.view.order {
-		if e.foreignOwner(s, owners, le.unit.UnitRef, le.view.exec[x]) {
+		if e.foreignOwner(s, owners, le.unit, le.view.exec[x]) {
 			return "", fmt.Errorf("%w: another record owns an execution's run or execution reference; the epoch is not published", ErrMembership)
 		}
 	}
