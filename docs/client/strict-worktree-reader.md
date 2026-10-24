@@ -1,0 +1,81 @@
+# Strict Git-selected worktree reader
+
+This is an offline reader prerequisite. It is not an admitted capture policy, catalogue
+entry, original project verification intent, runtime reference preparation, completion
+verdict or economic cost proof. It adds no CLI or default strict-mode selection.
+
+```go
+trees.FromWorktreeWithCapturePolicy(ctx, library, repoRoot, limits,
+    trees.StrictCapturePolicyV1)
+```
+
+The exact policy name is `strict-worktree-reader-v1`. It uses the SAME Git selection and
+content reader as legacy `trees.FromWorktree`: tracked paths and untracked nonignored paths
+from `git ls-files -z --cached --others --exclude-standard --deduplicate`.
+
+**The scope is Git-selected artifact paths only.** Git omits some untracked special files,
+including a FIFO. A regression demonstrates that an untracked FIFO can exist while the
+selected artifact digest stays unchanged. An indexed path replaced by a FIFO refuses.
+No result establishes whole-worktree special-file absence or whole-work completeness.
+The earlier proposed capture policy's global `special_files=refuse` interpretation remains
+inadmissible until this scope receives explicit source/outcome review.
+
+## Exact effective limits
+
+| Bound | Strict default and maximum |
+|---|---|
+| Regular file bytes | 8 MiB |
+| Aggregate captured content bytes | 64 MiB |
+| Selected inventory paths, including absent paths | 10,000 |
+| Git stdout, per command | 4 MiB |
+| Git stderr, per command | 64 KiB |
+| Capture context | 30 seconds or the earlier caller deadline |
+
+For each `Limits` field, zero selects its strict default; a positive value selects
+`min(requested, strict maximum)`; a negative value refuses. Strict defaults do not depend
+on mutable legacy `trees.DefaultLimits`. Unknown/empty/boolean-like policy names refuse.
+Each read bounds its bytes by both per-file and remaining aggregate budgets. Cancellation,
+command failures, malformed/incomplete stage inventory, overflow and an expired context
+refuse. An expired context cannot return a successful tree after persistence. Process
+cleanup uses `exec.Cmd.WaitDelay`; this is not a workflow-wide runtime or kernel-I/O
+quiescence guarantee. No automatic retry exists.
+
+## Shared descriptor reader
+
+On Unix, strict roots and source ancestors open descriptor-relatively with `O_NOFOLLOW`.
+The same bound file descriptor supplies size/type/mode checks, bounded content reads and
+post-read identity checks. The path must still name that file through the same parent
+chain. Replacement, a changed ancestor with the SAME leaf inode, growth/shrink, mode change,
+symlink/FIFO substitution and read failures refuse. FIFO opens are nonblocking before type
+checks. Root identity is checked before/after Git commands and after content capture.
+
+Git still receives a canonical pathname: macOS Git cannot use a directory `/dev/fd/N`
+argument. The pathname checks detect observed changes; Git's census is not atomic with the
+subsequent file reads. Full ignore-source resolution and repeated-capture orchestration are
+separate missing prerequisites. The reader does not claim that a transient mutation outside
+its observed checks cannot occur.
+
+Strict capture refuses symlinks/special files AT SELECTED PATHS, selected protected `.hint`
+paths, invalid/duplicate paths, submodules, LFS pointers and Git stage-command failures.
+Modes use the existing normalized `100644`/`100755` tree representation. A missing tracked
+file or subtree remains absent; stable-absence/repeat proof belongs to the later orchestration.
+
+Legacy `FromWorktree` uses the same bounded regular-file core while preserving ordinary
+supported final-symlink target bytes, modes, Git selection and canonical tree bytes. Its
+existing defaults remain 8 MiB/file, 256 MiB/tree and 50,000 paths; Git stdout now has a
+32 MiB bound. Unsafe observed ancestor/file replacement refuses. Legacy root aliases are
+resolved once; strict root/ancestor aliases refuse. Non-Unix platforms keep bounded legacy
+reads and explicitly refuse the new strict contract rather than claim unavailable no-follow
+semantics. No approved implementation/source digest is self-pinned here.
+
+## Local verification
+
+Deterministic tests exercise before-open and after-open replacement, root/ancestor symlinks,
+FIFO substitution, same-inode ancestor changes, growth/shrink, executable-mode changes,
+closed-descriptor errors, read/total/path/Git-output limits, cancellation, malformed/failed
+Git stage output, strict limit clamping and the unlisted-FIFO limitation.
+
+A fixed legacy fixture with dirty, renamed, deleted, untracked, ignored and symlink files
+keeps tree digest `sha256:fdcebb051070364be786fc5c29bad5bed82de61c99aae7cdee710a0702d1f1d0`.
+The equivalent regular-only fixture gives the same tree in legacy and strict modes.
+All fixtures use local synthetic repositories; no engine, model or external service is needed.

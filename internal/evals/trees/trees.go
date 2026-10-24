@@ -13,7 +13,6 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -118,78 +117,6 @@ func Load(l *library.Library, digest string) (Tree, error) {
 		return t, fmt.Errorf("%s is not a HINT tree", digest)
 	}
 	return t, nil
-}
-
-// FromWorktree stores the current state of a Git work tree: tracked and untracked files
-// that Git does not ignore. Symbolic links are recorded, never followed.
-func FromWorktree(ctx context.Context, l *library.Library, root string, lim Limits) (string, error) {
-	lim = lim.filled()
-	out, err := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate").Output()
-	if err != nil {
-		return "", fmt.Errorf("git ls-files failed in the repository")
-	}
-	sub, err := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z", "--stage").Output()
-	if err == nil {
-		for _, rec := range bytes.Split(sub, []byte{0}) {
-			if bytes.HasPrefix(rec, []byte("160000 ")) {
-				return "", unsupported("submodule_unsupported", "the repository has a submodule")
-			}
-		}
-	}
-	var files []File
-	var total int64
-	for _, raw := range bytes.Split(out, []byte{0}) {
-		p := string(raw)
-		if p == "" {
-			continue
-		}
-		if !validPath(p) {
-			return "", unsupported("baseline_missing", "unexpected path form in the work tree")
-		}
-		full := filepath.Join(root, filepath.FromSlash(p))
-		fi, err := os.Lstat(full)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue // deleted in the work tree but still in the index: absent from this state
-		}
-		if err != nil {
-			return "", err
-		}
-		var data []byte
-		mode := "100644"
-		switch {
-		case fi.Mode()&fs.ModeSymlink != 0:
-			t, err := os.Readlink(full)
-			if err != nil {
-				return "", err
-			}
-			data, mode = []byte(t), "120000"
-		case fi.Mode().IsRegular():
-			if fi.Size() > lim.MaxFileBytes {
-				return "", unsupported("binary_too_large", "a file exceeds %d bytes", lim.MaxFileBytes)
-			}
-			if data, err = os.ReadFile(full); err != nil {
-				return "", err
-			}
-			if fi.Mode()&0o111 != 0 {
-				mode = "100755"
-			}
-		default:
-			continue
-		}
-		if bytes.HasPrefix(data, lfsPointer) {
-			return "", unsupported("lfs_unsupported", "the repository holds Git LFS pointers")
-		}
-		total += int64(len(data))
-		if total > lim.MaxTotalBytes || len(files) >= lim.MaxFiles {
-			return "", unsupported("binary_too_large", "the state exceeds the tree limits")
-		}
-		d, err := l.PutObject(data)
-		if err != nil {
-			return "", err
-		}
-		files = append(files, File{Path: p, Mode: mode, Size: int64(len(data)), Digest: d})
-	}
-	return putTree(l, files)
 }
 
 var gitHash = regexp.MustCompile(`^[0-9a-f]{40}$`)
