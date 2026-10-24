@@ -212,19 +212,15 @@ func (l *Library) PutObjectContext(ctx context.Context, data []byte) (string, er
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
-	if old, err := os.ReadFile(p); err == nil {
-		if Digest(old) == d {
-			if ctx.Err() != nil {
-				return "", ctx.Err()
-			}
-			return d, nil
-		}
-		if err := l.checkTargetContext(ctx, p); err != nil {
-			return "", err
-		}
-		if err := os.Remove(p); err != nil {
-			return "", err
-		}
+	// Validate location/exclusion before even inspecting cached bytes. A cache hit is
+	// not permission to follow a link or block opening a FIFO outside the deadline.
+	if err := l.checkTargetContext(ctx, p); err != nil {
+		return "", err
+	}
+	if same, err := l.checkCachedObject(ctx, p, data, nil); err != nil {
+		return "", err
+	} else if same {
+		return d, nil
 	}
 	if err := l.reserveContext(ctx, len(data)); err != nil {
 		return "", err

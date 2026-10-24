@@ -146,3 +146,30 @@ During the combined local gate, the cancellation fixture's original one-second p
 startup wait failed under parallel load. It now waits for the observed fake-check entry
 for at most eight seconds within a ten-second test context. The post-cancel join assertion
 remains one second. No production capture, cancellation or resource threshold changed.
+
+## CR-2 cached-object correction
+
+Independent review rejected `ef9f9b8`: its transitive `PutObjectContext` cache lookup
+used unbounded `os.ReadFile` before target validation. A cached FIFO blocked beyond
+its caller deadline until an external writer supplied EOF. The original review
+artifact remains valid failure evidence; callback suppression alone did not make
+that package a bounded reader.
+
+The successor checks target location and Git exclusion before cached content. Its
+single cache-slot helper uses a confined project root, rejects observed symlink or
+special-file components, and validates the regular file against its opened descriptor.
+Unix opens use `O_NOFOLLOW|O_NONBLOCK`. Reads retain the original caller context and
+consume at most the expected object length plus one byte, in 32 KiB chunks. Descriptor
+and named ancestor/file identities must remain stable before acceptance or repair.
+A stable damaged regular copy, including an oversized sparse copy, remains repairable
+without reading its entire content. Cancellation, replacement, growth, symlinks and
+FIFOs refuse without repair. Cache hits also require the current exclusion guard.
+
+This adds no inventory, capture policy or authority. Strict capture remains Unix-only;
+the portable legacy cache path retains regular descriptor/path checks without claiming
+Unix no-follow/nonblocking flags. Regular filesystem I/O is not a kernel interruption
+guarantee. Tests cover the real initialized-store FIFO path, expected-length-plus-one
+reads, cancelled callers before both hit and repair, cancellation after open, replacement,
+growth, symlinks and stable regular repair. The original FIFO probe's expectation of
+only DeadlineExceeded is intentionally not the corrected contract: prompt deterministic
+special-file refusal is the correct result.
