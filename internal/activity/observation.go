@@ -38,8 +38,11 @@ type Observation struct {
 	Collection *Collection `json:"collection,omitempty"`
 	// ModelLedger is the sealed account of one run's model traffic on its USAGE record (draft v0.2).
 	ModelLedger *ModelLedger `json:"model_ledger,omitempty"`
-	Missing     []string     `json:"missing"`
-	Provenance  Provenance   `json:"provenance"`
+	// Membership is an administrative membership epoch of a project orchestrator source (draft
+	// v0.2); only the membership producer sets it.
+	Membership *Membership `json:"membership,omitempty"`
+	Missing    []string    `json:"missing"`
+	Provenance Provenance  `json:"provenance"`
 }
 
 // Usage is the token use of one model call (hint-data usage; cache and reasoning are separate
@@ -115,6 +118,14 @@ type Source struct {
 	// UsageNormalization is the allowlisted normalization of the source's token counters
 	// (draft v0.2); empty when the source reports no usage.
 	UsageNormalization string `json:"usage_normalization,omitempty"`
+}
+
+// Membership is one sealed membership epoch of a work unit (draft v0.2): its events in order,
+// each an exact schema variant of references, digests and enums, and the digest of the last.
+type Membership struct {
+	UnitRef    string           `json:"unit_ref"`
+	Events     []map[string]any `json:"events"`
+	HeadDigest string           `json:"head_digest"`
 }
 
 // Adapter names the adapter of a source.

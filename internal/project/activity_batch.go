@@ -80,7 +80,9 @@ func validateActivityBatch(s *store.Store, b activityBatch) error {
 	if schemas.Validate(decoded) != nil {
 		return ErrActivityBatch
 	}
-	if len(hint.Check(decoded.(map[string]any), nil)) != 0 {
+	// the semantic checks read plain numbers, as in the export path
+	plain, err := hint.Plain(decoded)
+	if err != nil || len(hint.Check(plain, nil)) != 0 {
 		return ErrActivityBatch
 	}
 	return nil
@@ -90,6 +92,17 @@ func validateActivityBatch(s *store.Store, b activityBatch) error {
 // Exact replay is idempotent. A different body for this source or any existing event refuses.
 // Readers share the old activity lifecycle; no raw capture or partial source is stored here.
 func WriteActivityBatch(s *store.Store, src activity.Source, obs []activity.Observation) error {
+	lock, err := s.LockState(true)
+	if err != nil {
+		return err
+	}
+	defer lock.Unlock()
+	return writeActivityBatchLocked(s, src, obs)
+}
+
+// writeActivityBatchLocked is WriteActivityBatch for a caller that holds the state lock (one
+// lock owner; the state lock is not reentrant).
+func writeActivityBatchLocked(s *store.Store, src activity.Source, obs []activity.Observation) error {
 	b := activityBatch{Version: 1, Source: src, Observations: obs}
 	if b.Observations == nil {
 		b.Observations = []activity.Observation{}
@@ -106,11 +119,6 @@ func WriteActivityBatch(s *store.Store, src activity.Source, obs []activity.Obse
 	if err != nil || len(raw) > maxActivityBatchBytes {
 		return ErrActivityBatch
 	}
-	lock, err := s.LockState(true)
-	if err != nil {
-		return err
-	}
-	defer lock.Unlock()
 	// Validate every existing batch before accepting a replay or creating another one.
 	if _, _, err = readActivityBatches(s); err != nil {
 		return err

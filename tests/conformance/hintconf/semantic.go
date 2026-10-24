@@ -86,6 +86,9 @@ const (
 var orchestratorUnavailable = []string{"usage", "request_kind", "collection", "context", "coordination", "targets", "correlation.session_id",
 	"correlation.turn_id", "correlation.trace_id", "correlation.span_id", "correlation.task_id", "correlation.run_ref"}
 
+// OrchestratorUnavailable is the exact unavailable list of an orchestrator source.
+func OrchestratorUnavailable() []string { return append([]string{}, orchestratorUnavailable...) }
+
 // SourceOrchestratorProblem reports whether an orchestrator source declares more than the
 // administrative scope: the exact adapter version, the single membership capability, the
 // behavior, usage and closure fields unavailable, no usage normalization.
