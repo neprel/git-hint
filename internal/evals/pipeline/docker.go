@@ -93,6 +93,15 @@ func jobAgentTarget(work string) string {
 	return r.Container.AgentBinary.Target
 }
 
+// ledgerConfiguration is the configuration a run's ledgers are bound to: the work-unit scope
+// configuration of its manifest (one definition for the writer and the backend record helper).
+func ledgerConfiguration(key []byte, m workunits.Manifest) (activity.Configuration, error) {
+	var cfg activity.Configuration
+	b, _ := json.Marshal(workunits.ScopeConfiguration(key, m))
+	err := json.Unmarshal(b, &cfg)
+	return cfg, err
+}
+
 // handOverLedger writes the attempt's model ledger as revision 0 through the shared ledger
 // writer. A ledger that is not final, or whose finality is not stated, is incomplete with
 // teardown_incomplete whatever its account says; an attempt without a ledger writes nothing
@@ -108,9 +117,8 @@ func handOverLedger(s *store.Store, work string, m workunits.Manifest, trial, ru
 	if r.Container.SealedAt == "" {
 		return errors.New("the ledger has no seal time")
 	}
-	var cfg activity.Configuration
-	b, _ := json.Marshal(workunits.ScopeConfiguration(s.Key(), m))
-	if err := json.Unmarshal(b, &cfg); err != nil {
+	cfg, err := ledgerConfiguration(s.Key(), m)
+	if err != nil {
 		return err
 	}
 	final := r.Container.LedgerFinal != nil && *r.Container.LedgerFinal

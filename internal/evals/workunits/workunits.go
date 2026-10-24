@@ -74,6 +74,15 @@ type Run struct {
 
 var ErrRunExists = errors.New("the run manifest exists already")
 
+// ReadManifest returns the stored manifest of a run (written once by Start).
+func ReadManifest(s *store.Store, runID string) (Manifest, error) {
+	var r Run
+	if err := s.ReadJSON(&r, "state", "evals", "work", runFile(runID)); err != nil {
+		return Manifest{}, err
+	}
+	return r.Manifest, nil
+}
+
 func runFile(id string) string { return id + ".json" }
 
 // Start stores the manifest and opens a unit for every eligible member (revision 1, no
