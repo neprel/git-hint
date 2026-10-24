@@ -40,6 +40,25 @@ func TestStudyRecipeRendersControlsAndIdentities(t *testing.T) {
 	if !reflect.DeepEqual(r.Argv[:2], []string{studyLauncher, "-i"}) || !reflect.DeepEqual(r.Argv[2:2+len(r.Env)], r.Env) || r.Argv[len(r.Argv)-1] != "do; $(x)" {
 		t.Fatal("argv does not render recipe environment")
 	}
+	home := false
+	for _, file := range r.Files {
+		if file.Name == "opt/hint/study/agent-home/" && file.UID == 0 && file.Mode == 0555 {
+			home = true
+		}
+		if file.Name == "opt/hint/study/home/" {
+			t.Fatal("ambiguous home directory remains in inventory")
+		}
+	}
+	if !home {
+		t.Fatal("missing dedicated agent-home inventory")
+	}
+	matched := false
+	for _, item := range r.Env {
+		matched = matched || item == "HOME="+studyRoot+"/agent-home"
+	}
+	if !matched {
+		t.Fatal("HOME does not select agent-home")
+	}
 	var config map[string]any
 	json.Unmarshal(r.Config, &config)
 	if config["permission"].(map[string]any)["task"] != "deny" || config["permissions"].([]any)[0].(map[string]any)["action"] != "subagent" || config["experimental"].(map[string]any)["subagent_depth"] != float64(0) {

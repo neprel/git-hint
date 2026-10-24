@@ -83,7 +83,7 @@ func makeOpenCodeRecipe(model, instruction, token string, p StudyLaunchPolicy) (
 		config["permission"] = map[string]string{"task": "deny"}
 		config["permissions"] = []map[string]string{{"action": "subagent", "resource": "*", "effect": "deny"}}
 		config["experimental"] = map[string]int{"subagent_depth": 0}
-		for _, name := range []string{"", "config/", "home/", "xdg-config/", "runtime/"} {
+		for _, name := range []string{"", "config/", "agent-home/", "xdg-config/", "runtime/"} {
 			r.Files = append(r.Files, launchFile{Name: "opt/hint/study/" + name, Type: tar.TypeDir, Mode: 0555})
 		}
 		for _, name := range []string{"data/", "state/", "cache/", "tmp/"} {
@@ -108,7 +108,7 @@ func openCodeEnvironment(token string, p StudyLaunchPolicy) []string {
 	if p == "" {
 		return []string{"OPENAI_BASE_URL=http://gate:8080/t/" + token, "OPENAI_API_KEY=hint-proxy", "HOME=/tmp"}
 	}
-	return []string{"HOME=" + studyRoot + "/home", "XDG_CONFIG_HOME=" + studyRoot + "/xdg-config", "XDG_DATA_HOME=" + studyRoot + "/runtime/data", "XDG_STATE_HOME=" + studyRoot + "/runtime/state", "XDG_CACHE_HOME=" + studyRoot + "/runtime/cache", "TMPDIR=" + studyRoot + "/runtime/tmp", "PATH=/opt/hint/bin:/usr/local/bin:/usr/bin:/bin", "OPENCODE_CONFIG_DIR=" + studyRoot + "/config", "OPENCODE_CONFIG_PROJECT_DISABLE=1", "OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "OPENAI_BASE_URL=http://gate:8080/t/" + token, "OPENAI_API_KEY=hint-proxy"}
+	return []string{"HOME=" + studyRoot + "/agent-home", "XDG_CONFIG_HOME=" + studyRoot + "/xdg-config", "XDG_DATA_HOME=" + studyRoot + "/runtime/data", "XDG_STATE_HOME=" + studyRoot + "/runtime/state", "XDG_CACHE_HOME=" + studyRoot + "/runtime/cache", "TMPDIR=" + studyRoot + "/runtime/tmp", "PATH=/opt/hint/bin:/usr/local/bin:/usr/bin:/bin", "OPENCODE_CONFIG_DIR=" + studyRoot + "/config", "OPENCODE_CONFIG_PROJECT_DISABLE=1", "OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "OPENAI_BASE_URL=http://gate:8080/t/" + token, "OPENAI_API_KEY=hint-proxy"}
 }
 func (r openCodeRecipe) archive(binary []byte) ([]byte, error) {
 	var b bytes.Buffer
