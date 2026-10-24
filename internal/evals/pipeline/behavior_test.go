@@ -1,7 +1,11 @@
 package pipeline
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -37,6 +41,7 @@ func terminalCapture() string {
 type behaviorFakeRunner struct {
 	liveRunner
 	status, version, raw string
+	captureRequested     bool
 }
 
 func (r *behaviorFakeRunner) Run(ctx context.Context, task string, o runner.RunOptions) ([]runner.Trial, error) {
@@ -47,9 +52,24 @@ func (r *behaviorFakeRunner) Run(ctx context.Context, task string, o runner.RunO
 	dir := filepath.Join(o.JobsDir, "trial", "trial__1")
 	os.MkdirAll(filepath.Join(dir, "agent"), 0o700)
 	os.WriteFile(filepath.Join(dir, "agent", "opencode.txt"), []byte(strings.ReplaceAll(r.raw, "synthetic-root", fmt.Sprint("synthetic-root-", r.n))), 0o600)
+	r.captureRequested = o.CapturePrelaunchTree
+	var prelaunch *runner.PrelaunchTreeCapture
+	executionDigest := "sha256:" + strings.Repeat("d", 64)
 	ledger := o.Counter.Seal(0, runner.BypassEnforced, runner.ScopeIsolatedContainer)
-	raw, _ := json.Marshal(map[string]any{"hint_container": map[string]any{"agent_binary": map[string]any{"version": r.version, "target": "linux-arm64"},
-		"agent_output": map[string]string{"stdout": r.status}, "ledger": ledger, "ledger_final": true, "ledger_sealed_at": o.Counter.SealedAt()}})
+	if o.CapturePrelaunchTree {
+		digest, writeErr := writeObservedArchive(filepath.Join(dir, "agent", "prelaunch.tar"))
+		if writeErr != nil {
+			return nil, writeErr
+		}
+		zero := int64(0)
+		end := *ledger.SealedMs
+		code := 0
+		ledger.AgentRun = &runner.ReportAgentRun{Outcome: runner.AgentExited, ExecutionDigest: executionDigest, EnclosureStartMs: &zero, EnclosureEndMs: &end, ExitCode: &code}
+		prelaunch = &runner.PrelaunchTreeCapture{State: "complete", Digest: digest, Clock: "ledger_anchor_monotonic_ms", ExecutionDigest: executionDigest}
+	}
+	raw, _ := json.Marshal(map[string]any{"hint_container": map[string]any{"agent_binary": map[string]any{"version": r.version, "target": "linux-arm64", "execution_digest": executionDigest},
+		"prelaunch_tree": prelaunch,
+		"agent_output":   map[string]string{"stdout": r.status}, "ledger": ledger, "ledger_final": true, "ledger_sealed_at": o.Counter.SealedAt()}})
 	os.WriteFile(filepath.Join(dir, "result.json"), raw, 0o600)
 	return trials, nil
 }
@@ -90,7 +110,7 @@ func TestRunSuiteImportsAtomicCLIRootWithExactLedgerAndJournalBinding(t *testing
 	one := 1.0
 	r := &behaviorFakeRunner{liveRunner: liveRunner{model: "local-coder", results: []runner.Trial{{Reward: &one, Checks: map[string]string{"C1": "pass", "C2": "pass"}}}}, status: "complete", version: activity.CLIRootAgentVersion, raw: terminalCapture()}
 	rep, err := RunSuite(context.Background(), s, r, runner.DockerRunnerSemver, SuiteOptions{Agent: "opencode", Attempts: 1, Live: live}, time.Now())
-	if err != nil || rep.BehaviorImportProblems != 0 || rep.LedgersNotWritten != 0 {
+	if err != nil || rep.BehaviorImportProblems != 0 || rep.LedgersNotWritten != 0 || r.captureRequested {
 		names, _ := l.Manifests("trial")
 		for _, name := range names {
 			var diagnostic BehaviorImport
@@ -193,6 +213,7 @@ func TestBehaviorCaptureFailurePublishesNoPartialSourceOrEvents(t *testing.T) {
 		{"malformed", "complete", "2.0.26", terminalCapture() + "not json\n", true}, {"runner_error", "complete", "2.0.26", terminalCapture(), false},
 		{"oversize", "complete", "2.0.26", strings.Repeat("x", behaviorCaptureLimit+1), true},
 		{"baseline_mismatch", "complete", "2.0.26", terminalCapture(), true},
+		{"missing_observed_start", "complete", "2.0.26", terminalCapture(), true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s, l := behaviorProject(t)
@@ -213,7 +234,10 @@ func TestBehaviorCaptureFailurePublishesNoPartialSourceOrEvents(t *testing.T) {
 				os.WriteFile(filepath.Join(work, "task", "environment", "repo", "cart.go"), []byte("wrong baseline"), 0o600)
 			}
 			manifest := workunits.Manifest{Agent: "opencode", AgentVersion: "2.0.26", Harness: "hint-docker", RunnerVersion: runner.DockerRunnerSemver, ModelLabel: "synthetic", MaxRequests: 5, MaxSeconds: 30}
-			result := handOverBehavior(context.Background(), s, l, rec, work, manifest, "trial", "task", "family", c.runOK)
+			result := handOverBehavior(context.Background(), s, l, rec, work, manifest, "trial", "task", "family", c.runOK, c.name == "missing_observed_start")
+			if c.name == "missing_observed_start" && result.Reason != "observed_start_unusable" {
+				t.Fatalf("missing capture diagnostic %+v", result)
+			}
 			if result.State != "unknown" || result.Reason == "" {
 				t.Fatalf("result %+v", result)
 			}
@@ -236,5 +260,173 @@ func TestBehaviorCaptureFailurePublishesNoPartialSourceOrEvents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// This is a recorded-style engine artifact, not output from an agent.
+func writeObservedArchive(name string) (string, error) {
+	var b bytes.Buffer
+	tw := tar.NewWriter(&b)
+	if err := tw.WriteHeader(&tar.Header{Name: "app/", Typeflag: tar.TypeDir, Mode: 0755}); err != nil {
+		return "", err
+	}
+	body := []byte("package shop\nfunc ObservedOnly() {}\n")
+	if err := tw.WriteHeader(&tar.Header{Name: "app/observed_only.go", Typeflag: tar.TypeReg, Mode: 0644, Size: int64(len(body))}); err != nil {
+		return "", err
+	}
+	if _, err := tw.Write(body); err != nil {
+		return "", err
+	}
+	if err := tw.Close(); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(name, b.Bytes(), 0600); err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256(b.Bytes())
+	return "sha256:" + hex.EncodeToString(hash[:]), nil
+}
+
+func TestRunSuiteStudyUsesObservedStartWithoutChangingProjectSnapshot(t *testing.T) {
+	s, l := behaviorProject(t)
+	snapshots := s.Path("state", "snapshots")
+	before := map[string]string{}
+	filepath.WalkDir(snapshots, func(name string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			b, _ := os.ReadFile(name)
+			before[name] = string(b)
+		}
+		return err
+	})
+	live, stop := liveProject(t)
+	defer stop()
+	p := evals.Enabled(nil)
+	p.Run = &evals.Run{Use: "docker", Runner: "docker"}
+	p.Model = &evals.Model{Use: "lan", BaseURL: "http://192.168.1.2/v1", Model: "local-coder", KeyEnv: "HINT_TEST_LAN_KEY"}
+	s.Cfg.Evals = &p
+	one := 1.0
+	r := &behaviorFakeRunner{liveRunner: liveRunner{model: "local-coder", results: []runner.Trial{{Reward: &one, Checks: map[string]string{"C1": "pass", "C2": "pass"}}}}, status: "complete", version: activity.CLIRootAgentVersion, raw: strings.ReplaceAll(terminalCapture(), "discount_test.go", "observed_only.go")}
+	rep, err := RunSuite(context.Background(), s, r, runner.DockerRunnerSemver, SuiteOptions{Agent: "opencode", Attempts: 1, Live: live, CapturePrelaunchTree: true}, time.Now())
+	if err != nil || rep.BehaviorImportProblems != 0 || !r.captureRequested {
+		t.Fatalf("result %+v requested %v error %v", rep, r.captureRequested, err)
+	}
+	observations, damage, err := project.ReadSpoolChecked(s)
+	if err != nil || damage.Any() {
+		t.Fatal(damage, err)
+	}
+	var behavior []activity.Observation
+	for _, o := range observations {
+		if o.Source == "log" {
+			behavior = append(behavior, o)
+		}
+	}
+	if len(behavior) != 2 || len(behavior[0].Targets) != 0 || len(behavior[1].Targets) != 1 || behavior[1].Targets[0].EntityID != hint.FileID(s.Key(), s.RepoID(s.Cfg.Repos[0]), "observed_only.go") {
+		t.Fatalf("observed targets %+v", behavior)
+	}
+	trials, _ := l.Manifests("trial")
+	var diagnostic BehaviorImport
+	if err := l.Index("behavior-import/"+trials[0], &diagnostic); err != nil || diagnostic.BaseTree == "" || diagnostic.ObservedStartTree == "" || diagnostic.BaseTree == diagnostic.ObservedStartTree {
+		t.Fatalf("separate provenance %+v %v", diagnostic, err)
+	}
+	after := map[string]string{}
+	filepath.WalkDir(snapshots, func(name string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			b, _ := os.ReadFile(name)
+			after[name] = string(b)
+		}
+		return err
+	})
+	if len(before) != len(after) {
+		t.Fatal("project snapshot count changed")
+	}
+	for name, body := range before {
+		if after[name] != body {
+			t.Fatal("project snapshot changed")
+		}
+	}
+	pack, err := project.BuildPackage(s, project.ExportOptions{All: true, Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, doc := range pack.Docs {
+		for _, raw := range []string{"HINTCANARY", "observed_only.go", "prelaunch_tree", "observed_start_tree", "/app/"} {
+			if strings.Contains(string(doc.Raw), raw) {
+				t.Fatalf("raw study metadata escaped: %s", raw)
+			}
+		}
+	}
+}
+
+func TestObservedStartRejectsMissingConflictingOrLateEvidenceWithoutBASEFallback(t *testing.T) {
+	s, l := behaviorProject(t)
+	names, _ := l.Manifests("eval")
+	var rec map[string]any
+	if err := l.Manifest("eval", names[len(names)-1], &rec); err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	if _, err := runner.Export(l, rec, filepath.Join(work, "task"), runner.DefaultSettings); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(work, "jobs", "trial", "trial__1", "agent")
+	os.MkdirAll(dir, 0700)
+	artifact := filepath.Join(dir, "prelaunch.tar")
+	digest, err := writeObservedArchive(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution := "sha256:" + strings.Repeat("c", 64)
+	makeJob := func() jobResult {
+		var job jobResult
+		start := int64(4)
+		job.Container.PrelaunchTree = &runner.PrelaunchTreeCapture{State: "complete", Digest: digest, Clock: "ledger_anchor_monotonic_ms", StartedMs: 1, FinishedMs: 3, ExecutionDigest: execution}
+		job.Container.AgentBinary.ExecutionDigest = execution
+		job.Container.Ledger = &runner.LedgerReport{AgentRun: &runner.ReportAgentRun{ExecutionDigest: execution, EnclosureStartMs: &start}}
+		return job
+	}
+	for name, mutate := range map[string]func(*jobResult){
+		"missing capture":   func(j *jobResult) { j.Container.PrelaunchTree = nil },
+		"failed capture":    func(j *jobResult) { j.Container.PrelaunchTree.State = "failed" },
+		"wall clock":        func(j *jobResult) { j.Container.PrelaunchTree.Clock = "wall" },
+		"negative start":    func(j *jobResult) { j.Container.PrelaunchTree.StartedMs = -1 },
+		"reversed interval": func(j *jobResult) { j.Container.PrelaunchTree.StartedMs = 5 },
+		"late capture":      func(j *jobResult) { j.Container.PrelaunchTree.FinishedMs = 5 },
+		"missing ledger":    func(j *jobResult) { j.Container.Ledger = nil },
+		"missing enclosure": func(j *jobResult) { j.Container.Ledger.AgentRun.EnclosureStartMs = nil },
+		"other execution":   func(j *jobResult) { j.Container.Ledger.AgentRun.ExecutionDigest = "sha256:" + strings.Repeat("d", 64) },
+		"other binary":      func(j *jobResult) { j.Container.AgentBinary.ExecutionDigest = "sha256:" + strings.Repeat("d", 64) },
+		"malformed execution": func(j *jobResult) {
+			j.Container.PrelaunchTree.ExecutionDigest = "x"
+			j.Container.AgentBinary.ExecutionDigest = "x"
+			j.Container.Ledger.AgentRun.ExecutionDigest = "x"
+		},
+		"wrong digest": func(j *jobResult) { j.Container.PrelaunchTree.Digest = "sha256:" + strings.Repeat("0", 64) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			job := makeJob()
+			mutate(&job)
+			resolve, _, _, cleanup, err := observedStartResolver(context.Background(), s, rec, work, job)
+			if cleanup != nil {
+				defer cleanup()
+			}
+			if err == nil || resolve != nil {
+				t.Fatal("invalid capture fell back to declared BASE")
+			}
+		})
+	}
+	// Complete metadata cannot replace a missing or corrupt archive, even when BASE exists.
+	for _, body := range [][]byte{nil, []byte("not a tar")} {
+		if body == nil {
+			os.Remove(artifact)
+		} else {
+			os.WriteFile(artifact, body, 0600)
+		}
+		resolve, _, _, cleanup, err := observedStartResolver(context.Background(), s, rec, work, makeJob())
+		if cleanup != nil {
+			defer cleanup()
+		}
+		if err == nil || resolve != nil {
+			t.Fatal("missing or corrupt artifact fell back")
+		}
 	}
 }

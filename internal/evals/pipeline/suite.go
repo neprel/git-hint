@@ -25,11 +25,13 @@ var Arms = []string{"baseline", "configuration", "no_change", "context_only", "r
 
 // RunOptions of a suite run.
 type SuiteOptions struct {
-	Evals    []string // eval IDs or versions; empty: every validated eval
-	Agent    string   // opencode (live), oracle or nop (checks without a model)
-	Attempts int
-	Arm      string
-	Live     *runner.Live // LAN model access for live agents (nil for oracle/nop)
+	// CapturePrelaunchTree is an internal study opt-in; no CLI/default enables it.
+	CapturePrelaunchTree bool
+	Evals                []string // eval IDs or versions; empty: every validated eval
+	Agent                string   // opencode (live), oracle or nop (checks without a model)
+	Attempts             int
+	Arm                  string
+	Live                 *runner.Live // LAN model access for live agents (nil for oracle/nop)
 	// OpenCodeTgz is a local copy of the pinned OpenCode archive for the container runner
 	// (offline; checked against the pin like a download)
 	OpenCodeTgz string
@@ -227,7 +229,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			if _, err := runner.Export(l, rec, work+"/task", settings); err != nil {
 				return rep, err
 			}
-			ro := runner.RunOptions{Agent: o.Agent, JobsDir: work + "/jobs", JobName: "trial"}
+			ro := runner.RunOptions{CapturePrelaunchTree: o.CapturePrelaunchTree, Agent: o.Agent, JobsDir: work + "/jobs", JobName: "trial"}
 			var counter *runner.Counter
 			if o.Live != nil {
 				counter = o.Live.NewTrial(lim.TrialRequests)
@@ -284,7 +286,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				return rep, err
 			}
 			if o.Agent == "opencode" && o.Live != nil {
-				behavior := handOverBehavior(ctx, s, l, rec, work, manifest, name, b.Objective, str(m.(map[string]any)["task_family"]), trials[0].Exception == "")
+				behavior := handOverBehavior(ctx, s, l, rec, work, manifest, name, b.Objective, str(m.(map[string]any)["task_family"]), trials[0].Exception == "", o.CapturePrelaunchTree)
 				if behavior.State != "imported" {
 					rep.BehaviorImportProblems++
 				}

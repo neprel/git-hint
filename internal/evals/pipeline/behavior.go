@@ -8,11 +8,13 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/neprel/git-hint/internal/activity"
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/evals/trees"
 	"github.com/neprel/git-hint/internal/evals/workunits"
 	"github.com/neprel/git-hint/internal/project"
@@ -20,21 +22,25 @@ import (
 	"github.com/neprel/git-hint/internal/store"
 )
 
+var observedStartDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
 const behaviorCaptureLimit = 8 << 20 // The runner's complete stdout capture bound.
 
 type BehaviorImport struct {
-	State       string                       `json:"state"`
-	Reason      string                       `json:"reason,omitempty"`
-	RunRef      string                       `json:"run_ref"`
-	BaseTree    string                       `json:"base_tree,omitempty"`
-	SourceID    string                       `json:"source_id,omitempty"`
-	Diagnostics *activity.CLIRootDiagnostics `json:"diagnostics,omitempty"`
+	State             string                       `json:"state"`
+	Reason            string                       `json:"reason,omitempty"`
+	RunRef            string                       `json:"run_ref"`
+	ObservedStartTree string                       `json:"observed_start_tree,omitempty"`
+	BaseTree          string                       `json:"base_tree,omitempty"`
+	SourceID          string                       `json:"source_id,omitempty"`
+	Diagnostics       *activity.CLIRootDiagnostics `json:"diagnostics,omitempty"`
 }
 
 // handOverBehavior imports only the runner-observed complete stdout of this actual trial.
-// Its resolver scans the immutable BASE, never the current project or final agent tree.
+// Its default resolver scans immutable BASE; study opt-in scans observed start instead.
+// Neither path scans the current project or final agent tree.
 func handOverBehavior(ctx context.Context, s *store.Store, l *library.Library, rec map[string]any, work string, m workunits.Manifest,
-	trial, task, family string, runOK bool) BehaviorImport {
+	trial, task, family string, runOK bool, observedStart bool) BehaviorImport {
 	result := BehaviorImport{State: "unknown", RunRef: activity.RunRef(s.Key(), trial)}
 	fail := func(code string) BehaviorImport { result.Reason = code; return result }
 	if !runOK {
@@ -68,12 +74,22 @@ func handOverBehavior(ctx context.Context, s *store.Store, l *library.Library, r
 	if err != nil {
 		return fail("configuration_unusable")
 	}
-	resolve, base, cleanup, err := behaviorResolver(ctx, s, l, rec, work)
+	var resolve activity.Resolver
+	var base, observed string
+	var cleanup func()
+	if observedStart {
+		resolve, base, observed, cleanup, err = observedStartResolver(ctx, s, rec, work, job)
+	} else {
+		resolve, base, cleanup, err = behaviorResolver(ctx, s, l, rec, work)
+	}
 	if err != nil {
+		if observedStart {
+			return fail("observed_start_unusable")
+		}
 		return fail("baseline_unusable")
 	}
 	defer cleanup()
-	result.BaseTree = base
+	result.BaseTree, result.ObservedStartTree = base, observed
 	decoded, err := activity.DecodeCLIRoot(bytes.NewReader(raw), activity.CLIRootOptions{Key: s.Key(), AgentVersion: job.Container.AgentBinary.Version,
 		Configuration: &cfg, TaskID: project.TaskID(s.Key(), task), TaskFamilyID: activity.FamilyRef(s.Key(), family), RunRef: result.RunRef,
 		Cwd: "/app", Resolve: resolve, CaptureComplete: true, CapturedAt: time.Now().UTC()})
@@ -198,4 +214,67 @@ func behaviorResolver(ctx context.Context, s *store.Store, l *library.Library, r
 		id, ok := ids[name]
 		return id, ok
 	}, base, cleanup, nil
+}
+
+// observedStartResolver never substitutes declared BASE for an unavailable capture. This
+// changes only this run's resolver; it neither collects the tree into project state nor
+// enables a baseline export/producer adapter.
+func observedStartResolver(ctx context.Context, s *store.Store, rec map[string]any, work string, job jobResult) (activity.Resolver, string, string, func(), error) {
+	bad := errors.New("observed start unavailable")
+	capture := job.Container.PrelaunchTree
+	ledger := job.Container.Ledger
+	if capture == nil || capture.State != "complete" || capture.Clock != "ledger_anchor_monotonic_ms" || capture.StartedMs < 0 || capture.FinishedMs < capture.StartedMs ||
+		ledger == nil || ledger.AgentRun == nil || ledger.AgentRun.EnclosureStartMs == nil || capture.FinishedMs > *ledger.AgentRun.EnclosureStartMs ||
+		!observedStartDigestPattern.MatchString(capture.ExecutionDigest) || capture.ExecutionDigest != ledger.AgentRun.ExecutionDigest || capture.ExecutionDigest != job.Container.AgentBinary.ExecutionDigest {
+		return nil, "", "", nil, bad
+	}
+	repos, ok := rec["repositories"].([]any)
+	if !ok || len(repos) != 1 {
+		return nil, "", "", nil, bad
+	}
+	repo, ok := repos[0].(map[string]any)
+	if !ok || str(repo["base_tree"]) == "" {
+		return nil, "", "", nil, bad
+	}
+	repoID := ""
+	for _, configured := range s.Cfg.Repos {
+		if configured.Name == str(repo["repo"]) {
+			if repoID != "" {
+				return nil, "", "", nil, bad
+			}
+			repoID = s.RepoID(configured)
+		}
+	}
+	if repoID == "" {
+		return nil, "", "", nil, bad
+	}
+	temp, err := os.MkdirTemp(s.Path("cache"), "behavior-observed-")
+	if err != nil {
+		return nil, "", "", nil, err
+	}
+	cleanup := func() { os.RemoveAll(temp) }
+	artifact := filepath.Join(work, "jobs", "trial", "trial__1", "agent", "prelaunch.tar")
+	files, err := runner.MaterializePrelaunchTree(artifact, capture.Digest, temp)
+	if err != nil {
+		cleanup()
+		return nil, "", "", nil, err
+	}
+	scanned, err := scan.Scan(scan.Options{Ctx: ctx, Root: temp, RepoID: repoID, Key: s.Key(), Files: files})
+	if err != nil {
+		cleanup()
+		return nil, "", "", nil, err
+	}
+	ids := map[string]string{}
+	for _, entity := range scanned.Entities {
+		if entity.Kind == "file" {
+			ids["/app/"+entity.Path] = entity.ID
+		}
+	}
+	return func(name string) (string, bool) {
+		if !strings.HasPrefix(name, "/app/") || path.Clean(name) != name {
+			return "", false
+		}
+		id, ok := ids[name]
+		return id, ok
+	}, str(repo["base_tree"]), capture.Digest, cleanup, nil
 }

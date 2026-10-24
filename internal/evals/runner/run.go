@@ -75,12 +75,15 @@ func (t Trial) Outcome() string {
 
 // RunOptions of one runner job.
 type RunOptions struct {
-	Agent    string // nop, oracle, opencode
-	Attempts int
-	JobsDir  string
-	JobName  string
-	Env      []string // the agent's environment for a live attempt (never credentials)
-	Timeout  time.Duration
+	// CapturePrelaunchTree opts controlled studies into local observed-start evidence.
+	// It does not enable a trusted producer, export source, or change launch policy.
+	CapturePrelaunchTree bool
+	Agent                string // nop, oracle, opencode
+	Attempts             int
+	JobsDir              string
+	JobName              string
+	Env                  []string // the agent's environment for a live attempt (never credentials)
+	Timeout              time.Duration
 	// the container runner's live attempts: the model proxy and this attempt's counter
 	Live     *Live
 	Counter  *Counter

@@ -61,11 +61,12 @@ func gateEnv(c *Counter) []string {
 // after every per-attempt path was torn down, whether that teardown completed, and the
 // attempt's error.
 type liveResult struct {
-	digest   string
-	ledger   *LedgerReport
-	final    bool     // every per-attempt path (agent, gate, networks, listener) is gone
-	teardown []string // what could not be torn down
-	err      error
+	prelaunch *PrelaunchTreeCapture
+	digest    string
+	ledger    *LedgerReport
+	final     bool     // every per-attempt path (agent, gate, networks, listener) is gone
+	teardown  []string // what could not be torn down
+	err       error
 	// opencode attempts: the installed binary's provenance and the capture of its output
 	agentBinary map[string]any
 	output      map[string]string
@@ -194,6 +195,13 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	bypass := d.Bypass(ctx, g, id)
 	if bypass != BypassEnforced {
 		return refuse(errors.New("the inspected topology is not the probed policy"))
+	}
+	if o.CapturePrelaunchTree {
+		var err error
+		res.prelaunch, err = d.capturePrelaunchTree(ctx, id, filepath.Join(filepath.Dir(artifact), "prelaunch.tar"), digest, o.Counter)
+		if err != nil {
+			return finish(err)
+		}
 	}
 	runErr := runAgentEnclosed(ctx, d.cli, id, lim.agent, o.Counter, digest)
 	o.Counter.Seal(5*time.Second, bypass, ScopeIsolatedContainer) // revoke admission and drain; not the final account

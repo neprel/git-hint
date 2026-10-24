@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,15 +23,21 @@ import (
 // result holds the ledger as read after the attempt's teardown.
 
 type liveFakeOpts struct {
-	lateDuringCapture bool           // a request reaches the proxy while the tree is captured
-	evilTree          bool           // the captured tree has an escaping symlink
-	blockWait         bool           // the agent never ends (wait blocks until the client gives up)
-	failNetworkDelete bool           // removing a network fails
-	cancelAfter       time.Duration  // cancel the attempt's context
-	digest            bool           // the attempt has an execution digest (agent_run is recorded)
-	requestInWait     bool           // the one request arrives while the agent runs, not before the trial
-	refuseProbe       bool           // the gate probe fails: nothing is launched
-	capture           *fakeTransport // the backend captures are enabled with this transport
+	clock               *ledgerClock
+	preexistingArtifact bool
+	prelaunch           bool
+	archiveFailure      bool
+	engineEvent         func(string)
+	artifactCheck       func(string)
+	lateDuringCapture   bool           // a request reaches the proxy while the tree is captured
+	evilTree            bool           // the captured tree has an escaping symlink
+	blockWait           bool           // the agent never ends (wait blocks until the client gives up)
+	failNetworkDelete   bool           // removing a network fails
+	cancelAfter         time.Duration  // cancel the attempt's context
+	digest              bool           // the attempt has an execution digest (agent_run is recorded)
+	requestInWait       bool           // the one request arrives while the agent runs, not before the trial
+	refuseProbe         bool           // the gate probe fails: nothing is launched
+	capture             *fakeTransport // the backend captures are enabled with this transport
 }
 
 func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
@@ -37,6 +45,11 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 	d, s := fakeQ4Docker(t, false)
 	lv, _ := fakeModel(t)
 	c := lv.NewTrial(10)
+	if o.clock != nil {
+		c.ledger.clock = o.clock
+		c.ledger.anchorWall = time.Time{}
+		c.ledger.anchor()
+	}
 	if o.capture != nil {
 		o.capture.counter = c
 	}
@@ -58,10 +71,29 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 	injected := false
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
+		if o.engineEvent != nil {
+			if strings.HasSuffix(p, "/archive") {
+				o.engineEvent(r.Method + " archive")
+			}
+			if strings.HasSuffix(p, "/start") {
+				id := path.Base(path.Dir(p))
+				s.mu.Lock()
+				c := s.containers[id]
+				isAgent := c != nil && fmt.Sprint(c.cfg["Cmd"]) == "[test]"
+				s.mu.Unlock()
+				if isAgent {
+					o.engineEvent("agent start")
+				}
+			}
+		}
 		switch {
 		case strings.HasSuffix(p, "/archive"):
 			if r.Method == "PUT" {
 				w.WriteHeader(200)
+				return
+			}
+			if o.archiveFailure {
+				w.WriteHeader(500)
 				return
 			}
 			if o.lateDuringCapture && !injected { // during the agent tree capture only
@@ -118,12 +150,19 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 	if o.blockWait && o.cancelAfter == 0 {
 		lim.agent = time.Second
 	}
-	d.trial(ctx, task, dir, "t__1", RunOptions{Agent: "test-agent", Attempts: 1, Live: lv, Counter: c, agentCmd: []string{"test"}, testDigest: digest, capture: transportOf(o.capture), captureRef: refOf(o.capture)},
+	if o.preexistingArtifact {
+		os.MkdirAll(filepath.Join(dir, "agent"), 0700)
+		os.WriteFile(filepath.Join(dir, "agent", "prelaunch.tar"), []byte("foreign artifact"), 0600)
+	}
+	d.trial(ctx, task, dir, "t__1", RunOptions{CapturePrelaunchTree: o.prelaunch, Agent: "test-agent", Attempts: 1, Live: lv, Counter: c, agentCmd: []string{"test"}, testDigest: digest, capture: transportOf(o.capture), captureRef: refOf(o.capture)},
 		lim, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
 	var r trialResult
 	b, err := os.ReadFile(filepath.Join(dir, "result.json"))
 	if err != nil || json.Unmarshal(b, &r) != nil {
 		t.Fatalf("result %s %v", b, err)
+	}
+	if o.artifactCheck != nil {
+		o.artifactCheck(filepath.Join(dir, "agent", "prelaunch.tar"))
 	}
 	return r, c
 }

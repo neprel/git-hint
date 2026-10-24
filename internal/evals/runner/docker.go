@@ -232,6 +232,9 @@ func (d *Docker) trial(ctx context.Context, taskDir, dir, name string, o RunOpti
 		if lr.agentBinary != nil {
 			r.Container["agent_binary"] = lr.agentBinary
 		}
+		if lr.prelaunch != nil {
+			r.Container["prelaunch_tree"] = lr.prelaunch
+		}
 		if lr.output != nil {
 			r.Container["agent_output"] = lr.output
 		}
