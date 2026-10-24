@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -400,4 +401,24 @@ func TestDockerOpenCodeTargetMismatchRefused(t *testing.T) {
 		t.Fatalf("%+v %v calls %d", ts, err, calls.Load())
 	}
 	noQ4Leftovers(t, d)
+}
+
+// The fixed session title is part of the launch: the argv carries it once before the
+// instruction, and the launch digests differ from the digests recorded without it.
+func TestOpenCodeTitleChangesTheLaunch(t *testing.T) {
+	argv := openCodeArgv("m", "--title x")
+	opts := argv[:slices.Index(argv, "--")] // the options before the instruction
+	i := slices.Index(opts, "--title")
+	if i < 0 || opts[i+1] != OpenCodeTitle || slices.Index(opts[i+1:], "--title") >= 0 || argv[len(argv)-1] != "--title x" {
+		t.Fatalf("%q", argv)
+	}
+	before := map[string]string{ // without --title, at public 0773fec
+		"linux-arm64": "sha256:4cbdd5c4c2b983dc602474c54b83ed835b01f6d32029bfc724c1ef80663df09f",
+		"linux-x64":   "sha256:001f40643e2ba32765ef7c4ab6536a7b356c671d6ed3bcacd0eef63aaeeff3cc",
+	}
+	for target, old := range before {
+		if d, err := DockerLaunchDigest("2.0.26", "ai01", target); err != nil || d == old {
+			t.Errorf("%s: the launch identity did not change (%s %v)", target, d, err)
+		}
+	}
 }

@@ -369,9 +369,16 @@ func openCodeFiles(bin []byte, c *Counter, model string) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// OpenCodeTitle is the fixed title of every attempt's new session. In the pinned source (2.0.26,
+// commit 9b4ec57) `run --title` renames the new session before the prompt, and the runner starts
+// background title generation only for an untitled root session; a fixed title is controlled
+// process configuration (part of the launch digest), not a rule about cancelled requests.
+const OpenCodeTitle = "hint-trial"
+
 // openCodeArgv is the fixed command of one attempt (no shell).
 func openCodeArgv(model, instruction string) []string {
-	return []string{"/opt/hint/bin/opencode", "run", "--standalone", "--format", "json", "--thinking", "--auto", "-m", "hint/" + model, "--", instruction}
+	return []string{"/opt/hint/bin/opencode", "run", "--standalone", "--format", "json", "--thinking", "--auto", "--title", OpenCodeTitle,
+		"-m", "hint/" + model, "--", instruction}
 }
 
 // taskInstruction is the instruction of an exported task without its leading canary comment.
