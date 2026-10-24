@@ -420,6 +420,7 @@ func writeInvalid(conf func(string) string, docs map[string]M) {
 	cases = append(cases, ledgerAgentRunInvalid()...)
 	cases = append(cases, ledgerBackendCaptureInvalid()...)
 	cases = append(cases, cliRootInvalid(docs["activity-model-call.json"])...)
+	cases = append(cases, membershipInvalid()...)
 	for _, c := range cases {
 		d := clone(docs[c.base])
 		c.mutate(d)

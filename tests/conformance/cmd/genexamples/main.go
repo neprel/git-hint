@@ -540,6 +540,7 @@ func main() {
 	docs["activity-model-ledger-agent-run.json"] = ledgerAgentRunDoc(act)
 	docs["activity-model-ledger-backend-capture.json"] = ledgerBackendCaptureDoc(act)
 	docs["activity-cli-root.json"] = cliRootDoc(act)
+	docs["activity-membership.json"] = membershipDoc(act)
 	writeValidExtras(conf, act)
 	writeInvalid(conf, docs)
 	writeResolve(conf, rec, single)

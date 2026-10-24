@@ -420,7 +420,8 @@
         "request_kind",
         "collection",
         "correlation.run_ref",
-        "model_ledger"
+        "model_ledger",
+        "membership"
       ]
     },
     "Agent": {

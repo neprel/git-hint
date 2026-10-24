@@ -1,0 +1,714 @@
+{
+  "content_digest": "sha256:a81a8efca0e9c34147606dac862a5b58707e26f58a8b41f4b5ff295fbddd6b51",
+  "created_at": "2026-10-11T12:00:00Z",
+  "document_id": "dc67407a11c8afe23b057f991da7bfd3",
+  "document_type": "activity_stream",
+  "hint_version": "0.2.0",
+  "payload": {
+    "metrics": [],
+    "observations": [
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "02e86ff7ad1a9106cf42bc66f88bd15d"
+        },
+        "missing": [],
+        "observation_id": "e7d8da3c330c01648766bb35dd3fe067",
+        "op": "SESSION",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "2fffcac45477382c6273fb844f3d8565",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:00Z",
+          "start": "2026-10-11T11:00:00Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "call_ref": "60ce169cfbae7470a7ef3313512c4454",
+          "session_id": "02e86ff7ad1a9106cf42bc66f88bd15d"
+        },
+        "missing": [],
+        "observation_id": "13b545c9156d3daafa8c9864671f529f",
+        "op": "MODEL_CALL",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "526eec15b2d278c1660bdaff190d4291",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "request_kind": "primary",
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:01Z",
+          "start": "2026-10-11T11:00:01Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "call_ref": "60ce169cfbae7470a7ef3313512c4454",
+          "session_id": "02e86ff7ad1a9106cf42bc66f88bd15d"
+        },
+        "missing": [],
+        "observation_id": "bf0fdbd59c762fb9149d1ac3160f8504",
+        "op": "USAGE",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "f34253bcfe07c60bcfc1179dc4a77cbf",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "request_kind": "primary",
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:03Z",
+          "start": "2026-10-11T11:00:03Z"
+        },
+        "usage": {
+          "input_tokens": {
+            "method": "harness_usage",
+            "precision": "exact",
+            "state": "known",
+            "unit": "tokens",
+            "value": 5405
+          },
+          "output_tokens": {
+            "method": "harness_usage",
+            "precision": "exact",
+            "state": "known",
+            "unit": "tokens",
+            "value": 165
+          },
+          "reasoning_tokens": {
+            "reason": "not_supported",
+            "state": "unknown",
+            "unit": "tokens"
+          }
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "02e86ff7ad1a9106cf42bc66f88bd15d"
+        },
+        "missing": [],
+        "observation_id": "370cc8ce0bfc29b9d6bfc9d2c35926ab",
+        "op": "MODEL_CALL",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "e43f92166b629f1d3a06c54dcc671962",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "request_kind": "title",
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:01Z",
+          "start": "2026-10-11T11:00:01Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "session_id": "02e86ff7ad1a9106cf42bc66f88bd15d"
+        },
+        "missing": [],
+        "observation_id": "78f4dd9f063c6afe43651ed5c3bf2e3f",
+        "op": "USAGE",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "ae11380733eb842b783198612695f6fd",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "request_kind": "title",
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:02Z",
+          "start": "2026-10-11T11:00:02Z"
+        },
+        "usage": {
+          "input_tokens": {
+            "method": "harness_usage",
+            "precision": "exact",
+            "state": "known",
+            "unit": "tokens",
+            "value": 686
+          },
+          "output_tokens": {
+            "method": "harness_usage",
+            "precision": "exact",
+            "state": "known",
+            "unit": "tokens",
+            "value": 432
+          },
+          "reasoning_tokens": {
+            "reason": "not_supported",
+            "state": "unknown",
+            "unit": "tokens"
+          }
+        }
+      },
+      {
+        "class": "observation",
+        "collection": {
+          "closed_at": "2026-10-11T11:00:04Z",
+          "closure": "flushed",
+          "errors": {
+            "method": "count_of_records",
+            "precision": "exact",
+            "state": "known",
+            "unit": "count",
+            "value": 0
+          },
+          "events_dropped": {
+            "method": "count_of_records",
+            "precision": "exact",
+            "state": "known",
+            "unit": "count",
+            "value": 0
+          },
+          "lifecycle": "attached_at_start",
+          "open_calls": {
+            "method": "count_of_records",
+            "precision": "exact",
+            "state": "known",
+            "unit": "count",
+            "value": 0
+          }
+        },
+        "correlation": {
+          "session_id": "02e86ff7ad1a9106cf42bc66f88bd15d"
+        },
+        "missing": [],
+        "observation_id": "58d189de93093446b97f28fb90c82198",
+        "op": "SESSION",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:30Z",
+          "source_event_id": "8731a2ea9a7a7afed7ee6f7de8ac3605",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            },
+            {
+              "step": "redact",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "plugin",
+        "source_id": "6e26add502e72b3782263f6399adabe6",
+        "time": {
+          "clock": "agent",
+          "end": "2026-10-11T11:00:04Z",
+          "start": "2026-10-11T11:00:04Z"
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {
+          "run_ref": "ff9bcae247d65539d45e5d1b2a32c458",
+          "task_family_id": "ce3abb2c055da0dbdd3292249cce798d",
+          "task_id": "266efc12df1b8c59b759cc7121d444a6"
+        },
+        "missing": [
+          "correlation.session_id",
+          "correlation.turn_id"
+        ],
+        "model_ledger": {
+          "binding": {
+            "attempt_ref": "fc52a2aa5c5470b0cf99e02f60bc36e7",
+            "configuration_digest": "sha256:c6ccb92795221053332a9bdae50e4de25bce4634585150d6cf77a1396aaa8725",
+            "execution_ref": "b9ee9d1b2e33afbd8bf4019146e6b037",
+            "origin": "project",
+            "run_ref": "ff9bcae247d65539d45e5d1b2a32c458",
+            "task_family_id": "ce3abb2c055da0dbdd3292249cce798d",
+            "task_id": "266efc12df1b8c59b759cc7121d444a6",
+            "unit_ref": "a32b38726bdb45e3c9d019072dbdd119"
+          },
+          "bypass": "enforced",
+          "component_coverage": {
+            "cached": 2,
+            "completion": 2,
+            "prompt": 2,
+            "reasoning": 0
+          },
+          "components": {
+            "cached": 4800,
+            "completion": 597,
+            "prompt": 6091,
+            "reasoning": null
+          },
+          "counts": {
+            "admitted": 2,
+            "cancelled": 0,
+            "complete": 2,
+            "error": 0,
+            "late": 0,
+            "missing_usage": 0,
+            "rejected_limit": 0,
+            "truncated": 0,
+            "unknown": 0,
+            "unreadable": 0,
+            "usage_conflict": 0,
+            "usage_partial": 0
+          },
+          "ledger_ref": "6d8efa43e5d36e5261b00d1f06882d66",
+          "model_check": "requested_model_observed",
+          "reasons": [],
+          "revision": 0,
+          "scope": "isolated_container",
+          "sealed_at": "2026-10-11T11:00:05Z",
+          "state": "complete"
+        },
+        "observation_id": "126a3a7efe4a9ade0632abb2a16ea9c3",
+        "op": "USAGE",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:05Z",
+          "source_event_id": "3d3aadd20cb8eacf9115364f38329e5e",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "transport",
+        "source_id": "fe9671a08d9b29add58ae2a05d8fc1bd",
+        "time": {
+          "clock": "collector",
+          "end": "2026-10-11T11:00:05Z",
+          "start": "2026-10-11T11:00:05Z"
+        },
+        "usage": {
+          "input_tokens": {
+            "reason": "not_supported",
+            "state": "unknown",
+            "unit": "tokens"
+          },
+          "output_tokens": {
+            "reason": "not_supported",
+            "state": "unknown",
+            "unit": "tokens"
+          }
+        }
+      },
+      {
+        "class": "observation",
+        "correlation": {},
+        "membership": {
+          "events": [
+            {
+              "coverage": "hint_orchestrated_executions",
+              "enrollment_start_revision_digest": "sha256:a15b332bc3a835cd32ab5bcf4c65eea89243cb758a4293ffa62e8678c57984f2",
+              "epoch": 1,
+              "kind": "epoch_open",
+              "original_scope_digest": "sha256:59bbc60b3a0f5ee4bc8e187d22432888ad5beb217d9b47fe60919c5737e90f0c",
+              "policy_digest": "sha256:0a2d927b984db5059a82155b7d774276ab92c4b944b3e35e9230bc9c68020549",
+              "predecessor_epoch_digest": "sha256:5e8d75085b682ee57006efef4ebd8e84ab1cf5cafa442477bda279798c2aa880",
+              "prev_digest": null,
+              "seq": 1
+            },
+            {
+              "attempt_ref": "198347e983f3ec6659e977f721e652e7",
+              "execution_ref": "b9ee9d1b2e33afbd8bf4019146e6b037",
+              "kind": "enroll",
+              "planned_configuration_digest": "sha256:8ca25117bb2b80f3ff5d51474ed4771f8b2f54787ee4440a1babc27637020698",
+              "prev_digest": "sha256:baa179bb3e2abf053bf319fee10c3422431229e5beef831ef5144d0ea6902f67",
+              "run_ref": "6291be6261a37fa50aa343a7399570eb",
+              "seq": 2,
+              "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f"
+            },
+            {
+              "execution_digest": "sha256:e40deb926c3324ac625d56cf1cd99c4dfe3922e70a672376c4ad1be2a66a50b0",
+              "execution_ref": "b9ee9d1b2e33afbd8bf4019146e6b037",
+              "gate_policy_digest": "sha256:e484ea92d0ae096a79a7fc55741d620c91de56d74b0122e4a2b0377de58906bb",
+              "installed_target": "linux-arm64",
+              "kind": "launch",
+              "launch_audit_ref": "dc180a18f527b6c46620d59be2a1deba",
+              "launch_digest": "sha256:5c447b51293c7422ae1e967477c9960ffe2dac156bbe057d84b771e6bf9f457e",
+              "model_ref": "9d14a5531230bdf1325afabfb4795ae6",
+              "prestart_checks": {
+                "model_matches": true,
+                "policy_matches": true,
+                "target_matches": true
+              },
+              "prev_digest": "sha256:8f301ce5b1e3e5ba1e26fd4b17804b517a5c87a5154e3349e8923437b362a668",
+              "seq": 3,
+              "source_configuration_digest": "sha256:8ca25117bb2b80f3ff5d51474ed4771f8b2f54787ee4440a1babc27637020698"
+            },
+            {
+              "attempt_ref": "198347e983f3ec6659e977f721e652e7",
+              "execution_ref": "8de9660d7bc2fadb921d880c0985aee3",
+              "kind": "enroll",
+              "planned_configuration_digest": "sha256:8ca25117bb2b80f3ff5d51474ed4771f8b2f54787ee4440a1babc27637020698",
+              "prev_digest": "sha256:7a6e628df80362ac627afc68f5fc54a6b93e645df7247ba8f690cc1e85b18dba",
+              "run_ref": "4d9592b5acdc8d47119905a1571e9b9d",
+              "seq": 4,
+              "task_id": "aa5e1e9ceba4bc748ac80cf6ffba674f"
+            },
+            {
+              "execution_ref": "b9ee9d1b2e33afbd8bf4019146e6b037",
+              "finish_audit_ref": "02ce23def53aa775e65495692ac83f75",
+              "finish_state": "exited",
+              "kind": "finish",
+              "ledger_ref": "025094020be97cbad6db9e1c7fce5153",
+              "prev_digest": "sha256:f8a982e630e3e776d62506a9b511f0e53a376637bb66d4297a35e1a269f7e021",
+              "seq": 5
+            },
+            {
+              "execution_ref": "8de9660d7bc2fadb921d880c0985aee3",
+              "finish_audit_ref": "05f47cebb84d8d33e9d6f4e729c1675f",
+              "finish_state": "refused_before_launch",
+              "kind": "finish",
+              "ledger_ref": null,
+              "prev_digest": "sha256:0fbb05f546147abf69db3eeb68c4f74f4835cbc7352ae85a096b7036f3a4ea10",
+              "seq": 6
+            },
+            {
+              "executions": 2,
+              "frozen_open_revision_digest": "sha256:09bfba8350b1b2041083054c24d63a100d9d1e48d17ed549c76172c40bcd0250",
+              "kind": "epoch_seal",
+              "prev_digest": "sha256:b8bb0a86b54d48c886453ce5a19468e1aff8fed162472649327d348957d4f6b1",
+              "seq": 7
+            }
+          ],
+          "head_digest": "sha256:dbb830cdf01d839fbc37f334ba67d099e05558e808d5f50e215443b349590901",
+          "unit_ref": "ac2b381fde7aef5b67238c5585686a83"
+        },
+        "missing": [],
+        "observation_id": "fba6155577949c1c2525c8e223af9c63",
+        "op": "MEMBERSHIP",
+        "outcome": {
+          "status": "success"
+        },
+        "precision": "exact",
+        "provenance": {
+          "captured_at": "2026-10-11T11:00:06Z",
+          "source_event_id": "36ef67d4c766a186cecdb8a6db19f52f",
+          "transformations": [
+            {
+              "step": "normalize",
+              "tool": "hint-cli",
+              "version": "0.1.0"
+            }
+          ]
+        },
+        "source": "orchestrator",
+        "source_id": "51821330676f7701aaf76965386e12ad",
+        "time": {
+          "clock": "collector",
+          "end": "2026-10-11T11:00:06Z",
+          "start": "2026-10-11T11:00:06Z"
+        }
+      }
+    ]
+  },
+  "producer": {
+    "tool": "hint-cli",
+    "version": "0.1.0"
+  },
+  "project_namespace": "7f30be062b9db832c0b0ae90d03d8e8a",
+  "redaction": {
+    "free_text": "denied",
+    "policy_id": "d43b7ded0dd083a06da2878bbfd66e14",
+    "profile": "detailed",
+    "record_types": [
+      "Observation",
+      "Metric"
+    ],
+    "time_resolution_seconds": 0
+  },
+  "repositories": [
+    "0a47f621aa46a0035f78c74eaae15d4c"
+  ],
+  "sources": [
+    {
+      "adapter": {
+        "name": "opencode-plugin",
+        "version": "0.1.0"
+      },
+      "agent": "opencode",
+      "agent_version": "2.0.26",
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "correlation.task_id",
+        "correlation.session_id",
+        "correlation.turn_id",
+        "correlation.tool_call_id",
+        "targets",
+        "outcome.status",
+        "outcome.exit_code",
+        "size",
+        "command_class",
+        "content_delivery",
+        "usage",
+        "request_kind",
+        "correlation.call_ref",
+        "collection"
+      ],
+      "coverage": {
+        "events_dropped": {
+          "method": "count_of_records",
+          "precision": "exact",
+          "state": "known",
+          "unit": "count",
+          "value": 0
+        },
+        "events_received": {
+          "method": "count_of_records",
+          "precision": "exact",
+          "state": "known",
+          "unit": "count",
+          "value": 9
+        }
+      },
+      "source_id": "6e26add502e72b3782263f6399adabe6",
+      "unavailable": [
+        "correlation.trace_id",
+        "correlation.span_id",
+        "correlation.parent_span_id",
+        "coordination"
+      ],
+      "usage_normalization": "opencode-2.0.26:tokeninfo-v1"
+    },
+    {
+      "adapter": {
+        "name": "watcher",
+        "version": "0.1.0"
+      },
+      "agent": "none",
+      "agent_version": null,
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "targets"
+      ],
+      "coverage": {
+        "events_dropped": {
+          "bounds": {
+            "lower": 1,
+            "upper": null
+          },
+          "reason": "dropped",
+          "state": "unknown",
+          "unit": "count"
+        },
+        "events_received": {
+          "method": "count_of_records",
+          "precision": "exact",
+          "state": "known",
+          "unit": "count",
+          "value": 1
+        }
+      },
+      "source_id": "693b0551a65a349fa3332cf86dd56f42",
+      "unavailable": [
+        "correlation.session_id",
+        "correlation.task_id",
+        "outcome.exit_code"
+      ]
+    },
+    {
+      "adapter": {
+        "name": "other",
+        "version": "0.1.0"
+      },
+      "agent": "none",
+      "agent_version": null,
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "usage"
+      ],
+      "source_id": "fff0f1e7920adb57079b08467225bba0",
+      "unavailable": [
+        "targets"
+      ]
+    },
+    {
+      "adapter": {
+        "name": "hint-model-ledger",
+        "version": "0.1.0"
+      },
+      "agent": "opencode",
+      "agent_version": "2.0.26",
+      "capabilities": [
+        "time.start",
+        "time.end",
+        "correlation.task_id",
+        "correlation.task_family_id",
+        "correlation.run_ref",
+        "usage",
+        "model_ledger"
+      ],
+      "configuration": {
+        "agent": {
+          "name": "opencode",
+          "version": {
+            "state": "known",
+            "value": "2.0.26"
+          }
+        },
+        "budget": {
+          "max_requests": {
+            "state": "known",
+            "value": 16
+          },
+          "max_seconds": {
+            "state": "known",
+            "value": 300
+          }
+        },
+        "config_refs": {
+          "refs": [
+            "6b9f3c91d327bc6a4d9de4c93f8bbcb4"
+          ],
+          "state": "known"
+        },
+        "context_policy": {
+          "state": "disabled"
+        },
+        "harness": {
+          "kind": "harbor",
+          "version": {
+            "state": "known",
+            "value": "0.23.0"
+          }
+        },
+        "model": {
+          "provenance": "launch_parameter",
+          "ref": "f8ef94ad181419f6fc8bce58acda8315",
+          "state": "known"
+        }
+      },
+      "source_id": "fe9671a08d9b29add58ae2a05d8fc1bd",
+      "unavailable": [
+        "correlation.session_id",
+        "correlation.turn_id",
+        "correlation.tool_call_id",
+        "targets"
+      ],
+      "usage_normalization": "openai-compat-usage-v1"
+    },
+    {
+      "adapter": {
+        "name": "hint-project-orchestrator",
+        "version": "0.1.0"
+      },
+      "agent": "other",
+      "agent_version": null,
+      "capabilities": [
+        "membership"
+      ],
+      "source_id": "51821330676f7701aaf76965386e12ad",
+      "unavailable": [
+        "usage",
+        "request_kind",
+        "collection",
+        "context",
+        "coordination",
+        "targets"
+      ]
+    }
+  ]
+}

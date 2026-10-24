@@ -1,5 +1,5 @@
 {
-  "content_digest": "sha256:0157666842b8f345334ba931f31c9a7a085374e0c9a10786be3fb62b2b13c700",
+  "content_digest": "sha256:a2b1f1c0bdfcab7afa8e238e7e0e71d2144f35a9353e2259103cc5b279c4ca8b",
   "created_at": "2026-10-11T12:00:00Z",
   "document_id": "1488017b9772dc4bc1d200e58bf8f4a6",
   "document_type": "export_policy",
@@ -80,7 +80,8 @@
         "context",
         "collection",
         "request_kind",
-        "model_ledger"
+        "model_ledger",
+        "membership"
       ],
       "Plan": [
         "authorization_basis",

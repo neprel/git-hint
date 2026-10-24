@@ -79,7 +79,7 @@ func contextPolicy(pol M) M {
 	p := clone(pol)
 	p["hint_version"] = "0.2.0"
 	f := obj(p, "payload", "fields")
-	f["Observation"] = append(f["Observation"].([]any), "context", "collection", "request_kind", "model_ledger")
+	f["Observation"] = append(f["Observation"].([]any), "context", "collection", "request_kind", "model_ledger", "membership")
 	if plan, ok := f["Plan"].([]any); ok {
 		f["Plan"] = append(plan, "forecast_basis")
 	}
@@ -175,6 +175,7 @@ func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M)
 	write(ex("activity-model-ledger-agent-run.json"), ledgerAgentRunDoc(act))
 	write(ex("activity-model-ledger-backend-capture.json"), ledgerBackendCaptureDoc(act))
 	write(ex("activity-cli-root.json"), cliRootDoc(act))
+	write(ex("activity-membership.json"), membershipDoc(act))
 	for name, d := range ledgerBackendCaptureValid(act) {
 		write(filepath.Join(root, "tests", "conformance", "valid", name), d)
 	}

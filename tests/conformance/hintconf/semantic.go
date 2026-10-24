@@ -66,7 +66,148 @@ const (
 	// or claims what the scope cannot observe (usage, a model call or ledger, a context
 	// measurement, a turn)
 	CodeSourceCLIRoot = "source_cli_root_inconsistent"
+	// CodeMembership: an administrative membership epoch that is not one complete, ordered,
+	// hash-chained and sealed enrollment (draft v0.2), or two records of one document that share
+	// an execution, a run or a unit epoch
+	CodeMembership = "membership_inconsistent"
+	// CodeSourceOrchestrator: a project orchestrator source beyond its administrative scope, or an
+	// observation of it that is not a MEMBERSHIP record or carries behavior, usage or closure fields
+	CodeSourceOrchestrator = "source_orchestrator_inconsistent"
 )
+
+// The project orchestrator source (administrative membership records only; claims, no trust).
+const (
+	OrchestratorAdapter        = "hint-project-orchestrator"
+	OrchestratorAdapterVersion = "0.1.0"
+	MembershipMaxEvents        = 4096
+	MembershipMaxExecutions    = 1024
+)
+
+var orchestratorUnavailable = []string{"usage", "request_kind", "collection", "context", "coordination", "targets"}
+
+// SourceOrchestratorProblem reports whether an orchestrator source declares more than the
+// administrative scope: the exact adapter version, the single membership capability, the
+// behavior, usage and closure fields unavailable, no usage normalization.
+func SourceOrchestratorProblem(src map[string]any) bool {
+	a, _ := src["adapter"].(map[string]any)
+	caps := strs(src["capabilities"])
+	if str(a["version"]) != OrchestratorAdapterVersion || len(caps) != 1 || caps[0] != "membership" {
+		return true
+	}
+	for _, u := range orchestratorUnavailable {
+		if !contains(strs(src["unavailable"]), u) {
+			return true
+		}
+	}
+	_, norm := src["usage_normalization"]
+	return norm
+}
+
+// ObservationOrchestratorProblem reports whether an observation of an orchestrator source is
+// anything but an administrative MEMBERSHIP record.
+func ObservationOrchestratorProblem(o map[string]any) bool {
+	if str(o["op"]) != "MEMBERSHIP" || str(o["source"]) != "orchestrator" {
+		return true
+	}
+	for _, k := range []string{"usage", "model_ledger", "context", "request_kind", "collection", "coordination", "targets"} {
+		if _, ok := o[k]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// membershipFinish are the terminal states without and after a launch.
+var (
+	finishWithoutLaunch = []string{"refused_before_launch", "start_unconfirmed"}
+	finishAfterLaunch   = []string{"exited", "exited_nonzero", "stopped_after_timeout", "stopped_after_cancel", "stopped_after_wait_error", "stop_unconfirmed"}
+)
+
+// MembershipProblem reports whether one membership epoch is not complete, ordered and sealed:
+// seq contiguous from 1; exactly one epoch_open first and one epoch_seal last; every prev_digest
+// the canonical digest of the previous event (null only first) and head_digest that of the last;
+// epoch 1 exactly when there is no predecessor; per execution enroll, then launch and a terminal
+// after-launch finish, or a launch-less terminal finish; every enrolled execution terminal before
+// the seal; unique execution and run refs; the seal counts the enrolled executions; bounds.
+func MembershipProblem(m map[string]any) bool {
+	events := list(m["events"])
+	if len(events) < 2 || len(events) > MembershipMaxEvents {
+		return true
+	}
+	prev := ""
+	state := map[string]string{} // execution -> enrolled | launched | terminal
+	runs := map[string]bool{}
+	enrolled := 0
+	for i, e := range events {
+		ev, _ := e.(map[string]any)
+		if int(num(ev["seq"])) != i+1 {
+			return true
+		}
+		if i == 0 {
+			if ev["prev_digest"] != nil {
+				return true
+			}
+		} else if str(ev["prev_digest"]) != prev {
+			return true
+		}
+		d, err := Digest(ev)
+		if err != nil {
+			return true
+		}
+		prev = d
+		kind := str(ev["kind"])
+		first, last := i == 0, i == len(events)-1
+		if (kind == "epoch_open") != first || (kind == "epoch_seal") != last {
+			return true
+		}
+		x := str(ev["execution_ref"])
+		switch kind {
+		case "epoch_open":
+			if (int(num(ev["epoch"])) == 1) != (ev["predecessor_epoch_digest"] == nil) {
+				return true
+			}
+		case "enroll":
+			if _, seen := state[x]; seen || runs[str(ev["run_ref"])] {
+				return true
+			}
+			state[x], runs[str(ev["run_ref"])] = "enrolled", true
+			enrolled++
+			if enrolled > MembershipMaxExecutions {
+				return true
+			}
+		case "launch":
+			if state[x] != "enrolled" {
+				return true
+			}
+			state[x] = "launched"
+		case "finish":
+			f := str(ev["finish_state"])
+			switch state[x] {
+			case "enrolled":
+				if !contains(finishWithoutLaunch, f) {
+					return true
+				}
+			case "launched":
+				if !contains(finishAfterLaunch, f) {
+					return true
+				}
+			default:
+				return true
+			}
+			state[x] = "terminal"
+		case "epoch_seal":
+			if int(num(ev["executions"])) != enrolled {
+				return true
+			}
+			for _, s := range state {
+				if s != "terminal" {
+					return true
+				}
+			}
+		}
+	}
+	return str(m["head_digest"]) != prev
+}
 
 // The root CLI adapter: its version fixes the measurement scope (opencode-cli-root 0.1.0: the
 // terminal tool records of the root session in OpenCode 2.0.26 run JSON output).
@@ -442,17 +583,26 @@ func (c *checker) activity(payload map[string]any) {
 	obs := c.uniq(payload, "observations", "observation_id")
 	c.uniq(payload, "metrics", "metric_id")
 	sources := map[string]bool{}
-	cliRoot := map[string]bool{} // root CLI adapter sources
+	cliRoot := map[string]bool{}      // root CLI adapter sources
+	orchestrator := map[string]bool{} // project orchestrator sources
 	for i, s := range list(c.doc["sources"]) {
 		m, _ := s.(map[string]any)
 		sources[str(m["source_id"])] = true
-		if a, _ := m["adapter"].(map[string]any); str(a["name"]) == CLIRootAdapter {
+		a, _ := m["adapter"].(map[string]any)
+		if str(a["name"]) == CLIRootAdapter {
 			cliRoot[str(m["source_id"])] = true
 			if SourceCLIRootProblem(m) {
 				c.add(CodeSourceCLIRoot, "sources[%d]", i)
 			}
 		}
+		if str(a["name"]) == OrchestratorAdapter {
+			orchestrator[str(m["source_id"])] = true
+			if SourceOrchestratorProblem(m) {
+				c.add(CodeSourceOrchestrator, "sources[%d]", i)
+			}
+		}
 	}
+	memberExec, memberRun, memberEpoch := map[string]bool{}, map[string]bool{}, map[string]bool{} // across the document's membership records
 	measured := map[string]bool{}
 	family := map[string]string{} // task -> its declared family
 	closed := map[string]bool{}   // source, session, collection ref
@@ -488,6 +638,30 @@ func (c *checker) activity(payload map[string]any) {
 		}
 		if cliRoot[str(m["source_id"])] && ObservationCLIRootProblem(m) {
 			c.add(CodeSourceCLIRoot, "payload.observations[%d]", i)
+		}
+		if mem, ok := m["membership"].(map[string]any); ok {
+			if !orchestrator[str(m["source_id"])] || ObservationOrchestratorProblem(m) {
+				c.add(CodeSourceOrchestrator, "payload.observations[%d]", i)
+			}
+			bad := MembershipProblem(mem)
+			for _, e := range list(mem["events"]) {
+				ev, _ := e.(map[string]any)
+				switch str(ev["kind"]) {
+				case "enroll":
+					x, r := str(ev["execution_ref"]), str(ev["run_ref"])
+					bad = bad || memberExec[x] || memberRun[r]
+					memberExec[x], memberRun[r] = true, true
+				case "epoch_open":
+					k := str(mem["unit_ref"]) + "\x00" + fmt.Sprint(num(ev["epoch"]))
+					bad = bad || memberEpoch[k]
+					memberEpoch[k] = true
+				}
+			}
+			if bad {
+				c.add(CodeMembership, "payload.observations[%d].membership", i)
+			}
+		} else if orchestrator[str(m["source_id"])] {
+			c.add(CodeSourceOrchestrator, "payload.observations[%d]", i)
 		}
 		t, _ := m["time"].(map[string]any)
 		s, e := str(t["start"]), str(t["end"])

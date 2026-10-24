@@ -83,7 +83,8 @@
             "WAIT",
             "ERROR",
             "UNKNOWN",
-            "MODEL_CALL"
+            "MODEL_CALL",
+            "MEMBERSHIP"
           ]
         },
         "ops_secondary": {
@@ -696,6 +697,9 @@
         },
         "model_ledger": {
           "$ref": "#/$defs/ModelLedger"
+        },
+        "membership": {
+          "$ref": "#/$defs/ExecutionMembership"
         }
       },
       "required": [
@@ -1040,6 +1044,43 @@
               "correlation",
               "usage"
             ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "MEMBERSHIP"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "orchestrator"
+              }
+            },
+            "required": [
+              "membership",
+              "source"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "membership"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "const": "MEMBERSHIP"
+              }
+            }
           }
         }
       ]
@@ -1521,35 +1562,80 @@
           "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
         },
         "binding": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "run_ref": {
-              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "run_ref": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "task_id": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "task_family_id": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "configuration_digest": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+                },
+                "unit_ref": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "attempt_ref": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                }
+              },
+              "required": [
+                "run_ref",
+                "task_id",
+                "task_family_id",
+                "configuration_digest",
+                "unit_ref",
+                "attempt_ref"
+              ]
             },
-            "task_id": {
-              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
-            },
-            "task_family_id": {
-              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
-            },
-            "configuration_digest": {
-              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
-            },
-            "unit_ref": {
-              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
-            },
-            "attempt_ref": {
-              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "run_ref": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "task_id": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "task_family_id": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "configuration_digest": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+                },
+                "unit_ref": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "attempt_ref": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                "origin": {
+                  "const": "project"
+                },
+                "execution_ref": {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                }
+              },
+              "required": [
+                "run_ref",
+                "task_id",
+                "task_family_id",
+                "configuration_digest",
+                "unit_ref",
+                "attempt_ref",
+                "origin",
+                "execution_ref"
+              ],
+              "description": "A project-origin binding (draft v0.2): attempt_ref is the actual work attempt; execution_ref names the one HINT-orchestrated execution of this ledger, listed in the unit's sealed membership epoch."
             }
-          },
-          "required": [
-            "run_ref",
-            "task_id",
-            "task_family_id",
-            "configuration_digest",
-            "unit_ref",
-            "attempt_ref"
           ]
         },
         "entries": {
@@ -2121,6 +2207,337 @@
         "collector",
         "start",
         "end"
+      ]
+    },
+    "MembershipEvent": {
+      "description": "One event of a membership epoch's complete hash chain (prev_digest: the canonical digest of the previous event; null only at seq 1). Claims only: no runtime trust follows from these fields.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "epoch_open"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "epoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "original_scope_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            },
+            "enrollment_start_revision_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            },
+            "policy_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            },
+            "coverage": {
+              "const": "hint_orchestrated_executions"
+            },
+            "predecessor_epoch_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "epoch",
+            "original_scope_digest",
+            "enrollment_start_revision_digest",
+            "policy_digest",
+            "coverage",
+            "predecessor_epoch_digest"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "enroll"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "execution_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "run_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "attempt_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "task_id": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "planned_configuration_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "execution_ref",
+            "run_ref",
+            "attempt_ref",
+            "task_id",
+            "planned_configuration_digest"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "launch"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "execution_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "launch_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            },
+            "execution_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            },
+            "installed_target": {
+              "enum": [
+                "linux-x64",
+                "linux-arm64",
+                "linux-x64-musl",
+                "linux-arm64-musl",
+                "darwin-x64",
+                "darwin-arm64"
+              ]
+            },
+            "model_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "gate_policy_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            },
+            "source_configuration_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            },
+            "prestart_checks": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "target_matches": {
+                  "type": "boolean"
+                },
+                "model_matches": {
+                  "type": "boolean"
+                },
+                "policy_matches": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "target_matches",
+                "model_matches",
+                "policy_matches"
+              ]
+            },
+            "launch_audit_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "execution_ref",
+            "launch_digest",
+            "execution_digest",
+            "installed_target",
+            "model_ref",
+            "gate_policy_digest",
+            "source_configuration_digest",
+            "prestart_checks",
+            "launch_audit_ref"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "finish"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "execution_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "finish_state": {
+              "enum": [
+                "refused_before_launch",
+                "start_unconfirmed",
+                "exited",
+                "exited_nonzero",
+                "stopped_after_timeout",
+                "stopped_after_cancel",
+                "stopped_after_wait_error",
+                "stop_unconfirmed"
+              ]
+            },
+            "finish_audit_ref": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+            },
+            "ledger_ref": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "execution_ref",
+            "finish_state",
+            "finish_audit_ref",
+            "ledger_ref"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "epoch_seal"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "frozen_open_revision_digest": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+            },
+            "executions": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1024
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "frozen_open_revision_digest",
+            "executions"
+          ]
+        }
+      ]
+    },
+    "ExecutionMembership": {
+      "description": "An administrative membership epoch of one project work unit (draft v0.2): the complete ordered enrollment of the HINT-orchestrated executions of the epoch, sealed. It covers only HINT-orchestrated executions, grants no session, outcome, usage or closure authority, and its fields are claims checked for consistency only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit_ref": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "events": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/MembershipEvent"
+          }
+        },
+        "head_digest": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+        }
+      },
+      "required": [
+        "unit_ref",
+        "events",
+        "head_digest"
       ]
     }
   }

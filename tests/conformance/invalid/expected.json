@@ -1319,6 +1319,101 @@
     "code": "change",
     "level": "schema"
   },
+  "membership-broken-chain.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-duplicate-run.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-event-after-seal.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-execution-without-terminal.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-exited-without-launch.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-extra-field.json": {
+    "base": "activity-membership.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "membership-first-epoch-with-predecessor.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-from-other-source.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
+  },
+  "membership-head-mismatch.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-later-epoch-without-predecessor.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-launch-without-enroll.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-missing-prestart.json": {
+    "base": "activity-membership.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "membership-other-coverage.json": {
+    "base": "activity-membership.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "membership-refused-after-launch.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-seal-count.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-seq-gap.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-two-openers.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-unknown-event-kind.json": {
+    "base": "activity-membership.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "membership-without-seal.json": {
+    "base": "activity-membership.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
   "metric-input-dangling.json": {
     "base": "activity-trace.json",
     "code": "dangling_reference",
@@ -1358,6 +1453,21 @@
     "base": "change-set.json",
     "code": "change",
     "level": "schema"
+  },
+  "orchestrator-claims-usage.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
+  },
+  "orchestrator-observation-not-membership.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
+  },
+  "orchestrator-other-version.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
   },
   "partial-with-full-coverage.json": {
     "base": "activity-trace.json",
@@ -1418,6 +1528,16 @@
     "base": "recommendation.json",
     "code": "plan_snapshot_set",
     "level": "semantic"
+  },
+  "project-binding-other-origin.json": {
+    "base": "activity-membership.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "project-binding-without-execution.json": {
+    "base": "activity-membership.json",
+    "code": "observation",
+    "level": "schema"
   },
   "quantity-count-fractional.json": {
     "base": "activity-trace.json",

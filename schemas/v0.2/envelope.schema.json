@@ -92,6 +92,7 @@
                   "watcher",
                   "shell-parser",
                   "hint-model-ledger",
+                  "hint-project-orchestrator",
                   "other"
                 ]
               },

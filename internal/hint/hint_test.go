@@ -171,7 +171,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			// "context" (missing context coverage), "correlation.task_family_id" and the model-call
 			// fields "correlation.call_ref", "request_kind", "collection" (C7B-E) are v0.2 entries
 			v02only := map[any]bool{"context": true, "correlation.task_family_id": true, "correlation.call_ref": true, "request_kind": true, "collection": true,
-				"correlation.run_ref": true, "model_ledger": true} // the model ledger channel (draft v0.2)
+				"correlation.run_ref": true, "model_ledger": true, "membership": true} // the model ledger channel and membership records (draft v0.2)
 			var keep []any
 			for _, x := range fn["enum"].([]any) {
 				if !v02only[x] {
@@ -186,9 +186,12 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			o := v2["$defs"].(map[string]any)["Observation"].(map[string]any)
 			delete(o["properties"].(map[string]any), "context")
 			all := o["allOf"].([]any)
-			// the four model-call conditions (C7B-E), the context condition and the model ledger
-			// condition are the last six entries
-			o["allOf"] = all[:len(all)-6]
+			// the four model-call conditions (C7B-E), the context condition, the model ledger
+			// condition and the two membership conditions (draft v0.2) are the last eight entries
+			o["allOf"] = all[:len(all)-8]
+			delete(o["properties"].(map[string]any), "membership")
+			delete(v2["$defs"].(map[string]any), "ExecutionMembership")
+			delete(v2["$defs"].(map[string]any), "MembershipEvent")
 			corr := o["properties"].(map[string]any)["correlation"].(map[string]any)
 			delete(corr["properties"].(map[string]any), "task_family_id") // the declared task family (C7B-E)
 			delete(corr["properties"].(map[string]any), "call_ref")       // the model-call identity (C7B-E)
@@ -207,7 +210,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			op := o["properties"].(map[string]any)["op"].(map[string]any)
 			var ops []any
 			for _, x := range op["enum"].([]any) {
-				if x != "MODEL_CALL" {
+				if x != "MODEL_CALL" && x != "MEMBERSHIP" {
 					ops = append(ops, x)
 				}
 			}
@@ -235,7 +238,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			name := src["properties"].(map[string]any)["adapter"].(map[string]any)["properties"].(map[string]any)["name"].(map[string]any)
 			var names []any
 			for _, x := range name["enum"].([]any) {
-				if x != "hint-model-ledger" && x != "opencode-cli-root" { // the model ledger and root CLI sources (draft v0.2)
+				if x != "hint-model-ledger" && x != "opencode-cli-root" && x != "hint-project-orchestrator" { // the model ledger, root CLI and orchestrator sources (draft v0.2)
 					names = append(names, x)
 				}
 			}
@@ -262,7 +265,7 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 						items := obs["items"].(map[string]any)
 						var keep []any
 						for _, x := range items["enum"].([]any) {
-							if x != "context" && x != "collection" && x != "request_kind" && x != "model_ledger" {
+							if x != "context" && x != "collection" && x != "request_kind" && x != "model_ledger" && x != "membership" {
 								keep = append(keep, x)
 							}
 						}
