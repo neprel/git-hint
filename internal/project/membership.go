@@ -1143,13 +1143,16 @@ func orchestratorSource(key []byte, unit string, n int) activity.Source {
 		Capabilities: []string{"membership"}, Unavailable: hint.OrchestratorUnavailable()}
 }
 
-// Seal closes the epoch administratively and publishes it. It needs an open unit whose latest
-// journal revision is open (whatever the members), every enrolled execution terminal, every
-// enrolled attempt still open (the seal precedes any artifact verification) and every listed
-// ledger written; it appends epoch_seal with that open revision, persists the deterministic batch
-// bytes, then commits the batch. A replay (also after a crash or an hour boundary) republishes the
-// persisted bytes unchanged. A seal states no quiescence, completion or usage: unconfirmed,
-// refused and incomplete executions stay unknown.
+// Seal closes the epoch administratively and publishes it. Before any write it validates, read
+// only, the whole predecessor chain (stageChain) and the epoch's own predecessor link, and stages
+// its own publication. A new seal needs an open unit whose latest journal revision is open
+// (whatever the members), every enrolled execution terminal, every enrolled attempt still open
+// (the seal precedes any artifact verification) and every listed ledger written; the staged
+// publication includes the epoch_seal event it will append. A replay of an already sealed epoch
+// does not need an open unit: its frozen revision must be an open revision of the unit journal.
+// Then the missing predecessor publications are recovered in order, the seal event is appended,
+// and the persisted bytes are committed; a replay (also after a crash or an hour boundary)
+// republishes the persisted bytes unchanged. A seal states no quiescence, completion or usage.
 func (e *Epoch) Seal(s *store.Store, now time.Time) (string, error) {
 	lock, err := s.LockState(true)
 	if err != nil {
@@ -1167,7 +1170,30 @@ func (e *Epoch) Seal(s *store.Store, now time.Time) (string, error) {
 	if err := e.poisoned(s, owners, le); err != nil {
 		return "", err
 	}
-	if !le.view.sealed {
+	stages, prev, err := stageChain(s, e.label, e.n-1, now)
+	if err != nil {
+		return "", err
+	}
+	var want any
+	if e.n > 1 {
+		if want, err = hint.Digest(prev); err != nil {
+			return "", err
+		}
+	}
+	if le.view.open["predecessor_epoch_digest"] != want {
+		return "", damaged("predecessor chain")
+	}
+	var seal map[string]any // the seal event still to be appended
+	if le.view.sealed {
+		frozen := evStr(le.view.events[len(le.view.events)-1].ev, "frozen_open_revision_digest")
+		anchored := false
+		for _, r := range le.unit.Revisions {
+			anchored = anchored || r["revision_digest"] == frozen && r["state"] == "open"
+		}
+		if !anchored {
+			return "", damaged("frozen revision")
+		}
+	} else {
 		_, revision, err := latestOpenRevision(le.unit)
 		if err != nil {
 			return "", err
@@ -1188,12 +1214,46 @@ func (e *Epoch) Seal(s *store.Store, now time.Time) (string, error) {
 				return "", fmt.Errorf("%w: a listed ledger is not written", ErrMembership)
 			}
 		}
-		if err := appendEvent(s, e.label, e.n, le.view, map[string]any{"kind": "epoch_seal", "frozen_open_revision_digest": revision, "executions": len(le.view.order)}); err != nil {
+		seal = map[string]any{"kind": "epoch_seal", "frozen_open_revision_digest": revision, "executions": len(le.view.order)}
+	}
+	// stage the own publication on the view as it will be after the seal event
+	staged := le
+	if seal != nil {
+		v := *le.view
+		v.events = append([]spoolEvent{}, le.view.events...)
+		ev := plainJSON(map[string]any{"kind": seal["kind"], "frozen_open_revision_digest": seal["frozen_open_revision_digest"], "executions": seal["executions"],
+			"seq": len(v.events) + 1, "prev_digest": v.head()})
+		d, err := hint.Digest(ev)
+		if err != nil {
 			return "", err
+		}
+		v.events, v.sealed = append(v.events, spoolEvent{ev, d}), true
+		staged = &lockedEpoch{le.unit, &v, le.policy}
+	}
+	own, err := e.stage(s, staged, now)
+	if err != nil {
+		return "", err
+	}
+	// everything validated: recover the predecessors, append the seal, publish
+	if err := applyStages(s, stages); err != nil {
+		return "", err
+	}
+	if seal != nil {
+		if err := appendEvent(s, e.label, e.n, le.view, seal); err != nil {
+			return "", err
+		}
+		if le.view.head() != staged.view.head() {
+			return "", damaged("seal event")
 		}
 		le.view.sealed = true
 	}
-	return e.publishSealedLocked(s, le, now)
+	if err := applyStages(s, []epochStage{own}); err != nil {
+		return "", err
+	}
+	if b, err := loadSealed(s, e.label, e.n, le.view); err != nil || b == nil || !equalJSON(*b, own.batch) {
+		return "", damaged("persisted sealed batch")
+	}
+	return own.batch.Observations[0].ObservationID, nil
 }
 
 // poisoned refuses an epoch with an execution whose run or execution reference has a foreign
@@ -1252,21 +1312,6 @@ func (e *Epoch) stage(s *store.Store, le *lockedEpoch, now time.Time) (epochStag
 	}
 	st.commit = !committed
 	return st, nil
-}
-
-// publishSealedLocked stages a sealed spool read-only, then persists and commits it.
-func (e *Epoch) publishSealedLocked(s *store.Store, le *lockedEpoch, now time.Time) (string, error) {
-	st, err := e.stage(s, le, now)
-	if err != nil {
-		return "", err
-	}
-	if err := applyStages(s, []epochStage{st}); err != nil {
-		return "", err
-	}
-	if b, err := loadSealed(s, e.label, e.n, le.view); err != nil || b == nil || !equalJSON(*b, st.batch) {
-		return "", damaged("persisted sealed batch")
-	}
-	return st.batch.Observations[0].ObservationID, nil
 }
 
 func ledgerInSpool(s *store.Store, ref string) bool {

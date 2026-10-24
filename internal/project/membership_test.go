@@ -1070,3 +1070,96 @@ func TestMembershipChainRecoveryIsOrderedAndExact(t *testing.T) {
 		t.Fatal("epoch 2 was not recovered exactly")
 	}
 }
+
+// secondEpochReady is a published epoch 1 and an open epoch 2 with one finished execution.
+func secondEpochReady(t *testing.T, f memFixture) *Epoch {
+	t.Helper()
+	sealedFirstEpoch(t, f)
+	e2 := mustOpen(t, f)
+	x := mustEnroll(t, f, e2, "task-2", "run-2")
+	if err := e2.Finish(f.s, x, nil); err != nil {
+		t.Fatal(err)
+	}
+	return e2
+}
+
+// A direct Seal validates the whole predecessor chain and its own link before any write.
+func TestMembershipDirectSealValidatesThePredecessorChainFirst(t *testing.T) {
+	cases := map[string]func(t *testing.T, f memFixture){
+		"corrupted predecessor policy": func(t *testing.T, f memFixture) {
+			p := f.s.Path(membershipPath(f.s, memLabel, policyName(1))...)
+			raw, _ := os.ReadFile(p)
+			os.WriteFile(p, append(raw, ' '), 0o600)
+		},
+		"corrupted predecessor policy and missing commit": func(t *testing.T, f memFixture) {
+			os.Remove(epochBatchPath(t, f, 1))
+			p := f.s.Path(membershipPath(f.s, memLabel, policyName(1))...)
+			raw, _ := os.ReadFile(p)
+			os.WriteFile(p, append(raw, ' '), 0o600)
+		},
+		"wrong own predecessor": func(t *testing.T, f memFixture) {
+			v, err := readEpoch(f.s, memLabel, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			v.open["predecessor_epoch_digest"] = "sha256:" + strings.Repeat("f", 64)
+			var lines bytes.Buffer
+			var prev any
+			for _, ev := range v.events {
+				ev.ev["prev_digest"] = prev
+				b, _ := json.Marshal(ev.ev)
+				lines.Write(append(b, '\n'))
+				prev, _ = hint.Digest(ev.ev)
+			}
+			os.WriteFile(f.s.Path(membershipPath(f.s, memLabel, epochName(2))...), lines.Bytes(), 0o600)
+		},
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := membershipFixture(t)
+			e2 := secondEpochReady(t, f)
+			change(t, f)
+			before := stateFiles(t, f.s)
+			if _, err := e2.Seal(f.s, memNow); !errors.Is(err, ErrMembership) {
+				t.Fatalf("sealed over an invalid chain: %v", err)
+			}
+			sameState(t, before, stateFiles(t, f.s))
+		})
+	}
+}
+
+// A direct Seal recovers a missing predecessor commit with its bytes before publishing.
+func TestMembershipDirectSealRecoversThePredecessorCommit(t *testing.T) {
+	f := membershipFixture(t)
+	e2 := secondEpochReady(t, f)
+	b1 := epochBatchPath(t, f, 1)
+	raw1, _ := os.ReadFile(b1)
+	os.Remove(b1)
+	if _, err := e2.Seal(f.s, memNow.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(b1); !bytes.Equal(again, raw1) {
+		t.Fatal("the predecessor commit was not recovered exactly")
+	}
+	if len(membershipObservations(t, f.s)) != 2 {
+		t.Fatal("epoch 2 was not published")
+	}
+}
+
+// A replay of a sealed epoch after the unit legitimately closed republishes the exact bytes; its
+// frozen revision is an open revision of the journal.
+func TestMembershipReplayAfterTheUnitClosed(t *testing.T) {
+	f := membershipFixture(t)
+	e, batch := sealedFirstEpoch(t, f)
+	raw, _ := os.ReadFile(batch)
+	if _, err := WorkClose(f.s, memLabel, "abandoned", memNow); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(batch)
+	if _, err := e.Seal(f.s, memNow.Add(30*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(batch); !bytes.Equal(again, raw) {
+		t.Fatal("the replay changed the published bytes")
+	}
+}
