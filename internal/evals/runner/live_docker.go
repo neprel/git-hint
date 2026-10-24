@@ -90,8 +90,8 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	// then captures the backend before the agent's launch
 	var capt *capturer
 	var startCap captureSide
-	if o.capture != nil && o.captureRef != nil && o.Counter.deferAssembly() {
-		capt = newCapturer(o.capture, o.captureRef)
+	if transport, ref := o.captureOptions(); transport != nil && ref != nil && o.Counter.deferAssembly() {
+		capt = newCapturer(transport, ref)
 		startCap = capt.capture(ctx, o.Counter)
 	}
 	finish := func(err error) liveResult {

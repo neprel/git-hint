@@ -2,6 +2,7 @@ package runner
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/neprel/git-hint/internal/hint"
 )
 
 // ErrUnavailable is returned when the container engine cannot run; nothing falls back to
@@ -96,6 +99,22 @@ type RunOptions struct {
 	// references that replace raw backend identifiers
 	capture    captureTransport
 	captureRef func(kind, raw string) string
+	// BackendCapture and CaptureKey are the explicit opt-in of the controlled research setup to
+	// the real capture transport (both needed; never a default, no CLI flag or configuration
+	// field sets them): the references replacing raw backend identifiers are derived with
+	// CaptureKey
+	BackendCapture *SSHCapture
+	CaptureKey     []byte
+}
+
+// captureOptions is the attempt's capture transport and reference derivation, or nil: the real
+// transport only with both opt-in fields, otherwise the unexported test fields.
+func (o RunOptions) captureOptions() (captureTransport, func(kind, raw string) string) {
+	if o.BackendCapture != nil && len(o.CaptureKey) > 0 {
+		key := bytes.Clone(o.CaptureKey)
+		return o.BackendCapture, func(kind, raw string) string { return hint.DeriveID(key, kind, raw) }
+	}
+	return o.capture, o.captureRef
 }
 
 // check IDs: C<n> (generated verifier) and B<n> (process-separated behavior checks, B1)

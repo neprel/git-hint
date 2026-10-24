@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -94,6 +95,20 @@ func TestLiveRequirementMap(t *testing.T) {
 // refused first; a key equal to the declared model is supported (keyCollision). The run checks
 // the chain (gate, ledger, result trust, report) and that the key appears in no output outside
 // the one declared public field of the summary; it does not measure canonical tokens or savings.
+// liveCapture is the controlled research setup's opt-in to the real backend captures: both
+// HINT_LIVE_CAPTURE_SSH and HINT_LIVE_CAPTURE_CONTAINER, or neither (no capture); one without the
+// other or an unusable value fails before any request.
+func liveCapture() (*runner.SSHCapture, error) {
+	target, container := os.Getenv("HINT_LIVE_CAPTURE_SSH"), os.Getenv("HINT_LIVE_CAPTURE_CONTAINER")
+	if target == "" && container == "" {
+		return nil, nil
+	}
+	if target == "" || container == "" {
+		return nil, errors.New("set both HINT_LIVE_CAPTURE_SSH and HINT_LIVE_CAPTURE_CONTAINER, or neither")
+	}
+	return runner.NewSSHCapture(target, container)
+}
+
 func TestLiveOpenCodeTrial(t *testing.T) {
 	m := liveModel(t)
 	if os.Getenv("HINT_DOCKER_TESTS") != "1" {
@@ -123,7 +138,11 @@ func TestLiveOpenCodeTrial(t *testing.T) {
 	}
 	defer lv.Close()
 	start := time.Now()
-	rep, err := RunSuite(ctx, s, h, runner.DockerRunnerSemver, SuiteOptions{Agent: "opencode", Attempts: 1, Arm: "baseline", Live: lv, OpenCodeTgz: os.Getenv("HINT_OPENCODE_TGZ")}, time.Now())
+	capture, err := liveCapture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := RunSuite(ctx, s, h, runner.DockerRunnerSemver, SuiteOptions{Agent: "opencode", Attempts: 1, Arm: "baseline", Live: lv, OpenCodeTgz: os.Getenv("HINT_OPENCODE_TGZ"), BackendCapture: capture}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

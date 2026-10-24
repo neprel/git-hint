@@ -33,6 +33,9 @@ type SuiteOptions struct {
 	// OpenCodeTgz is a local copy of the pinned OpenCode archive for the container runner
 	// (offline; checked against the pin like a download)
 	OpenCodeTgz string
+	// BackendCapture is the controlled research setup's explicit opt-in to the real backend
+	// captures of live attempts (never a default; the references use the store key)
+	BackendCapture *runner.SSHCapture
 }
 
 // SuiteReport counts a suite run.
@@ -228,6 +231,9 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				counter = o.Live.NewTrial(lim.TrialRequests)
 				ro.Env, ro.Attempts, ro.Live, ro.Counter, ro.ExpectTarget = o.Live.AgentEnv(counter), 1, o.Live, counter, target
 				ro.OpenCode = &runner.OpenCodeSource{Version: runner.DockerOpenCodeVersion, CacheDir: s.Path("cache", "evals", "opencode"), TgzFile: o.OpenCodeTgz}
+				if o.BackendCapture != nil {
+					ro.BackendCapture, ro.CaptureKey = o.BackendCapture, s.Key()
+				}
 			}
 			started := time.Now()
 			trials, err := r.Run(ctx, work+"/task", ro)
