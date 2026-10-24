@@ -115,3 +115,41 @@ func TestCapturePreflight(t *testing.T) {
 		t.Fatal("a missing expect file passed")
 	}
 }
+
+func TestLiveOutputScanCoversRawIdentifiers(t *testing.T) {
+	dir := t.TempDir()
+	expect := filepath.Join(dir, "expect.json")
+	os.WriteFile(expect, []byte(`{"host":"capture-host.example.invalid","container":"`+fullID+`","served_model":"example-model"}`), 0o600)
+	out := filepath.Join(dir, "out")
+	os.Mkdir(out, 0o700)
+	os.WriteFile(filepath.Join(out, "summary.json"), []byte(`{"model":"example-model","note":"clean"}`), 0o600)
+	r, err := liveOutputScan([]string{out}, "synthetic-key-123", "example-model", expect)
+	if err != nil || !r.expect || r.files != 1 || r.keyHits != nil || r.rawHits != nil || r.rawIncomplete != nil {
+		t.Fatalf("%+v %v", r, err)
+	}
+	// the served name is the declared model (exported on purpose); the host and the container ID
+	// are found, and the hit never shows the value
+	for name, body := range map[string]string{
+		"host.txt":      "seen capture-host.example.invalid here",
+		"container.txt": "id " + fullID,
+		"escaped.json":  `{"c":"` + fullID + `"}`,
+	} {
+		d := filepath.Join(t.TempDir(), "out")
+		os.Mkdir(d, 0o700)
+		os.WriteFile(filepath.Join(d, name), []byte(body), 0o600)
+		r, err := liveOutputScan([]string{d}, "synthetic-key-123", "example-model", expect)
+		if err != nil || r.rawHits == nil {
+			t.Errorf("%s: no raw hit (%+v %v)", name, r, err)
+		}
+		if strings.Contains(strings.Join(r.rawHits, " "), fullID) || strings.Contains(strings.Join(r.rawHits, " "), "capture-host.example.invalid") {
+			t.Errorf("%s: a hit shows the value", name)
+		}
+	}
+	if r, err := liveOutputScan([]string{out}, "synthetic-key-123", "example-model", ""); err != nil || r.expect || r.rawHits != nil {
+		t.Fatal("without an expect file there is no raw scan")
+	}
+	os.WriteFile(expect, []byte(`{"host":"h","container":"short","served_model":"m"}`), 0o600)
+	if _, err := liveOutputScan([]string{out}, "synthetic-key-123", "example-model", expect); err == nil {
+		t.Fatal("an unusable expect file was accepted")
+	}
+}

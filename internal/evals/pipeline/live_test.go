@@ -112,6 +112,23 @@ type captureExpect struct {
 
 var fullContainerID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+// readCaptureExpect reads the expect file: exactly one complete object; the container is the
+// full engine ID (not a shortened record value). Errors name no raw value.
+func readCaptureExpect(expectFile string) (captureExpect, error) {
+	var e captureExpect
+	b, err := os.ReadFile(expectFile)
+	if err != nil {
+		return e, errors.New("the capture expect file is not readable")
+	}
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
+	var extra json.RawMessage
+	if d.Decode(&e) != nil || d.Decode(&extra) != io.EOF || e.Host == "" || !fullContainerID.MatchString(e.Container) || e.ServedModel == "" {
+		return captureExpect{}, errors.New("the capture expect file is not usable")
+	}
+	return e, nil
+}
+
 // captureCheck compares every written ledger's capture snapshots with the references derived
 // from the expected raw values with key; it returns booleans only and the raw host and container
 // values for the output scan. Without an expect file the check is "not_checked".
@@ -119,17 +136,9 @@ func captureCheck(key []byte, ledgers []*activity.ModelLedger, expectFile string
 	if expectFile == "" {
 		return map[string]any{"state": "not_checked"}, nil, nil
 	}
-	b, err := os.ReadFile(expectFile)
+	e, err := readCaptureExpect(expectFile)
 	if err != nil {
-		return nil, nil, errors.New("the capture expect file is not readable")
-	}
-	var e captureExpect
-	d := json.NewDecoder(bytes.NewReader(b))
-	d.DisallowUnknownFields()
-	// one complete object; the container is the full engine ID (not a shortened record value)
-	var extra json.RawMessage
-	if d.Decode(&e) != nil || d.Decode(&extra) != io.EOF || e.Host == "" || !fullContainerID.MatchString(e.Container) || e.ServedModel == "" {
-		return nil, nil, errors.New("the capture expect file is not usable")
+		return nil, nil, err
 	}
 	host, ctr, served := hint.DeriveID(key, "capture-host", e.Host), hint.DeriveID(key, "capture-container", e.Container),
 		hint.DeriveID(key, "capture-served-model", e.ServedModel)
@@ -345,7 +354,9 @@ const liveSummaryFile = "opencode-trial-summary.json"
 // TestLiveOutputScan is the session runner's check after a session: the stored outputs and the
 // go test log (HINT_LIVE_SCAN: files or directories, separated by the OS path list separator)
 // with the same key scan and the same one public field (the stored summary's declared model,
-// HINT_LIVE_MODEL) as the session itself; no request, no other exemption.
+// HINT_LIVE_MODEL) as the session itself; no request, no other exemption. With
+// HINT_LIVE_SCAN_EXPECT (the private capture expect file) the same scan also covers its raw host
+// and container IDs.
 func TestLiveOutputScan(t *testing.T) {
 	paths := os.Getenv("HINT_LIVE_SCAN")
 	if paths == "" {
@@ -355,15 +366,52 @@ func TestLiveOutputScan(t *testing.T) {
 	if key == "" || model == "" {
 		t.Fatal("set HINT_LOCAL_MODEL_KEY and HINT_LIVE_MODEL")
 	}
-	outputs, err := liveFiles(filepath.SplitList(paths))
+	r, err := liveOutputScan(filepath.SplitList(paths), key, model, os.Getenv("HINT_LIVE_SCAN_EXPECT"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	hits, incomplete := keyHits(key, outputs, summaryPublic(liveSummaryFile, model))
-	t.Logf("files %d, key hits %v, incomplete %v", len(outputs), hits, incomplete)
-	if hits != nil || incomplete != nil {
+	t.Logf("files %d, key hits %v, incomplete %v", r.files, r.keyHits, r.keyIncomplete)
+	if r.expect {
+		t.Logf("raw identifier hits %v, incomplete %v", r.rawHits, r.rawIncomplete)
+	}
+	if r.keyHits != nil || r.keyIncomplete != nil {
 		t.Fatal("the key scan of the stored outputs is not clean")
 	}
+	if r.rawHits != nil || r.rawIncomplete != nil {
+		t.Fatal("the raw identifier scan of the stored outputs is not clean")
+	}
+}
+
+type outputScan struct {
+	files                  int
+	keyHits, keyIncomplete []string
+	expect                 bool
+	rawHits, rawIncomplete []string
+}
+
+// liveOutputScan reads the stored outputs and scans them for the key (with the one public field)
+// and, with an expect file, for its raw host and container IDs (the served name is the declared
+// model, exported on purpose); a hit names the output and the form, never the value.
+func liveOutputScan(paths []string, key, model, expectFile string) (outputScan, error) {
+	var r outputScan
+	outputs, err := liveFiles(paths)
+	if err != nil {
+		return r, err
+	}
+	r.files = len(outputs)
+	r.keyHits, r.keyIncomplete = keyHits(key, outputs, summaryPublic(liveSummaryFile, model))
+	if expectFile != "" {
+		e, err := readCaptureExpect(expectFile)
+		if err != nil {
+			return r, err
+		}
+		r.expect = true
+		for _, v := range []string{e.Host, e.Container} {
+			h, inc := keyHits(v, outputs)
+			r.rawHits, r.rawIncomplete = append(r.rawHits, h...), append(r.rawIncomplete, inc...)
+		}
+	}
+	return r, nil
 }
 
 // liveFiles reads the named files (named by their base name) and every file in the named
