@@ -934,3 +934,139 @@ func TestMembershipSealNeedsAnOpenUnitRevision(t *testing.T) {
 		}
 	}
 }
+
+// stateFiles snapshots every file below the membership and activity state (bytes by path).
+func stateFiles(t *testing.T, s *store.Store) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, dir := range []string{s.Path("state", membershipDir), s.Path("state", "activity")} {
+		filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() {
+				b, _ := os.ReadFile(p)
+				out[p] = string(b)
+			}
+			return nil
+		})
+	}
+	return out
+}
+
+func sameState(t *testing.T, before, after map[string]string) {
+	t.Helper()
+	if len(before) != len(after) {
+		t.Fatalf("files %d -> %d", len(before), len(after))
+	}
+	for k, v := range before {
+		if after[k] != v {
+			t.Fatalf("%s changed", k)
+		}
+	}
+}
+
+func twoSealedEpochs(t *testing.T, f memFixture) {
+	t.Helper()
+	for i, run := range []string{"run-1", "run-2"} {
+		e := mustOpen(t, f)
+		x := mustEnroll(t, f, e, "task-"+run, run)
+		if err := e.Finish(f.s, x, nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.Seal(f.s, memNow.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func epochBatchPath(t *testing.T, f memFixture, n int) string {
+	t.Helper()
+	u, _ := LoadWork(f.s, memLabel)
+	return f.s.Path("state", "activity", activityBatchDir, orchestratorSource(f.s.Key(), u.UnitRef, n).SourceID+".json")
+}
+
+// C4: a self-consistent later epoch with a wrong predecessor link and an uncommitted batch, or a
+// later epoch with an invalid frozen policy, refuses the next epoch before any activity or
+// membership write, even when an earlier batch also needs recovery.
+func TestMembershipChainIsValidatedBeforeAnyWrite(t *testing.T) {
+	cases := map[string]func(t *testing.T, f memFixture){
+		"wrong link": func(t *testing.T, f memFixture) {
+			os.Remove(epochBatchPath(t, f, 1))
+			os.Remove(epochBatchPath(t, f, 2))
+			v, err := readEpoch(f.s, memLabel, 2)
+			if err != nil {
+				t.Fatal(err)
+			}
+			v.open["predecessor_epoch_digest"] = "sha256:" + strings.Repeat("f", 64)
+			var lines bytes.Buffer
+			var prev any
+			for _, ev := range v.events {
+				ev.ev["prev_digest"] = prev
+				b, _ := json.Marshal(ev.ev)
+				lines.Write(append(b, '\n'))
+				prev, _ = hint.Digest(ev.ev)
+			}
+			os.WriteFile(f.s.Path(membershipPath(f.s, memLabel, epochName(2))...), lines.Bytes(), 0o600)
+			nv, err := parseEpoch(lines.Bytes())
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := f.s.Path(membershipPath(f.s, memLabel, sealedName(2))...)
+			raw, _ := os.ReadFile(p)
+			var b sealedBatch
+			json.Unmarshal(raw, &b)
+			body, _ := json.Marshal(spoolBody(b.Observations[0].Membership.UnitRef, nv))
+			var m activity.Membership
+			json.Unmarshal(body, &m)
+			b.Observations[0].Membership = &m
+			c, _ := hint.Canonical(b)
+			os.WriteFile(p, c, 0o600)
+			if _, err := loadSealed(f.s, memLabel, 2, nv); err != nil {
+				t.Fatalf("the forged epoch is not self-consistent: %v", err)
+			}
+		},
+		"later invalid policy": func(t *testing.T, f memFixture) {
+			os.Remove(epochBatchPath(t, f, 1))
+			p := f.s.Path(membershipPath(f.s, memLabel, policyName(2))...)
+			raw, _ := os.ReadFile(p)
+			os.WriteFile(p, append(raw, ' '), 0o600)
+		},
+		"later sealed unpersisted with an invalid earlier batch": func(t *testing.T, f memFixture) {
+			os.Remove(epochBatchPath(t, f, 2))
+			os.Remove(f.s.Path(membershipPath(f.s, memLabel, sealedName(2))...))
+			p := f.s.Path(membershipPath(f.s, memLabel, sealedName(1))...)
+			raw, _ := os.ReadFile(p)
+			os.WriteFile(p, bytes.Replace(raw, []byte(`"success"`), []byte(`"failure"`), 1), 0o600)
+		},
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := membershipFixture(t)
+			twoSealedEpochs(t, f)
+			change(t, f)
+			before := stateFiles(t, f.s)
+			if _, err := EpochOpen(f.s, memLabel, f.policy, memNow); err == nil {
+				t.Fatal("the next epoch opened over an invalid chain")
+			}
+			sameState(t, before, stateFiles(t, f.s))
+		})
+	}
+}
+
+// After a full validation, missing publications are recovered in order with their bytes.
+func TestMembershipChainRecoveryIsOrderedAndExact(t *testing.T) {
+	f := membershipFixture(t)
+	twoSealedEpochs(t, f)
+	b1, b2 := epochBatchPath(t, f, 1), epochBatchPath(t, f, 2)
+	raw1, _ := os.ReadFile(b1)
+	raw2, _ := os.ReadFile(b2)
+	os.Remove(b1)
+	os.Remove(b2)
+	if _, err := EpochOpen(f.s, memLabel, f.policy, memNow.Add(48*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if a1, _ := os.ReadFile(b1); !bytes.Equal(a1, raw1) {
+		t.Fatal("epoch 1 was not recovered exactly")
+	}
+	if a2, _ := os.ReadFile(b2); !bytes.Equal(a2, raw2) {
+		t.Fatal("epoch 2 was not recovered exactly")
+	}
+}

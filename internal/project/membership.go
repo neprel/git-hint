@@ -725,16 +725,6 @@ func EpochOpen(s *store.Store, label string, p MembershipPolicy, now time.Time) 
 		return nil, err
 	}
 	n := len(ns) + 1
-	var predecessor any
-	if n > 1 {
-		prev, err := publishedChain(s, label, n-1, now)
-		if err != nil {
-			return nil, err
-		}
-		if predecessor, err = hint.Digest(prev); err != nil {
-			return nil, err
-		}
-	}
 	scope, revision, err := latestOpenRevision(u)
 	if err != nil {
 		return nil, err
@@ -742,6 +732,26 @@ func EpochOpen(s *store.Store, label string, p MembershipPolicy, now time.Time) 
 	c, err := hint.Canonical(p)
 	if err != nil {
 		return nil, err
+	}
+	if old, err := readImmutable(s, membershipPath(s, label, policyName(n))...); err == nil && !bytes.Equal(old, c) {
+		return nil, fmt.Errorf("%w: an immutable membership file has other bytes", ErrMembership)
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	// the whole predecessor chain is validated and staged before anything is written; then the
+	// missing publications are recovered in order
+	var predecessor any
+	if n > 1 {
+		stages, prev, err := stageChain(s, label, n-1, now)
+		if err != nil {
+			return nil, err
+		}
+		if predecessor, err = hint.Digest(prev); err != nil {
+			return nil, err
+		}
+		if err := applyStages(s, stages); err != nil {
+			return nil, err
+		}
 	}
 	if err := writeImmutable(s, c, membershipPath(s, label, policyName(n))...); err != nil {
 		return nil, err
@@ -1013,49 +1023,74 @@ type sealedBatch struct {
 	Observations []activity.Observation `json:"observations"`
 }
 
-// publishedChain validates the sealed epochs 1..k of a unit on use and returns the body of
-// epoch k: each epoch reloads with its own frozen policy and pins, its spool is sealed, it has no
-// foreign owner, its persisted batch equals its spool and is committed (a missing commit is
-// recovered by publishing the persisted bytes, or the deterministic bytes of a sealed spool), and
-// epoch 1 names no predecessor while each later epoch names the digest of the whole previous
-// record.
-func publishedChain(s *store.Store, label string, k int, now time.Time) (map[string]any, error) {
+// epochStage is the staged publication of one sealed epoch: its batch, the bytes still to be
+// persisted (nil when persisted) and whether the batch still has to be committed.
+type epochStage struct {
+	e       *Epoch
+	batch   sealedBatch
+	persist []byte
+	commit  bool
+}
+
+// stageChain validates the sealed epochs 1..k of a unit without writing anything and returns
+// their staged publications in order and the body of epoch k: each epoch reloads with its own
+// frozen policy and pins, its spool is sealed, it has no foreign owner, its persisted batch (or
+// the deterministic batch of a sealed spool without one) passes every batch check against the
+// committed state, and epoch 1 names no predecessor while each later epoch names the digest of
+// the whole previous record.
+func stageChain(s *store.Store, label string, k int, now time.Time) ([]epochStage, map[string]any, error) {
 	owners, err := refOwners(s)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	var stages []epochStage
 	var prev map[string]any
 	for i := 1; i <= k; i++ {
 		e := &Epoch{label: label, n: i}
 		le, err := e.reload(s)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if !le.view.sealed {
-			return nil, fmt.Errorf("%w: epoch %d is not sealed", ErrMembership, i)
+			return nil, nil, fmt.Errorf("%w: epoch %d is not sealed", ErrMembership, i)
 		}
 		if err := e.poisoned(s, owners, le); err != nil {
-			return nil, err
-		}
-		if _, err := e.publishSealedLocked(s, le, now); err != nil {
-			return nil, err
-		}
-		b, err := loadSealed(s, label, i, le.view)
-		if err != nil || b == nil {
-			return nil, damaged("published epoch")
+			return nil, nil, err
 		}
 		var want any
 		if i > 1 {
 			if want, err = hint.Digest(prev); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		if le.view.open["predecessor_epoch_digest"] != want {
-			return nil, damaged("predecessor chain")
+			return nil, nil, damaged("predecessor chain")
 		}
-		prev = membershipBody(b.Observations[0].Membership)
+		st, err := e.stage(s, le, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		stages = append(stages, st)
+		prev = membershipBody(st.batch.Observations[0].Membership)
 	}
-	return prev, nil
+	return stages, prev, nil
+}
+
+// applyStages persists and commits staged publications in order (the deterministic recovery).
+func applyStages(s *store.Store, stages []epochStage) error {
+	for _, st := range stages {
+		if st.persist != nil {
+			if err := writeImmutable(s, st.persist, membershipPath(s, st.e.label, sealedName(st.e.n))...); err != nil {
+				return err
+			}
+		}
+		if st.commit {
+			if err := writeActivityBatchLocked(s, st.batch.Source, st.batch.Observations); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func membershipBody(m *activity.Membership) map[string]any {
@@ -1172,45 +1207,66 @@ func (e *Epoch) poisoned(s *store.Store, owners map[string][]refOwner, le *locke
 	return nil
 }
 
-// publishSealedLocked publishes a sealed spool: the persisted batch bytes when they exist,
-// otherwise the deterministic batch built now, persisted first and then committed.
-func (e *Epoch) publishSealedLocked(s *store.Store, le *lockedEpoch, now time.Time) (string, error) {
+// stage is the read-only staged publication of a sealed spool: the persisted batch bytes when
+// they exist, otherwise the deterministic batch built now; either passes every batch check
+// against the committed state before anything is written.
+func (e *Epoch) stage(s *store.Store, le *lockedEpoch, now time.Time) (epochStage, error) {
+	st := epochStage{e: e}
 	b, err := loadSealed(s, e.label, e.n, le.view)
 	if err != nil {
-		return "", err
+		return st, err
 	}
 	if b != nil {
-		return b.Observations[0].ObservationID, writeActivityBatchLocked(s, b.Source, b.Observations)
+		st.batch = *b
+	} else {
+		key := s.Key()
+		body := spoolBody(le.unit.UnitRef, le.view)
+		if hint.MembershipProblem(body) {
+			return st, damaged("sealed membership")
+		}
+		var m activity.Membership
+		raw, _ := json.Marshal(body)
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return st, err
+		}
+		src := orchestratorSource(key, le.unit.UnitRef, e.n)
+		at := activity.Timestamp(now)
+		o := activity.Observation{ObservationID: hint.DeriveID(key, "membership", le.unit.UnitRef, strconv.Itoa(e.n)), Class: "observation", Op: "MEMBERSHIP",
+			Source: "orchestrator", SourceID: src.SourceID, Precision: "exact", Time: activity.Time{Start: &at, End: &at, Clock: "collector"},
+			Outcome: activity.Outcome{Status: "success"}, Membership: &m, Missing: []string{},
+			Provenance: activity.Provenance{CapturedAt: at, SourceEventID: hint.DeriveID(key, "membership-event", le.unit.UnitRef, strconv.Itoa(e.n)),
+				Transformations: []activity.Transform{{Step: "normalize", Tool: "hint-cli", Version: "0.1.0"}}}}
+		if st.persist, err = hint.Canonical(sealedBatch{Source: src, Observations: []activity.Observation{o}}); err != nil {
+			return st, err
+		}
+		// the staged batch is exactly what a later load of the persisted bytes returns
+		var staged sealedBatch
+		if err := json.Unmarshal(st.persist, &staged); err != nil {
+			return st, err
+		}
+		st.batch = staged
 	}
-	key := s.Key()
-	body := spoolBody(le.unit.UnitRef, le.view)
-	if hint.MembershipProblem(body) {
-		return "", damaged("sealed membership")
+	_, committed, err := planActivityBatch(s, st.batch.Source, st.batch.Observations)
+	if err != nil {
+		return st, err
 	}
-	var m activity.Membership
-	raw, _ := json.Marshal(body)
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return "", err
-	}
-	src := orchestratorSource(key, le.unit.UnitRef, e.n)
-	at := activity.Timestamp(now)
-	o := activity.Observation{ObservationID: hint.DeriveID(key, "membership", le.unit.UnitRef, strconv.Itoa(e.n)), Class: "observation", Op: "MEMBERSHIP",
-		Source: "orchestrator", SourceID: src.SourceID, Precision: "exact", Time: activity.Time{Start: &at, End: &at, Clock: "collector"},
-		Outcome: activity.Outcome{Status: "success"}, Membership: &m, Missing: []string{},
-		Provenance: activity.Provenance{CapturedAt: at, SourceEventID: hint.DeriveID(key, "membership-event", le.unit.UnitRef, strconv.Itoa(e.n)),
-			Transformations: []activity.Transform{{Step: "normalize", Tool: "hint-cli", Version: "0.1.0"}}}}
-	c, err := hint.Canonical(sealedBatch{Source: src, Observations: []activity.Observation{o}})
+	st.commit = !committed
+	return st, nil
+}
+
+// publishSealedLocked stages a sealed spool read-only, then persists and commits it.
+func (e *Epoch) publishSealedLocked(s *store.Store, le *lockedEpoch, now time.Time) (string, error) {
+	st, err := e.stage(s, le, now)
 	if err != nil {
 		return "", err
 	}
-	if err := writeImmutable(s, c, membershipPath(s, e.label, sealedName(e.n))...); err != nil {
+	if err := applyStages(s, []epochStage{st}); err != nil {
 		return "", err
 	}
-	persisted, err := loadSealed(s, e.label, e.n, le.view)
-	if err != nil || persisted == nil {
+	if b, err := loadSealed(s, e.label, e.n, le.view); err != nil || b == nil || !equalJSON(*b, st.batch) {
 		return "", damaged("persisted sealed batch")
 	}
-	return o.ObservationID, writeActivityBatchLocked(s, persisted.Source, persisted.Observations)
+	return st.batch.Observations[0].ObservationID, nil
 }
 
 func ledgerInSpool(s *store.Store, ref string) bool {

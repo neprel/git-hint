@@ -103,6 +103,16 @@ func WriteActivityBatch(s *store.Store, src activity.Source, obs []activity.Obse
 // writeActivityBatchLocked is WriteActivityBatch for a caller that holds the state lock (one
 // lock owner; the state lock is not reentrant).
 func writeActivityBatchLocked(s *store.Store, src activity.Source, obs []activity.Observation) error {
+	raw, committed, err := planActivityBatch(s, src, obs)
+	if err != nil || committed {
+		return err
+	}
+	return s.WriteState(raw, "state", "activity", activityBatchDir, src.SourceID+".json")
+}
+
+// planActivityBatch runs every check of writeActivityBatchLocked without writing: it returns the
+// batch bytes and whether the exact batch is committed already (a replay).
+func planActivityBatch(s *store.Store, src activity.Source, obs []activity.Observation) ([]byte, bool, error) {
 	b := activityBatch{Version: 1, Source: src, Observations: obs}
 	if b.Observations == nil {
 		b.Observations = []activity.Observation{}
@@ -110,44 +120,44 @@ func writeActivityBatchLocked(s *store.Store, src activity.Source, obs []activit
 	var err error
 	b.Digest, err = activityBatchDigest(b)
 	if err != nil {
-		return ErrActivityBatch
+		return nil, false, ErrActivityBatch
 	}
 	if err = validateActivityBatch(s, b); err != nil {
-		return err
+		return nil, false, err
 	}
 	raw, err := json.Marshal(b)
 	if err != nil || len(raw) > maxActivityBatchBytes {
-		return ErrActivityBatch
+		return nil, false, ErrActivityBatch
 	}
 	// Validate every existing batch before accepting a replay or creating another one.
 	if _, _, err = readActivityBatches(s); err != nil {
-		return err
+		return nil, false, err
 	}
 	name := src.SourceID + ".json"
 	var old activityBatch
 	err = s.ReadJSON(&old, "state", "activity", activityBatchDir, name)
 	if err == nil {
 		if equalJSON(old, b) {
-			return nil
+			return raw, true, nil
 		}
-		return ErrActivityBatch
+		return nil, false, ErrActivityBatch
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
-		return err
+		return nil, false, err
 	}
 	sources, err := Sources(s)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	if old, ok := sources[src.SourceID]; ok && !equalJSON(old, src) {
-		return ErrActivityBatch
+		return nil, false, ErrActivityBatch
 	}
 	existing, damage, err := ReadSpoolChecked(s)
 	if err != nil {
-		return err
+		return nil, false, err
 	}
 	if damage.Any() {
-		return ErrActivityBatch
+		return nil, false, ErrActivityBatch
 	}
 	seen := map[string]bool{}
 	for _, o := range existing {
@@ -155,10 +165,10 @@ func writeActivityBatchLocked(s *store.Store, src activity.Source, obs []activit
 	}
 	for _, o := range obs {
 		if seen[o.ObservationID] {
-			return ErrActivityBatch
+			return nil, false, ErrActivityBatch
 		}
 	}
-	return s.WriteState(raw, "state", "activity", activityBatchDir, name)
+	return raw, false, nil
 }
 
 func readActivityBatches(s *store.Store) ([]activity.Observation, map[string]activity.Source, error) {
