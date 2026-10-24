@@ -147,7 +147,7 @@ func (c *Counter) assemble(start, end captureSide) error {
 	default:
 		return errAssembly
 	}
-	l.capture, l.assembled = &[2]captureSide{start, end}, true
+	l.capture, l.assembled = &[2]captureSide{start.clone(), end.clone()}, true // owned copies: no caller can change them later
 	return nil
 }
 

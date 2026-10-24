@@ -182,7 +182,7 @@ func TestCaptureBoundsAndCancellation(t *testing.T) {
 		c, f := agentCounter()
 		tr := &fakeTransport{clock: f, answers: []fakeAnswer{a, a}}
 		k := newCapturer(tr, testRef)
-		k.bound, k.deadline = 30*time.Millisecond, time.Now().Add(budget)
+		k.bound, k.budget = 30*time.Millisecond, budget
 		return k.capture(ctx, c), tr.calls
 	}
 	if s, n := run(fakeAnswer{block: true}, context.Background(), time.Minute); s.status != CaptureTimeout || s.send == nil || s.recv != nil || n != 1 {
@@ -260,5 +260,101 @@ func TestAssembledCapturesInTheAccount(t *testing.T) {
 	o.assemble(ostart, ok.capture(context.Background(), o))
 	if orep := o.Report(); orep.Entries != nil || orep.BackendCapture.Start.SendMs != nil || orep.BackendCapture.End.SendMs != nil {
 		t.Fatalf("over the bound: %+v", orep.BackendCapture)
+	}
+}
+
+// CB-1: the assembly takes owned copies: changing the caller's snapshot, flags or offsets after
+// the assembly changes neither the account nor a later revision.
+func TestAssemblyOwnsItsCaptures(t *testing.T) {
+	c, f := agentCounter()
+	c.deferAssembly()
+	admitDone(c, f, 10*time.Millisecond)
+	c.Seal(time.Second, BypassEnforced, ScopeIsolatedContainer)
+	snap, err := sanitize(raw(), testRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := time.Duration(0)
+	side := captureSide{status: CaptureComplete, send: &d, recv: &d, snap: snap}
+	if err := c.assemble(side, side); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := json.Marshal(c.Report().BackendCapture)
+	snap.ImageID, snap.HostRef = "sha256:"+strings.Repeat("f", 64), strings.Repeat("9", 32)
+	*snap.StartedAt, *snap.RestartCount, *snap.Flags.MaxModelLen, *snap.Flags.PrefixCaching = "2030-01-01T00:00:00Z", 7, 1, false
+	*snap.Flags.ToolCallParser, *snap.Flags.ServedModelRef = "hermes", strings.Repeat("8", 32)
+	snap.Flags.PromptTokensDetails = nil
+	d = 99 * time.Millisecond
+	after, _ := json.Marshal(c.Report().BackendCapture)
+	c.admit() // late: a new revision
+	late, _ := json.Marshal(c.Report().BackendCapture)
+	if string(before) != string(after) || string(before) != string(late) {
+		t.Fatalf("the stored captures changed through the caller's values:\n%s\n%s\n%s", before, after, late)
+	}
+}
+
+// manualNow is an injected clock of the active capture time.
+type manualNow struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (m *manualNow) now() time.Time { m.mu.Lock(); defer m.mu.Unlock(); return m.t }
+func (m *manualNow) add(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.t = m.t.Add(d)
+}
+
+// stepTransport advances the injected active-time clock by its cost on every inspect.
+type stepTransport struct {
+	clock *manualNow
+	cost  time.Duration
+	calls int
+}
+
+func (s *stepTransport) Inspect(context.Context) (rawCapture, error) {
+	s.calls++
+	s.clock.add(s.cost)
+	return raw(), nil
+}
+
+// CB-2: the budget is the combined active capture time. A long agent run between the captures
+// (176 s here, or 300 s) consumes none of it: the end capture is still attempted; once the
+// captures themselves used the budget, a further capture is not attempted.
+func TestCaptureBudgetCountsOnlyActiveTime(t *testing.T) {
+	for _, between := range []time.Duration{176 * time.Second, 300 * time.Second} {
+		c, _ := agentCounter()
+		m := &manualNow{t: time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)}
+		tr := &stepTransport{clock: m, cost: time.Millisecond}
+		k := newCapturer(tr, testRef)
+		k.now = m.now
+		if s := k.capture(context.Background(), c); s.status != CaptureComplete {
+			t.Fatalf("start capture %+v", s)
+		}
+		m.add(between) // the agent's run, setup and drain
+		if s := k.capture(context.Background(), c); s.status != CaptureComplete || tr.calls != 2 || k.spent != 2*time.Millisecond {
+			t.Fatalf("%v between: end capture %+v calls %d spent %v", between, s, tr.calls, k.spent)
+		}
+	}
+	// exhaustion by active time only: two captures of 70 s each spend the 120 s budget
+	c, _ := agentCounter()
+	m := &manualNow{t: time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)}
+	tr := &stepTransport{clock: m, cost: 70 * time.Second}
+	k := newCapturer(tr, testRef)
+	k.now = m.now
+	k.capture(context.Background(), c)
+	k.capture(context.Background(), c)
+	if s := k.capture(context.Background(), c); s.status != CaptureNotAttempted || tr.calls != 2 {
+		t.Fatalf("after the active budget: %+v calls %d", s, tr.calls)
+	}
+	// on the real clock: a hanging capture uses its bound, the next one only the rest, then none
+	c2, f2 := agentCounter()
+	hang := &fakeTransport{clock: f2, answers: []fakeAnswer{{block: true}, {block: true}, {block: true}}}
+	k2 := newCapturer(hang, testRef)
+	k2.bound, k2.budget = 30*time.Millisecond, 50*time.Millisecond
+	a, b, z := k2.capture(context.Background(), c2), k2.capture(context.Background(), c2), k2.capture(context.Background(), c2)
+	if a.status != CaptureTimeout || b.status != CaptureTimeout || z.status != CaptureNotAttempted || hang.calls != 2 {
+		t.Fatalf("real-clock budget: %s %s %s calls %d", a.status, b.status, z.status, hang.calls)
 	}
 }

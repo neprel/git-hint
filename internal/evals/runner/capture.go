@@ -17,7 +17,7 @@ const (
 	CaptureCollector = "hint-runner-capture"
 	CaptureVersion   = "0.1.0"
 	captureBound     = 60 * time.Second  // one capture
-	captureBudget    = 120 * time.Second // both captures of a trial
+	captureBudget    = 120 * time.Second // the combined active time of both captures of a trial
 	maxCaptureField  = 4096              // bytes of one raw inspect value
 )
 
@@ -140,30 +140,41 @@ type captureSide struct {
 	snap       *CaptureSnapshot
 }
 
+// clone is a copy that shares no memory with s (the ledger takes ownership of its own copy).
+func (s captureSide) clone() captureSide {
+	return captureSide{status: s.status, send: clonePtr(s.send), recv: clonePtr(s.recv), snap: s.snap.clone()}
+}
+
 // capturer runs the captures of one trial within one finite budget; no retry.
+// The budget counts only the time spent inside captures: the agent's run, the setup and the drain
+// between the two captures never consume it; the trial's own limits and cancellation stay separate.
 type capturer struct {
 	transport captureTransport
 	ref       func(kind, raw string) string
-	bound     time.Duration // one capture (captureBound)
-	deadline  time.Time     // the end of the trial's budget (captureBudget from the first capture's setup)
+	bound     time.Duration    // one capture (captureBound)
+	budget    time.Duration    // the combined active capture time (captureBudget)
+	spent     time.Duration    // active capture time used so far
+	now       func() time.Time // the clock of the active time (tests replace it)
 }
 
 func newCapturer(t captureTransport, ref func(kind, raw string) string) *capturer {
-	return &capturer{transport: t, ref: ref, bound: captureBound, deadline: time.Now().Add(captureBudget)}
+	return &capturer{transport: t, ref: ref, bound: captureBound, budget: captureBudget, now: time.Now}
 }
 
 // capture brackets one inspect on the counter's monotonic clock: send is read before the request,
-// recv after the complete response. It is cancelled with ctx, bounded by captureBound and by the
-// rest of the trial's budget; a spent budget is not_attempted.
+// recv after the complete response. It is cancelled with ctx and bounded by captureBound and by
+// the rest of the active-time budget; a spent budget is not_attempted.
 func (k *capturer) capture(ctx context.Context, c *Counter) captureSide {
-	rest := time.Until(k.deadline)
+	rest := k.budget - k.spent
 	if rest <= 0 || ctx.Err() != nil {
 		return captureSide{status: CaptureNotAttempted}
 	}
 	cctx, cancel := context.WithTimeout(ctx, min(k.bound, rest))
 	defer cancel()
+	began := k.now()
 	send := c.mark()
 	raw, err := k.transport.Inspect(cctx)
+	k.spent += max(k.now().Sub(began), 0)
 	if cctx.Err() != nil { // the bound or the trial's cancellation ended it; a late reply is not used
 		if ctx.Err() == nil {
 			return captureSide{status: CaptureTimeout, send: &send}
