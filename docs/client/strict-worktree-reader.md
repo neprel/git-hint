@@ -55,8 +55,8 @@ subsequent file reads. Full ignore-source resolution and repeated-capture orches
 separate missing prerequisites. The reader does not claim that a transient mutation outside
 its observed checks cannot occur.
 
-Strict capture refuses symlinks/special files AT SELECTED PATHS, selected protected `.hint`
-paths, invalid/duplicate paths, submodules, LFS pointers and Git stage-command failures.
+Strict capture refuses symlinks/special files AT SELECTED PATHS, selected protected root
+`.hint` components and any `.git` component under conservative case-fold comparison, invalid/duplicate paths, submodules, LFS pointers and Git stage-command failures.
 Modes use the existing normalized `100644`/`100755` tree representation. A missing tracked
 file or subtree remains absent; stable-absence/repeat proof belongs to the later orchestration.
 
@@ -79,3 +79,19 @@ A fixed legacy fixture with dirty, renamed, deleted, untracked, ignored and syml
 keeps tree digest `sha256:fdcebb051070364be786fc5c29bad5bed82de61c99aae7cdee710a0702d1f1d0`.
 The equivalent regular-only fixture gives the same tree in legacy and strict modes.
 All fixtures use local synthetic repositories; no engine, model or external service is needed.
+
+## CR-1 correction history
+
+The original reader package `08e32b8` failed independent review: its strict protected-store
+check was case-sensitive. On case-insensitive APFS, an indexed `.HINT/private` aliases
+`.hint/private` and bypassed that check. The follow-up applies case-fold protection only
+in strict mode: root `.hint` and every `.git` component refuse across case variants.
+Near spellings such as `.hinted`, `.HINT-copy` and `.gitignore` remain ordinary names;
+a nested `.hint` remains outside the root-store spelling rule. Legacy spelling semantics
+and the fixed golden digest remain unchanged. This is not a claim of whole-filesystem
+absence or a new capture-policy approval.
+
+The actual APFS alias regression runs without a skip on the review host. A temporary
+overlay restoring the original guard causes that regression to fail. Pure spelling
+controls run on every filesystem; the actual-alias test explicitly skips when the
+filesystem does not exhibit that alias. Targeted race tests include the legacy golden.

@@ -407,3 +407,60 @@ func TestStrictEffectiveBoundsAreExplicit(t *testing.T) {
 		t.Fatal("legacy defaults changed strict contract")
 	}
 }
+
+func TestStrictProtectedSpellingScope(t *testing.T) {
+	for _, p := range []string{".hint", ".HINT/private", ".HiNt/private", ".git/config", ".GIT/config", "source/.GiT/config"} {
+		if !strictProtectedPath(p) {
+			t.Fatalf("strict protected alias accepted: %s", p)
+		}
+	}
+	for _, p := range []string{".hinted/input", ".gitignore", ".HINT-copy/input", "nested/.hint/input", "git/input"} {
+		if strictProtectedPath(p) {
+			t.Fatalf("ordinary spelling refused: %s", p)
+		}
+	}
+	dir := canonicalDir(t)
+	testkit.Git(t, dir, "init", "-q")
+	for _, p := range []string{".hinted/input", ".gitignore", ".HINT-copy/input", "nested/.hint/input", "git/input"} {
+		testkit.WriteFile(t, dir, p, "ordinary\n")
+	}
+	l := lib(t)
+	legacy, e := FromWorktree(context.Background(), l, dir, Limits{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	strict, e := FromWorktreeWithCapturePolicy(context.Background(), l, dir, Limits{}, StrictCapturePolicyV1)
+	if e != nil || legacy != strict {
+		t.Fatalf("ordinary spelling/tree bytes changed: %v", e)
+	}
+}
+
+func TestStrictProtectedPathActualAlias(t *testing.T) {
+	dir := canonicalDir(t)
+	testkit.Git(t, dir, "init", "-q")
+	testkit.WriteFile(t, dir, ".hint/private", "synthetic private store bytes\n")
+	original, e := os.Stat(filepath.Join(dir, ".hint/private"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	alias, e := os.Stat(filepath.Join(dir, ".HINT/private"))
+	if e != nil || !os.SameFile(original, alias) {
+		t.Skip("requires a filesystem where .HINT aliases .hint; spelling controls run everywhere")
+	}
+	oid := strings.TrimSpace(testkit.Git(t, dir, "hash-object", "-w", ".hint/private"))
+	testkit.Git(t, dir, "config", "core.ignorecase", "true")
+	testkit.Git(t, dir, "update-index", "--add", "--cacheinfo", "100644", oid, ".HINT/private")
+	selected := testkit.Git(t, dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate")
+	if !strings.Contains(selected, ".HINT/private\x00") || strings.Contains(selected, ".hint/private\x00") {
+		t.Fatalf("alias regression did not isolate uppercase Git spelling: %q", selected)
+	}
+	l := lib(t)
+	if _, e := FromWorktreeWithCapturePolicy(context.Background(), l, dir, Limits{}, StrictCapturePolicyV1); !isCode(e, "protected_path") {
+		t.Fatalf("actual .hint alias accepted: %v", e)
+	}
+	// Strict-only protection must not silently change the legacy opt-in boundary.
+	if _, e := FromWorktree(context.Background(), l, dir, Limits{}); e != nil {
+		t.Fatalf("legacy spelling behavior changed: %v", e)
+	}
+	t.Log("actual case-insensitive alias exercised; no skip")
+}

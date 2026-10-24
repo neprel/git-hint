@@ -121,8 +121,8 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 			return "", unsupported("binary_too_large", "the inventory exceeds the path count limit")
 		}
 		seen[p] = true
-		if strict && (p == ".hint" || strings.HasPrefix(p, ".hint/")) {
-			return "", unsupported("protected_path", "the inventory names the project store")
+		if strict && strictProtectedPath(p) {
+			return "", unsupported("protected_path", "the inventory names a protected source path")
 		}
 		remaining := lim.MaxTotalBytes - total
 		bound := lim.MaxFileBytes
@@ -274,4 +274,16 @@ func validStageRecord(rec []byte) bool {
 		return false
 	}
 	return fields[2] == "0" || fields[2] == "1" || fields[2] == "2" || fields[2] == "3"
+}
+
+// Strict protection is conservative across case-sensitive and case-insensitive volumes.
+// Legacy validPath/tree spelling remains unchanged. Git metadata is forbidden at every
+// component (as validPath already does for exact .git); .hint protects the root store only.
+func strictProtectedPath(p string) bool {
+	for i, part := range strings.Split(p, "/") {
+		if strings.EqualFold(part, ".git") || i == 0 && strings.EqualFold(part, ".hint") {
+			return true
+		}
+	}
+	return false
 }
