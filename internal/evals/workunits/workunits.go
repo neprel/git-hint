@@ -32,7 +32,7 @@ type Member struct {
 	BaselineDigest string `json:"baseline_digest"`
 	Objective      string `json:"objective"`
 	TaskFamily     string `json:"task_family"`
-	Eligible       bool   `json:"eligible"` // a refactor-family eval run by a live agent
+	Eligible       bool   `json:"eligible"` // a refactor eval, or a feature eval with a B1 (cli-file-v1) declaration, run by a live agent
 	// Plan is the frozen plan binding of a refactor variant member (nil: unbound)
 	Plan map[string]any `json:"plan,omitempty"`
 }

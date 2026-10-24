@@ -246,3 +246,24 @@ func archiveNames(t *testing.T, l *library.Library, digest string) map[string]bo
 	}
 	return out
 }
+
+// Controlled units open for refactor evals and for feature evals with a process-separated B1
+// declaration only; generated-test feature evals and other families stay ineligible.
+func TestControlledEligibility(t *testing.T) {
+	for _, c := range []struct {
+		rec  map[string]any
+		want bool
+	}{
+		{map[string]any{"family": "refactor", "verifier": map[string]any{"kind": "generated-tests"}}, true},
+		{map[string]any{"family": "feature", "verifier": map[string]any{"kind": runner.IOInterface}}, true},
+		{map[string]any{"family": "feature", "verifier": map[string]any{"kind": "generated-tests"}}, false},
+		{map[string]any{"family": "feature"}, false},
+		{map[string]any{"family": "bug_fix", "verifier": map[string]any{"kind": runner.IOInterface}}, false},
+		{map[string]any{"family": "compatibility"}, false},
+		{map[string]any{}, false},
+	} {
+		if got := controlledEligible(c.rec); got != c.want {
+			t.Errorf("%v: %v", c.rec, got)
+		}
+	}
+}

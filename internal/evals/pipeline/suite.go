@@ -193,7 +193,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			}
 			b := bind[ref]
 			m.Members = append(m.Members, workunits.Member{Eval: ref, EvalDigest: b.EvalDigest, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, Objective: b.Objective,
-				TaskFamily: str(mm.(map[string]any)["task_family"]), Eligible: str(rec["family"]) == "refactor", Plan: b.PlanBinding})
+				TaskFamily: str(mm.(map[string]any)["task_family"]), Eligible: controlledEligible(rec), Plan: b.PlanBinding})
 		}
 		if err := workunits.Start(s, l, m, now); err != nil {
 			return rep, err
@@ -418,4 +418,19 @@ func Compare(l *library.Library, suite string) ([]Row, error) {
 func liveCounters(c *runner.Counter) (requests, retries *int64) {
 	n := c.Requests()
 	return &n, nil
+}
+
+// controlledEligible reports whether an eval's live attempts open controlled work units: a refactor
+// eval, or a feature eval with a process-separated B1 behavior declaration (cli-file-v1). Other
+// families, and feature evals checked by generated tests in the agent's process, stay ineligible
+// (their outcome trust is descriptive); a feature eval is never relabeled as a refactor.
+func controlledEligible(rec map[string]any) bool {
+	switch str(rec["family"]) {
+	case "refactor":
+		return true
+	case "feature":
+		v, _ := rec["verifier"].(map[string]any)
+		return str(v["kind"]) == runner.IOInterface
+	}
+	return false
 }
