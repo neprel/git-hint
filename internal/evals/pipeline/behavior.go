@@ -262,6 +262,10 @@ func observedStartResolver(ctx context.Context, s *store.Store, rec map[string]a
 		cleanup()
 		return nil, "", "", nil, err
 	}
+	if len(files) == 0 {
+		cleanup()
+		return nil, "", "", nil, bad
+	}
 	scanned, err := scan.Scan(scan.Options{Ctx: ctx, Root: temp, RepoID: repoID, Key: s.Key(), Files: files})
 	if err != nil {
 		cleanup()
