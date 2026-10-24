@@ -1,0 +1,247 @@
+{
+  "report_version": "0.3.0",
+  "report_id": "3ca9ea45b866eeb27d70204bbdf7ad01",
+  "project_namespace": "0123456789abcdef0123456789abcdef",
+  "created_at": "2026-10-18T12:00:00Z",
+  "producer": {
+    "tool": "git-hint",
+    "version": "0.1.0"
+  },
+  "trials": [],
+  "work_units": [
+    {
+      "unit_ref": "3623d2d7841d6c4ed66d2f949ff8b416",
+      "origin": "project",
+      "scope": {
+        "declared_at": "2026-10-18T10:00:00Z",
+        "plan": {
+          "recommendation_set_id": "161c81f69daa759e6aa782ab6aeda5c7",
+          "plan_id": "fa8c34806f51741889bb5e8b5fe87999"
+        },
+        "objective_ref": null,
+        "base_snapshots": [
+          "8ed5e08a44a40efd4e3454ebb73fc1ce"
+        ],
+        "family_ref": "d923713e3b73acd42b9141df7902a954",
+        "configuration": {
+          "agent": {
+            "name": "opencode",
+            "version": {
+              "state": "known",
+              "value": "2.0.26"
+            }
+          },
+          "model": {
+            "state": "known",
+            "ref": "9372c470eeadd5ecd9c3c74c2b3cb633",
+            "provenance": "launch_parameter"
+          },
+          "harness": {
+            "kind": "direct",
+            "version": {
+              "state": "not_applicable"
+            }
+          },
+          "context_policy": {
+            "state": "disabled"
+          },
+          "config_refs": {
+            "state": "known",
+            "refs": []
+          },
+          "budget": {
+            "max_requests": {
+              "state": "known",
+              "value": 40
+            },
+            "max_seconds": {
+              "state": "known",
+              "value": 900
+            }
+          }
+        },
+        "environment_ref": null,
+        "run_ref": null,
+        "eval_ref": null,
+        "baseline_ref": null,
+        "arm": null,
+        "planned_attempts": null,
+        "verification_intent": {
+          "definition_ref": "3664ead0b8804d67e69182854fa4e331",
+          "definition_digest": "sha256:1d4449aa58e27ac6bdffaf0c8a28937df5ae6684d04a77a05c2e3ba49c8d2079",
+          "qualification_ref": "3fd9a099f8a3df425474303512391dcd",
+          "spec_digest": "sha256:678d40f2a7e80e69951bcd31819f1658abacf5e522632174ce354af6e730de21",
+          "inputs_digest": "sha256:55e26fc828ec7730e084b48c491885865d17e6bbc048437fb9eebad1ef2bcac0",
+          "reference_artifact_digest": "sha256:b6d4242f1b651e70c85fdf518ceb363e9054df49a2e5e9d123b85ebc7e5c852e",
+          "mandatory_checks_digest": "sha256:220eaa355e97bff20f72c4b622a23ad20d9464052ee26af31ccbfae5f49048be"
+        }
+      },
+      "scope_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "revision": 1,
+      "predecessor": null,
+      "state": "open",
+      "attempts": [],
+      "declared_by": "user",
+      "revision_digest": "sha256:05cd5a314638acd866607aeeaa741401195e57092602d51ef853709a8ee59e59"
+    },
+    {
+      "unit_ref": "3623d2d7841d6c4ed66d2f949ff8b416",
+      "origin": "project",
+      "scope": {
+        "declared_at": "2026-10-18T10:00:00Z",
+        "plan": {
+          "recommendation_set_id": "161c81f69daa759e6aa782ab6aeda5c7",
+          "plan_id": "fa8c34806f51741889bb5e8b5fe87999"
+        },
+        "objective_ref": null,
+        "base_snapshots": [
+          "8ed5e08a44a40efd4e3454ebb73fc1ce"
+        ],
+        "family_ref": "d923713e3b73acd42b9141df7902a954",
+        "configuration": {
+          "agent": {
+            "name": "opencode",
+            "version": {
+              "state": "known",
+              "value": "2.0.26"
+            }
+          },
+          "model": {
+            "state": "known",
+            "ref": "9372c470eeadd5ecd9c3c74c2b3cb633",
+            "provenance": "launch_parameter"
+          },
+          "harness": {
+            "kind": "direct",
+            "version": {
+              "state": "not_applicable"
+            }
+          },
+          "context_policy": {
+            "state": "disabled"
+          },
+          "config_refs": {
+            "state": "known",
+            "refs": []
+          },
+          "budget": {
+            "max_requests": {
+              "state": "known",
+              "value": 40
+            },
+            "max_seconds": {
+              "state": "known",
+              "value": 900
+            }
+          }
+        },
+        "environment_ref": null,
+        "run_ref": null,
+        "eval_ref": null,
+        "baseline_ref": null,
+        "arm": null,
+        "planned_attempts": null,
+        "verification_intent": {
+          "definition_ref": "3664ead0b8804d67e69182854fa4e331",
+          "definition_digest": "sha256:1d4449aa58e27ac6bdffaf0c8a28937df5ae6684d04a77a05c2e3ba49c8d2079",
+          "qualification_ref": "3fd9a099f8a3df425474303512391dcd",
+          "spec_digest": "sha256:678d40f2a7e80e69951bcd31819f1658abacf5e522632174ce354af6e730de21",
+          "inputs_digest": "sha256:55e26fc828ec7730e084b48c491885865d17e6bbc048437fb9eebad1ef2bcac0",
+          "reference_artifact_digest": "sha256:b6d4242f1b651e70c85fdf518ceb363e9054df49a2e5e9d123b85ebc7e5c852e",
+          "mandatory_checks_digest": "sha256:220eaa355e97bff20f72c4b622a23ad20d9464052ee26af31ccbfae5f49048be"
+        }
+      },
+      "scope_digest": "sha256:c0760c3f355dec9e796d4feddf2d3b50b74a8bf26371bd027dc7ab6c7f5e1734",
+      "revision": 2,
+      "predecessor": "sha256:05cd5a314638acd866607aeeaa741401195e57092602d51ef853709a8ee59e59",
+      "state": "open",
+      "attempts": [
+        {
+          "attempt_ref": "f3d047105a04a857640b7d4cd4bc4a49",
+          "task_ids": [
+            "e527db5aeae104be43c01c8a49398285"
+          ],
+          "outcome": "open",
+          "closure": {
+            "state": "unknown",
+            "result_trust": "unknown"
+          },
+          "application_change_set": null,
+          "usage": {
+            "requests": 3,
+            "input_tokens": 1000,
+            "output_tokens": 100,
+            "cache_tokens": null
+          },
+          "usage_provenance": "activity_usage",
+          "coverage": {
+            "tasks": 1,
+            "tasks_with_complete_usage": 1
+          },
+          "usage_normalization": "opencode-2.0.26:tokeninfo-v1"
+        }
+      ],
+      "declared_by": "user",
+      "revision_digest": "sha256:5848b66f9447979a07d89dac8ae40635475fcc3e39f4e872b37b0cfa5b2acee4"
+    }
+  ],
+  "project_verifications": [
+    {
+      "verification_ref": "3dd6b7fbd0f8d9747edc853876197cb2",
+      "work": {
+        "unit_ref": "3623d2d7841d6c4ed66d2f949ff8b416",
+        "attempt_ref": "f3d047105a04a857640b7d4cd4bc4a49",
+        "start_scope_digest": "sha256:c0760c3f355dec9e796d4feddf2d3b50b74a8bf26371bd027dc7ab6c7f5e1734",
+        "verification_intent_digest": "sha256:64eb69875585231c782e47c024d53239e107d3edbc532ca831e0d2a554944a52",
+        "frozen_open_revision_digest": "sha256:5848b66f9447979a07d89dac8ae40635475fcc3e39f4e872b37b0cfa5b2acee4"
+      },
+      "plan": {
+        "recommendation_set_id": "161c81f69daa759e6aa782ab6aeda5c7",
+        "recommendation_set_digest": "sha256:c7f5814b92ec9430648136406d844823df66e1af010dfa9456b5ec7ff5017f8b",
+        "plan_id": "fa8c34806f51741889bb5e8b5fe87999"
+      },
+      "result": {
+        "snapshot_id": "53d84e9f521a76c475501bd1bc38091c",
+        "snapshot_digest": "sha256:20ccb3d1c6ef3be0acf3dc63016cbd4b0ffeb7c4ca329fdf7ae02a591c5de486",
+        "artifact_digest": "sha256:0c47fcc7df96778c6d8a9a6b979a21c0fbbe0ed0b6d097f2fa27cfec9142b974"
+      },
+      "verification_execution_ref": "b9292f408e176d8e47ae86d542e5e629",
+      "verifier": {
+        "definition_ref": "3664ead0b8804d67e69182854fa4e331",
+        "definition_digest": "sha256:1d4449aa58e27ac6bdffaf0c8a28937df5ae6684d04a77a05c2e3ba49c8d2079",
+        "qualification_ref": "3fd9a099f8a3df425474303512391dcd",
+        "spec_digest": "sha256:678d40f2a7e80e69951bcd31819f1658abacf5e522632174ce354af6e730de21",
+        "inputs_digest": "sha256:55e26fc828ec7730e084b48c491885865d17e6bbc048437fb9eebad1ef2bcac0",
+        "reference_artifact_digest": "sha256:b6d4242f1b651e70c85fdf518ceb363e9054df49a2e5e9d123b85ebc7e5c852e",
+        "mandatory_checks_digest": "sha256:220eaa355e97bff20f72c4b622a23ad20d9464052ee26af31ccbfae5f49048be",
+        "mandatory_checks": [
+          "b6e5bc7eabaddd6f93171bbbe97989a5"
+        ],
+        "evaluator_image_digest": "sha256:affa657b3c3e9337bdf3c879c0561b74d54a9197fdc6acd834dcdc02837454fc",
+        "runner_name": "hint-docker",
+        "runner_version": "0.1.0",
+        "interface": "cli-file-v1",
+        "qualification_state": "validated",
+        "qualification_result_trust": "process_separated"
+      },
+      "verdict": {
+        "outcome": "passed",
+        "checks": [
+          {
+            "check_id": "b6e5bc7eabaddd6f93171bbbe97989a5",
+            "status": "pass",
+            "result_trust": "process_separated"
+          }
+        ],
+        "result_trust": "process_separated"
+      },
+      "outputs": {
+        "candidate_outputs_digest": "sha256:702fd6f966cf34ad0a871b0b465927d224a15e69dd10de4e7090c22ab822e957",
+        "oracle_outputs_digest": "sha256:1e503deac749214472d6739489a772c162dce583c3384fa164d49d8dafcedf48",
+        "evaluator_result_digest": "sha256:050f4ec93a13a6e1dcf2591b2dae6b437d26a610e015658245c62a8ea09cfe72"
+      },
+      "content_digest": "sha256:cde9b15ac901dba00527a52c0dfd7a1d33a66633c528ce691357ced864f72a50"
+    }
+  ],
+  "content_digest": "sha256:94d2017b9c8e93250531cac74c59deda41d7c16ac1da23efafdf328831d42dfd"
+}

@@ -1,10 +1,11 @@
 // Package report builds and checks minimized eval result reports (evalreport v0.2; Check
-// also reads v0.1).
+// also reads v0.1 and the schema-only v0.3 receipt contract).
 //
 // A report carries only allowlisted fields of trial records. Every local identifier and
 // model name becomes a project-scoped opaque reference (HMAC with the project key), times
 // have hour resolution, and nothing from task content, code, paths, commands, logs or
-// content digests enters it. The same Check runs before a file is written and before an
+// raw artifacts enters it. Version 0.3 adds allowlisted artifact/policy digests only.
+// The same Check runs before a file is written and before an
 // upload, and the server applies the same schema.
 package report
 
@@ -27,7 +28,7 @@ import (
 	"github.com/neprel/git-hint/internal/version"
 )
 
-// Version of the report format that Build writes. Check reads 0.1 and 0.2.
+// Version of the report format that Build writes. Check reads 0.1, 0.2 and 0.3.0.
 const Version = "0.2.1"
 
 // MediaType of a report on the wire.
@@ -35,14 +36,14 @@ const MediaType = "application/vnd.hint-evalreport+json"
 
 var (
 	once    sync.Once
-	schemas map[string]*jsonschema.Schema // "0.1", "0.2"
+	schemas map[string]*jsonschema.Schema // "0.1", "0.2", "0.3"
 	errLoad error
 )
 
 func compiled() (map[string]*jsonschema.Schema, error) {
 	once.Do(func() {
 		schemas = map[string]*jsonschema.Schema{}
-		for v, raw := range map[string][]byte{"0.1": githint.SchemaEvalReportV01, "0.2": githint.SchemaEvalReportV02} {
+		for v, raw := range map[string][]byte{"0.1": githint.SchemaEvalReportV01, "0.2": githint.SchemaEvalReportV02, "0.3": githint.SchemaEvalReportV03} {
 			c := jsonschema.NewCompiler()
 			c.DefaultDraft(jsonschema.Draft2020)
 			c.AssertFormat()
@@ -64,9 +65,11 @@ func compiled() (map[string]*jsonschema.Schema, error) {
 	return schemas, errLoad
 }
 
-// reportMinor returns "0.1" or "0.2" for a supported report version, "" otherwise.
+// reportMinor returns the schema minor for a supported report version, "" otherwise.
 func reportMinor(v string) string {
 	switch {
+	case v == "0.3.0":
+		return "0.3"
 	case v == "0.1.0":
 		return "0.1"
 	case regexp.MustCompile(`^0\.2\.(0|[1-9][0-9]*)$`).MatchString(v):
@@ -108,6 +111,9 @@ func Check(data []byte) error {
 		}
 		return fmt.Errorf("%w: schema", ErrInvalid)
 	}
+	if minor == "0.3" && !uniqueJSONMembers(data) {
+		return fmt.Errorf("%w: not strict JSON", ErrInvalid)
+	}
 	var m map[string]any
 	json.Unmarshal(data, &m)
 	want, _ := m["content_digest"].(string)
@@ -124,6 +130,9 @@ func Check(data []byte) error {
 		}
 		seen[r] = true
 	}
+	if err := projectProblem(m); err != nil {
+		return err
+	}
 	if err := trustProblem(m); err != nil {
 		return err
 	}
@@ -138,7 +147,7 @@ func Check(data []byte) error {
 // without the fields stays valid and reads as unknown.
 func trustProblem(m map[string]any) error {
 	v := str(m["report_version"])
-	if reportMinor(v) != "0.2" {
+	if reportMinor(v) != "0.2" && reportMinor(v) != "0.3" {
 		return nil
 	}
 	required := v != "0.2.0"

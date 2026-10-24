@@ -36,3 +36,8 @@ var SchemaEvalReportV02 []byte
 //
 //go:embed adapters/opencode/hint-adapter.ts
 var OpenCodePlugin []byte
+
+// SchemaEvalReportV03 validates receipt assertions only; writers remain v0.2.1.
+//
+//go:embed schemas/evalreport-v0.3/report.schema.json
+var SchemaEvalReportV03 []byte

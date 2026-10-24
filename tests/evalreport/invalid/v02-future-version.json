@@ -1,5 +1,4 @@
 {
-  "content_digest": "sha256:402604bb3eb9d98dda535ae82aec5121c99bec76c3ce5806d3ae2db09e1680eb",
   "created_at": "2026-10-18T09:00:00Z",
   "producer": {
     "tool": "git-hint",
@@ -7,7 +6,7 @@
   },
   "project_namespace": "0123456789abcdef0123456789abcdef",
   "report_id": "15230043ca5fe428b7bbb35cf8f3e6a3",
-  "report_version": "0.3.0",
+  "report_version": "0.4.0",
   "trials": [
     {
       "agent": {
@@ -156,5 +155,6 @@
       "task_family_ref": "03cfc28511f7e4a1a148573526fa7bf2",
       "trial_ref": "31dd47aed5e6e93c8548fd0a8a63652e"
     }
-  ]
+  ],
+  "content_digest": "sha256:2496d43c7f6be89acb9ced55404cb784ca5f2150dece85b170ca91d764caba3c"
 }
