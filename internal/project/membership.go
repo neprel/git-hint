@@ -1073,6 +1073,9 @@ func stageChain(s *store.Store, label string, k int, now time.Time) ([]epochStag
 		stages = append(stages, st)
 		prev = membershipBody(st.batch.Observations[0].Membership)
 	}
+	if err := checkStageSet(stages); err != nil {
+		return nil, nil, err
+	}
 	return stages, prev, nil
 }
 
@@ -1234,6 +1237,9 @@ func (e *Epoch) Seal(s *store.Store, now time.Time) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := checkStageSet(append(append([]epochStage{}, stages...), own)); err != nil {
+		return "", err
+	}
 	// everything validated: recover the predecessors, append the seal, publish
 	if err := applyStages(s, stages); err != nil {
 		return "", err
@@ -1267,19 +1273,42 @@ func (e *Epoch) poisoned(s *store.Store, owners map[string][]refOwner, le *locke
 	return nil
 }
 
+// producerBatch is the one batch the producer derives for an epoch of a unit: its orchestrator
+// source and one MEMBERSHIP observation whose identities derive from the unit and the epoch; only
+// the publication time varies.
+func producerBatch(key []byte, unit string, n int, m activity.Membership, at string) sealedBatch {
+	src := orchestratorSource(key, unit, n)
+	o := activity.Observation{ObservationID: hint.DeriveID(key, "membership", unit, strconv.Itoa(n)), Class: "observation", Op: "MEMBERSHIP",
+		Source: "orchestrator", SourceID: src.SourceID, Precision: "exact", Time: activity.Time{Start: &at, End: &at, Clock: "collector"},
+		Outcome: activity.Outcome{Status: "success"}, Membership: &m, Missing: []string{},
+		Provenance: activity.Provenance{CapturedAt: at, SourceEventID: hint.DeriveID(key, "membership-event", unit, strconv.Itoa(n)),
+			Transformations: []activity.Transform{{Step: "normalize", Tool: "hint-cli", Version: "0.1.0"}}}}
+	return sealedBatch{Source: src, Observations: []activity.Observation{o}}
+}
+
 // stage is the read-only staged publication of a sealed spool: the persisted batch bytes when
-// they exist, otherwise the deterministic batch built now; either passes every batch check
-// against the committed state before anything is written.
+// they exist and are exactly the producer's batch of this unit and epoch, otherwise the
+// deterministic batch built now; either passes every batch check against the committed state
+// before anything is written.
 func (e *Epoch) stage(s *store.Store, le *lockedEpoch, now time.Time) (epochStage, error) {
 	st := epochStage{e: e}
+	key := s.Key()
 	b, err := loadSealed(s, e.label, e.n, le.view)
 	if err != nil {
 		return st, err
 	}
 	if b != nil {
+		o := b.Observations[0]
+		at := ""
+		if o.Time.Start != nil {
+			at = *o.Time.Start
+		}
+		if _, err := time.Parse("2006-01-02T15:04:05.000Z", at); err != nil || o.Membership.UnitRef != le.unit.UnitRef ||
+			!equalJSON(*b, producerBatch(key, le.unit.UnitRef, e.n, *o.Membership, at)) {
+			return st, damaged("persisted batch is not the producer's batch of this epoch")
+		}
 		st.batch = *b
 	} else {
-		key := s.Key()
 		body := spoolBody(le.unit.UnitRef, le.view)
 		if hint.MembershipProblem(body) {
 			return st, damaged("sealed membership")
@@ -1289,14 +1318,7 @@ func (e *Epoch) stage(s *store.Store, le *lockedEpoch, now time.Time) (epochStag
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return st, err
 		}
-		src := orchestratorSource(key, le.unit.UnitRef, e.n)
-		at := activity.Timestamp(now)
-		o := activity.Observation{ObservationID: hint.DeriveID(key, "membership", le.unit.UnitRef, strconv.Itoa(e.n)), Class: "observation", Op: "MEMBERSHIP",
-			Source: "orchestrator", SourceID: src.SourceID, Precision: "exact", Time: activity.Time{Start: &at, End: &at, Clock: "collector"},
-			Outcome: activity.Outcome{Status: "success"}, Membership: &m, Missing: []string{},
-			Provenance: activity.Provenance{CapturedAt: at, SourceEventID: hint.DeriveID(key, "membership-event", le.unit.UnitRef, strconv.Itoa(e.n)),
-				Transformations: []activity.Transform{{Step: "normalize", Tool: "hint-cli", Version: "0.1.0"}}}}
-		if st.persist, err = hint.Canonical(sealedBatch{Source: src, Observations: []activity.Observation{o}}); err != nil {
+		if st.persist, err = hint.Canonical(producerBatch(key, le.unit.UnitRef, e.n, m, activity.Timestamp(now))); err != nil {
 			return st, err
 		}
 		// the staged batch is exactly what a later load of the persisted bytes returns
@@ -1312,6 +1334,25 @@ func (e *Epoch) stage(s *store.Store, le *lockedEpoch, now time.Time) (epochStag
 	}
 	st.commit = !committed
 	return st, nil
+}
+
+// checkStageSet refuses a planned publication set whose batches share a source or observation
+// identity (each stage alone was checked against the committed state only).
+func checkStageSet(stages []epochStage) error {
+	sources, ids := map[string]bool{}, map[string]bool{}
+	for _, st := range stages {
+		if sources[st.batch.Source.SourceID] {
+			return damaged("planned publications share a source")
+		}
+		sources[st.batch.Source.SourceID] = true
+		for _, o := range st.batch.Observations {
+			if ids[o.ObservationID] {
+				return damaged("planned publications share an observation")
+			}
+			ids[o.ObservationID] = true
+		}
+	}
+	return nil
 }
 
 func ledgerInSpool(s *store.Store, ref string) bool {

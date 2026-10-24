@@ -1163,3 +1163,98 @@ func TestMembershipReplayAfterTheUnitClosed(t *testing.T) {
 		t.Fatal("the replay changed the published bytes")
 	}
 }
+
+// rewriteSealed changes a persisted batch and writes it back as canonical bytes.
+func rewriteSealed(t *testing.T, f memFixture, n int, change func(b *sealedBatch)) {
+	t.Helper()
+	p := f.s.Path(membershipPath(f.s, memLabel, sealedName(n))...)
+	raw, _ := os.ReadFile(p)
+	var b sealedBatch
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatal(err)
+	}
+	change(&b)
+	c, _ := hint.Canonical(b)
+	os.WriteFile(p, c, 0o600)
+}
+
+func sealedObservationID(t *testing.T, f memFixture, n int) string {
+	t.Helper()
+	raw, _ := os.ReadFile(f.s.Path(membershipPath(f.s, memLabel, sealedName(n))...))
+	var b sealedBatch
+	json.Unmarshal(raw, &b)
+	return b.Observations[0].ObservationID
+}
+
+// A persisted batch must be exactly the producer's batch of its unit and epoch; renamed records
+// and identity conflicts across the planned publication set refuse every publication entry point
+// before any activity or membership write.
+func TestMembershipPlannedPublicationsAreProducerBatches(t *testing.T) {
+	type setup func(t *testing.T, f memFixture) func() error
+	cases := map[string]setup{
+		"open: epoch 2 takes epoch 1 observation id": func(t *testing.T, f memFixture) func() error {
+			twoSealedEpochs(t, f)
+			os.Remove(epochBatchPath(t, f, 1))
+			os.Remove(epochBatchPath(t, f, 2))
+			id := sealedObservationID(t, f, 1)
+			rewriteSealed(t, f, 2, func(b *sealedBatch) { b.Observations[0].ObservationID = id })
+			return func() error { _, err := EpochOpen(f.s, memLabel, f.policy, memNow); return err }
+		},
+		"seal: predecessor takes the own observation id": func(t *testing.T, f memFixture) func() error {
+			e2 := secondEpochReady(t, f)
+			os.Remove(epochBatchPath(t, f, 1))
+			u, _ := LoadWork(f.s, memLabel)
+			rewriteSealed(t, f, 1, func(b *sealedBatch) {
+				b.Observations[0].ObservationID = hint.DeriveID(f.s.Key(), "membership", u.UnitRef, "2")
+			})
+			return func() error { _, err := e2.Seal(f.s, memNow); return err }
+		},
+		"replay: renamed observation": func(t *testing.T, f memFixture) func() error {
+			e, batch := sealedFirstEpoch(t, f)
+			os.Remove(batch)
+			rewriteSealed(t, f, 1, func(b *sealedBatch) { b.Observations[0].ObservationID = strings.Repeat("7", 32) })
+			return func() error { _, err := e.Seal(f.s, memNow); return err }
+		},
+		"replay: renamed source": func(t *testing.T, f memFixture) func() error {
+			e, batch := sealedFirstEpoch(t, f)
+			os.Remove(batch)
+			rewriteSealed(t, f, 1, func(b *sealedBatch) {
+				b.Source.SourceID = strings.Repeat("8", 32)
+				b.Observations[0].SourceID = b.Source.SourceID
+			})
+			return func() error { _, err := e.Seal(f.s, memNow); return err }
+		},
+		"replay: other provenance event": func(t *testing.T, f memFixture) func() error {
+			e, batch := sealedFirstEpoch(t, f)
+			os.Remove(batch)
+			rewriteSealed(t, f, 1, func(b *sealedBatch) { b.Observations[0].Provenance.SourceEventID = strings.Repeat("9", 32) })
+			return func() error { _, err := e.Seal(f.s, memNow); return err }
+		},
+	}
+	for name, prepare := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := membershipFixture(t)
+			call := prepare(t, f)
+			before := stateFiles(t, f.s)
+			if err := call(); !errors.Is(err, ErrMembership) {
+				t.Fatalf("published: %v", err)
+			}
+			sameState(t, before, stateFiles(t, f.s))
+		})
+	}
+}
+
+func TestMembershipStageSetRefusesSharedIdentities(t *testing.T) {
+	mk := func(src, id string) epochStage {
+		return epochStage{batch: sealedBatch{Source: activity.Source{SourceID: src}, Observations: []activity.Observation{{ObservationID: id}}}}
+	}
+	if checkStageSet([]epochStage{mk("a", "1"), mk("b", "2")}) != nil {
+		t.Fatal("distinct identities refused")
+	}
+	if !errors.Is(checkStageSet([]epochStage{mk("a", "1"), mk("b", "1")}), ErrMembership) {
+		t.Fatal("a shared observation accepted")
+	}
+	if !errors.Is(checkStageSet([]epochStage{mk("a", "1"), mk("a", "2")}), ErrMembership) {
+		t.Fatal("a shared source accepted")
+	}
+}
