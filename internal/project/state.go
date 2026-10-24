@@ -4,8 +4,10 @@ package project
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"sort"
@@ -90,19 +92,42 @@ func (d SpoolDamage) Any() bool { return d.Unreadable > 0 || len(d.Conflicts) > 
 // with the damage of the spool.
 func ReadSpoolChecked(s *store.Store) ([]activity.Observation, SpoolDamage, error) {
 	var d SpoolDamage
-	f, err := os.Open(s.Path("state", "activity", spoolFile))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, d, nil
-	}
+	batchObs, _, err := readActivityBatches(s)
 	if err != nil {
 		return nil, d, err
 	}
-	defer f.Close()
+	var input io.Reader = bytes.NewReader(nil)
+	f, err := os.Open(s.Path("state", "activity", spoolFile))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, d, err
+	}
+	if err == nil {
+		defer f.Close()
+		input = f
+	}
+	var batches bytes.Buffer
+	if f != nil && len(batchObs) > 0 {
+		if info, e := f.Stat(); e == nil && info.Size() > 0 {
+			var last [1]byte
+			if _, e := f.ReadAt(last[:], info.Size()-1); e != nil {
+				return nil, d, e
+			}
+			if last[0] != '\n' {
+				batches.WriteByte('\n')
+			}
+		}
+	}
+	for _, o := range batchObs {
+		raw, _ := json.Marshal(o)
+		batches.Write(raw)
+		batches.WriteByte('\n')
+	}
+	input = io.MultiReader(input, &batches)
 	var order []string
 	first := map[string]activity.Observation{}
 	body := map[string]string{}
 	conflict := map[string]bool{}
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(input)
 	sc.Buffer(make([]byte, 1<<20), 16<<20)
 	for sc.Scan() {
 		var o activity.Observation
@@ -145,6 +170,16 @@ func Sources(s *store.Store) (map[string]activity.Source, error) {
 	if err := s.ReadJSON(&m, "state", "activity", sourcesFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+	_, batches, err := readActivityBatches(s)
+	if err != nil {
+		return nil, err
+	}
+	for id, src := range batches {
+		if old, ok := m[id]; ok && !equalJSON(old, src) {
+			return nil, ErrActivityBatch
+		}
+		m[id] = src
+	}
 	return m, nil
 }
 
@@ -154,8 +189,17 @@ func RegisterSource(s *store.Store, src activity.Source) error {
 	if err != nil {
 		return err
 	}
-	if old, ok := m[src.SourceID]; ok && equalJSON(old, src) {
-		return nil
+	if old, ok := m[src.SourceID]; ok {
+		if equalJSON(old, src) {
+			return nil
+		}
+		_, batches, err := readActivityBatches(s)
+		if err != nil {
+			return err
+		}
+		if _, immutable := batches[src.SourceID]; immutable {
+			return ErrActivityBatch
+		}
 	}
 	m[src.SourceID] = src
 	return s.WriteJSON(m, "state", "activity", sourcesFile)
