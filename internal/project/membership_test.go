@@ -781,3 +781,156 @@ func TestMembershipOtherBehaviorStaysForeign(t *testing.T) {
 		})
 	}
 }
+
+// membershipFiles lists the producer's files of the fixture unit with their bytes.
+func membershipFiles(t *testing.T, f memFixture) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	dir := f.s.Path(membershipPath(f.s, memLabel)...)
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		b, _ := os.ReadFile(filepath.Join(dir, e.Name()))
+		out[e.Name()] = string(b)
+	}
+	return out
+}
+
+func sealedFirstEpoch(t *testing.T, f memFixture) (*Epoch, string) {
+	t.Helper()
+	e := mustOpen(t, f)
+	x := mustEnroll(t, f, e, "task-1", "run-1")
+	if err := e.Finish(f.s, x, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Seal(f.s, memNow); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := LoadWork(f.s, memLabel)
+	return e, f.s.Path("state", "activity", activityBatchDir, orchestratorSource(f.s.Key(), u.UnitRef, 1).SourceID+".json")
+}
+
+// C1: a next epoch never opens over an uncommitted predecessor; the predecessor's persisted
+// bytes are committed first, unchanged.
+func TestMembershipNextEpochCommitsTheExactPredecessorFirst(t *testing.T) {
+	f := membershipFixture(t)
+	_, batch := sealedFirstEpoch(t, f)
+	published, _ := os.ReadFile(batch)
+	if err := os.Remove(batch); err != nil { // crash image: persisted, not committed
+		t.Fatal(err)
+	}
+	e2, err := EpochOpen(f.s, memLabel, f.policy, memNow.Add(5*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(batch); !bytes.Equal(again, published) {
+		t.Fatal("the predecessor was not committed with its persisted bytes")
+	}
+	if e2.Number() != 2 || len(membershipObservations(t, f.s)) != 1 {
+		t.Fatal("unexpected epochs")
+	}
+}
+
+// C1: a predecessor sealed in its spool whose bytes were never persisted is persisted and
+// committed before the next epoch opens.
+func TestMembershipNextEpochPublishesASealedUnpersistedPredecessor(t *testing.T) {
+	f := membershipFixture(t)
+	e := mustOpen(t, f)
+	x := mustEnroll(t, f, e, "task-1", "run-1")
+	if err := e.Finish(f.s, x, nil); err != nil {
+		t.Fatal(err)
+	}
+	le, _ := e.reload(f.s)
+	_, rev, _ := latestRevision(le.unit)
+	if err := appendEvent(f.s, memLabel, 1, le.view, map[string]any{"kind": "epoch_seal", "frozen_open_revision_digest": rev, "executions": 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EpochOpen(f.s, memLabel, f.policy, memNow); err != nil {
+		t.Fatal(err)
+	}
+	obs := membershipObservations(t, f.s)
+	if len(obs) != 1 || obs[0].Membership.Events[0]["epoch"] != float64(1) {
+		t.Fatal("the predecessor was not published first")
+	}
+}
+
+// C1/C2: an unpublishable or invalid predecessor refuses the next epoch and writes nothing.
+func TestMembershipNextEpochRefusesAnInvalidPredecessorWithoutWriting(t *testing.T) {
+	cases := map[string]func(t *testing.T, f memFixture, batch string){
+		"predecessor open": func(t *testing.T, f memFixture, batch string) {},
+		"predecessor policy bytes": func(t *testing.T, f memFixture, batch string) {
+			p := f.s.Path(membershipPath(f.s, memLabel, policyName(1))...)
+			raw, _ := os.ReadFile(p)
+			os.WriteFile(p, bytes.Replace(raw, []byte(`"opencode"`), []byte(`"opencode" `), 1), 0o600)
+		},
+		"predecessor policy pin": func(t *testing.T, f memFixture, batch string) {
+			p := f.s.Path(membershipPath(f.s, memLabel, policyName(1))...)
+			raw, _ := os.ReadFile(p)
+			os.WriteFile(p, bytes.Replace(raw, []byte(runner.DockerRunnerSemver), []byte("0.0.0-other"), 1), 0o600)
+		},
+		"predecessor persisted bytes": func(t *testing.T, f memFixture, batch string) {
+			p := f.s.Path(membershipPath(f.s, memLabel, sealedName(1))...)
+			raw, _ := os.ReadFile(p)
+			os.WriteFile(p, bytes.Replace(raw, []byte(`"success"`), []byte(`"failure"`), 1), 0o600)
+		},
+		"predecessor committed other bytes": func(t *testing.T, f memFixture, batch string) {
+			raw, _ := os.ReadFile(batch)
+			os.WriteFile(batch, bytes.Replace(raw, []byte(`2026-10-24T12:30:00.000Z`), []byte(`2026-10-24T12:31:00.000Z`), 2), 0o600)
+		},
+		"predecessor poisoned": func(t *testing.T, f memFixture, batch string) {
+			if err := f.s.WriteJSON(map[string]any{"units": []any{map[string]any{"trials": []string{"run-1"}}}}, "state", "evals", "work", "r1.json"); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := membershipFixture(t)
+			var batch string
+			if name == "predecessor open" {
+				mustOpen(t, f)
+			} else {
+				_, batch = sealedFirstEpoch(t, f)
+			}
+			change(t, f, batch)
+			before := membershipFiles(t, f)
+			if _, err := EpochOpen(f.s, memLabel, f.policy, memNow); err == nil {
+				t.Fatal("a next epoch opened over an invalid predecessor")
+			}
+			after := membershipFiles(t, f)
+			if len(after) != len(before) {
+				t.Fatalf("a refused open wrote files: %d -> %d", len(before), len(after))
+			}
+			for k, v := range before {
+				if after[k] != v {
+					t.Fatalf("a refused open changed %s", k)
+				}
+			}
+		})
+	}
+}
+
+// C3: no seal, with or without members, after the unit closed; nothing is appended.
+func TestMembershipSealNeedsAnOpenUnitRevision(t *testing.T) {
+	for _, members := range []bool{false, true} {
+		f := membershipFixture(t)
+		e := mustOpen(t, f)
+		if members {
+			x := mustEnroll(t, f, e, "task-1", "run-1")
+			if err := e.Finish(f.s, x, nil); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := WorkJoin(f.s, memLabel, TaskID(f.s.Key(), "external-task"), memNow); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := WorkClose(f.s, memLabel, "abandoned", memNow); err != nil {
+			t.Fatal(err)
+		}
+		before := spoolBytes(t, f, 1)
+		if _, err := e.Seal(f.s, memNow); !errors.Is(err, ErrMembership) {
+			t.Fatalf("members %v: sealed a closed unit: %v", members, err)
+		}
+		if !bytes.Equal(before, spoolBytes(t, f, 1)) || len(membershipObservations(t, f.s)) != 0 {
+			t.Fatalf("members %v: a refused seal wrote", members)
+		}
+	}
+}

@@ -445,6 +445,15 @@ func latestRevision(u *WorkUnit) (scope, revision string, err error) {
 	return scope, revision, nil
 }
 
+// latestOpenRevision is the unit's latest journal revision, which must be an open revision of an
+// open unit.
+func latestOpenRevision(u *WorkUnit) (scope, revision string, err error) {
+	if u.State != "open" || len(u.Revisions) == 0 || u.Revisions[len(u.Revisions)-1]["state"] != "open" {
+		return "", "", fmt.Errorf("%w: the work unit is not open", ErrMembership)
+	}
+	return latestRevision(u)
+}
+
 // readBounded reads one store file of at most limit bytes (a larger file refuses).
 func readBounded(s *store.Store, p string, limit int64) ([]byte, error) {
 	if err := s.CheckPath(p); err != nil {
@@ -718,7 +727,7 @@ func EpochOpen(s *store.Store, label string, p MembershipPolicy, now time.Time) 
 	n := len(ns) + 1
 	var predecessor any
 	if n > 1 {
-		prev, err := sealedMembership(s, label, n-1)
+		prev, err := publishedChain(s, label, n-1, now)
 		if err != nil {
 			return nil, err
 		}
@@ -726,7 +735,7 @@ func EpochOpen(s *store.Store, label string, p MembershipPolicy, now time.Time) 
 			return nil, err
 		}
 	}
-	scope, revision, err := latestRevision(u)
+	scope, revision, err := latestOpenRevision(u)
 	if err != nil {
 		return nil, err
 	}
@@ -1004,21 +1013,49 @@ type sealedBatch struct {
 	Observations []activity.Observation `json:"observations"`
 }
 
-// sealedMembership is the published membership body of a sealed epoch (from its persisted batch,
-// checked against its spool).
-func sealedMembership(s *store.Store, label string, n int) (map[string]any, error) {
-	v, err := readEpoch(s, label, n)
+// publishedChain validates the sealed epochs 1..k of a unit on use and returns the body of
+// epoch k: each epoch reloads with its own frozen policy and pins, its spool is sealed, it has no
+// foreign owner, its persisted batch equals its spool and is committed (a missing commit is
+// recovered by publishing the persisted bytes, or the deterministic bytes of a sealed spool), and
+// epoch 1 names no predecessor while each later epoch names the digest of the whole previous
+// record.
+func publishedChain(s *store.Store, label string, k int, now time.Time) (map[string]any, error) {
+	owners, err := refOwners(s)
 	if err != nil {
 		return nil, err
 	}
-	b, err := loadSealed(s, label, n, v)
-	if err != nil {
-		return nil, err
+	var prev map[string]any
+	for i := 1; i <= k; i++ {
+		e := &Epoch{label: label, n: i}
+		le, err := e.reload(s)
+		if err != nil {
+			return nil, err
+		}
+		if !le.view.sealed {
+			return nil, fmt.Errorf("%w: epoch %d is not sealed", ErrMembership, i)
+		}
+		if err := e.poisoned(s, owners, le); err != nil {
+			return nil, err
+		}
+		if _, err := e.publishSealedLocked(s, le, now); err != nil {
+			return nil, err
+		}
+		b, err := loadSealed(s, label, i, le.view)
+		if err != nil || b == nil {
+			return nil, damaged("published epoch")
+		}
+		var want any
+		if i > 1 {
+			if want, err = hint.Digest(prev); err != nil {
+				return nil, err
+			}
+		}
+		if le.view.open["predecessor_epoch_digest"] != want {
+			return nil, damaged("predecessor chain")
+		}
+		prev = membershipBody(b.Observations[0].Membership)
 	}
-	if b == nil {
-		return nil, fmt.Errorf("%w: the previous epoch is not sealed and published", ErrMembership)
-	}
-	return membershipBody(b.Observations[0].Membership), nil
+	return prev, nil
 }
 
 func membershipBody(m *activity.Membership) map[string]any {
@@ -1071,12 +1108,13 @@ func orchestratorSource(key []byte, unit string, n int) activity.Source {
 		Capabilities: []string{"membership"}, Unavailable: hint.OrchestratorUnavailable()}
 }
 
-// Seal closes the epoch administratively and publishes it. It needs every enrolled execution
-// terminal, every enrolled attempt still open (the seal precedes any artifact verification) and
-// every listed ledger written; it appends epoch_seal with the latest journal revision, persists
-// the deterministic batch bytes, then commits the batch. A replay (also after a crash or an hour
-// boundary) republishes the persisted bytes unchanged. A seal states no quiescence, completion or
-// usage: unconfirmed, refused and incomplete executions stay unknown.
+// Seal closes the epoch administratively and publishes it. It needs an open unit whose latest
+// journal revision is open (whatever the members), every enrolled execution terminal, every
+// enrolled attempt still open (the seal precedes any artifact verification) and every listed
+// ledger written; it appends epoch_seal with that open revision, persists the deterministic batch
+// bytes, then commits the batch. A replay (also after a crash or an hour boundary) republishes the
+// persisted bytes unchanged. A seal states no quiescence, completion or usage: unconfirmed,
+// refused and incomplete executions stay unknown.
 func (e *Epoch) Seal(s *store.Store, now time.Time) (string, error) {
 	lock, err := s.LockState(true)
 	if err != nil {
@@ -1087,25 +1125,18 @@ func (e *Epoch) Seal(s *store.Store, now time.Time) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	key := s.Key()
 	owners, err := refOwners(s)
 	if err != nil {
 		return "", err
 	}
-	for _, x := range le.view.order {
-		if e.foreignOwner(s, owners, le.unit, le.view.exec[x]) {
-			return "", fmt.Errorf("%w: another record owns an execution's run or execution reference; the epoch is not published", ErrMembership)
-		}
+	if err := e.poisoned(s, owners, le); err != nil {
+		return "", err
 	}
-	if le.view.sealed {
-		b, err := loadSealed(s, e.label, e.n, le.view)
+	if !le.view.sealed {
+		_, revision, err := latestOpenRevision(le.unit)
 		if err != nil {
 			return "", err
 		}
-		if b != nil {
-			return b.Observations[0].ObservationID, writeActivityBatchLocked(s, b.Source, b.Observations)
-		}
-	} else {
 		for _, x := range le.view.order {
 			if le.view.final[x] == nil {
 				return "", fmt.Errorf("%w: an enrolled execution has no terminal finish", ErrMembership)
@@ -1122,23 +1153,43 @@ func (e *Epoch) Seal(s *store.Store, now time.Time) (string, error) {
 				return "", fmt.Errorf("%w: a listed ledger is not written", ErrMembership)
 			}
 		}
-		_, revision, err := latestRevision(le.unit)
-		if err != nil {
-			return "", err
-		}
 		if err := appendEvent(s, e.label, e.n, le.view, map[string]any{"kind": "epoch_seal", "frozen_open_revision_digest": revision, "executions": len(le.view.order)}); err != nil {
 			return "", err
 		}
 		le.view.sealed = true
 	}
-	// the spool is sealed and no batch is persisted yet: build, persist, publish
+	return e.publishSealedLocked(s, le, now)
+}
+
+// poisoned refuses an epoch with an execution whose run or execution reference has a foreign
+// owner.
+func (e *Epoch) poisoned(s *store.Store, owners map[string][]refOwner, le *lockedEpoch) error {
+	for _, x := range le.view.order {
+		if e.foreignOwner(s, owners, le.unit, le.view.exec[x]) {
+			return fmt.Errorf("%w: another record owns an execution's run or execution reference; the epoch is not published", ErrMembership)
+		}
+	}
+	return nil
+}
+
+// publishSealedLocked publishes a sealed spool: the persisted batch bytes when they exist,
+// otherwise the deterministic batch built now, persisted first and then committed.
+func (e *Epoch) publishSealedLocked(s *store.Store, le *lockedEpoch, now time.Time) (string, error) {
+	b, err := loadSealed(s, e.label, e.n, le.view)
+	if err != nil {
+		return "", err
+	}
+	if b != nil {
+		return b.Observations[0].ObservationID, writeActivityBatchLocked(s, b.Source, b.Observations)
+	}
+	key := s.Key()
 	body := spoolBody(le.unit.UnitRef, le.view)
 	if hint.MembershipProblem(body) {
 		return "", damaged("sealed membership")
 	}
 	var m activity.Membership
-	b, _ := json.Marshal(body)
-	if err := json.Unmarshal(b, &m); err != nil {
+	raw, _ := json.Marshal(body)
+	if err := json.Unmarshal(raw, &m); err != nil {
 		return "", err
 	}
 	src := orchestratorSource(key, le.unit.UnitRef, e.n)
@@ -1148,8 +1199,7 @@ func (e *Epoch) Seal(s *store.Store, now time.Time) (string, error) {
 		Outcome: activity.Outcome{Status: "success"}, Membership: &m, Missing: []string{},
 		Provenance: activity.Provenance{CapturedAt: at, SourceEventID: hint.DeriveID(key, "membership-event", le.unit.UnitRef, strconv.Itoa(e.n)),
 			Transformations: []activity.Transform{{Step: "normalize", Tool: "hint-cli", Version: "0.1.0"}}}}
-	batch := sealedBatch{Source: src, Observations: []activity.Observation{o}}
-	c, err := hint.Canonical(batch)
+	c, err := hint.Canonical(sealedBatch{Source: src, Observations: []activity.Observation{o}})
 	if err != nil {
 		return "", err
 	}
