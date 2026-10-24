@@ -299,6 +299,11 @@
     "code": "observation",
     "level": "schema"
   },
+  "cli-root-adapter-version.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
   "cli-root-claims-collection.json": {
     "base": "activity-cli-root.json",
     "code": "source_cli_root_inconsistent",
@@ -344,10 +349,25 @@
     "code": "source_cli_root_inconsistent",
     "level": "semantic"
   },
+  "cli-root-other-agent-version.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
+  "cli-root-other-agent.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
+  },
   "cli-root-unknown-adapter-name.json": {
     "base": "activity-cli-root.json",
     "code": "source",
     "level": "schema"
+  },
+  "cli-root-unknown-agent-version.json": {
+    "base": "activity-cli-root.json",
+    "code": "source_cli_root_inconsistent",
+    "level": "semantic"
   },
   "cli-root-usage-normalization.json": {
     "base": "activity-cli-root.json",

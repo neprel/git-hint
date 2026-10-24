@@ -72,6 +72,10 @@ func cliRootInvalid(calls M) []invalidCase {
 		semantic("cli-root-usage-normalization", func(d M) { src(d)["usage_normalization"] = "openai-compat-usage-v1" }),
 		semantic("cli-root-observation-not-log", func(d M) { last(d)["source"] = "plugin" }),
 		semantic("cli-root-observation-turn", func(d M) { last(d)["correlation"].(map[string]any)["turn_id"] = id("turn", "t") }),
+		semantic("cli-root-adapter-version", func(d M) { src(d)["adapter"].(map[string]any)["version"] = "9.0.0" }),
+		semantic("cli-root-other-agent", func(d M) { src(d)["agent"] = "claude-code" }),
+		semantic("cli-root-other-agent-version", func(d M) { src(d)["agent_version"] = "2.0.22" }),
+		semantic("cli-root-unknown-agent-version", func(d M) { src(d)["agent_version"] = nil }),
 		semantic("cli-root-observation-trace", func(d M) { last(d)["correlation"].(map[string]any)["trace_id"] = id("trace", "t") }),
 		// a terminal-only record never gains closure authority: a flushed SESSION closure, or a
 		// SESSION record at all, copied onto the CLI source is refused

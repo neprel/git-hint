@@ -70,7 +70,11 @@ const (
 
 // The root CLI adapter: its version fixes the measurement scope (opencode-cli-root 0.1.0: the
 // terminal tool records of the root session in OpenCode 2.0.26 run JSON output).
-const CLIRootAdapter = "opencode-cli-root"
+const (
+	CLIRootAdapter        = "opencode-cli-root"
+	CLIRootAdapterVersion = "0.1.0"
+	CLIRootAgentVersion   = "2.0.26"
+)
 
 var (
 	cliRootCapabilities = []string{"time.start", "time.end", "targets", "outcome.status", "outcome.exit_code", "size", "content_delivery",
@@ -81,9 +85,14 @@ var (
 )
 
 // SourceCLIRootProblem reports whether a root CLI adapter source declares anything else than its
-// scope: every fixed capability, optionally the declared task, family and run correlations,
-// nothing more; every unobservable field listed as unavailable; no usage normalization.
+// scope: the exact reviewed adapter version, agent and agent version; every fixed capability,
+// optionally the declared task, family and run correlations, nothing more; every unobservable
+// field listed as unavailable; no usage normalization.
 func SourceCLIRootProblem(src map[string]any) bool {
+	a, _ := src["adapter"].(map[string]any)
+	if str(a["version"]) != CLIRootAdapterVersion || str(src["agent"]) != "opencode" || str(src["agent_version"]) != CLIRootAgentVersion {
+		return true
+	}
 	caps, unavail := strs(src["capabilities"]), strs(src["unavailable"])
 	for _, c := range cliRootCapabilities {
 		if !contains(caps, c) {
