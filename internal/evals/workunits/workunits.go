@@ -21,6 +21,7 @@ import (
 	"github.com/neprel/git-hint/internal/evals/report"
 	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/hint"
+	projectstate "github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/store"
 )
 
@@ -294,7 +295,7 @@ func attempt(s *store.Store, run, eval, name string, t, ev map[string]any) map[s
 		check = str(ag["model_check"])
 	}
 	n := fmt.Sprint(int(num(t["attempt"])))
-	return plain(map[string]any{"attempt_ref": ref("attempt", "controlled", run, eval, n), "task_ids": []any{}, "outcome": out, "closure": closure,
+	return plain(map[string]any{"attempt_ref": ref("attempt", "controlled", run, eval, n), "task_ids": controlledTaskIDs(s, t), "outcome": out, "closure": closure,
 		"application_change_set": nil, "usage": usage, "usage_provenance": prov, "coverage": map[string]any{"tasks": 1, "tasks_with_complete_usage": complete},
 		"trial_ref": tr, "trial_outcome": outcome, "model_check": check, "ordinal": int(num(t["attempt"])),
 		"checks": map[string]any{"mandatory": len(mandatory), "present": present, "passed": passed}, "qualification": nullable(qual)}).(map[string]any)
@@ -472,4 +473,14 @@ func canon(v any) string {
 	}
 	b, _ := json.Marshal(plain(v))
 	return string(b)
+}
+
+// controlledTaskIDs uses the run's declared objective task, exactly as its ledger/behavior.
+// It is not the eval report's optional original source-session task provenance.
+func controlledTaskIDs(s *store.Store, t map[string]any) []any {
+	objective := str(t["objective"])
+	if objective == "" {
+		return []any{}
+	}
+	return []any{projectstate.TaskID(s.Key(), objective)}
 }

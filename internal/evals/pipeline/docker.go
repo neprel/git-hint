@@ -70,8 +70,10 @@ type jobResult struct {
 		LedgerFinal *bool                `json:"ledger_final"`
 		SealedAt    string               `json:"ledger_sealed_at"`
 		AgentBinary struct {
-			Target string `json:"target"`
+			Target  string `json:"target"`
+			Version string `json:"version"`
 		} `json:"agent_binary"`
+		AgentOutput map[string]string `json:"agent_output"`
 	} `json:"hint_container"`
 }
 

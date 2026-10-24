@@ -49,7 +49,9 @@ type SuiteReport struct {
 	// LedgersNotWritten counts container-runner attempts whose ledger could not be handed
 	// over (their usage stays unknown)
 	LedgersNotWritten int `json:"ledgers_not_written,omitempty"`
-	Kept              int `json:"run_dirs_kept,omitempty"` // results that could not be archived stay on disk
+	// BehaviorImportProblems counts unavailable/rejected CLI captures or failed local diagnostics.
+	BehaviorImportProblems int `json:"behavior_import_problems,omitempty"`
+	Kept                   int `json:"run_dirs_kept,omitempty"` // results that could not be archived stay on disk
 }
 
 // RunSuite freezes a suite and runs bounded trials. Every attempt is recorded.
@@ -270,18 +272,25 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				zero := int64(0)
 				in.Requests = &zero
 			}
-			// the results are evidence: archive them before the work directory goes
+			// Preserve the frozen raw audit archive and trial artifact linkage before import.
 			_ = l.RecordExternal(library.External{Kind: "job_dir", Name: work})
 			archived, kerr := keepRun(l, work)
 			if kerr == nil {
 				in.Artifacts = []string{archived}
 			}
-			_ = l.Consume(job, int(reqs), 0, 1, time.Since(started).Seconds()) // no retry of HINT's own model client
+			_ = l.Consume(job, int(reqs), 0, 1, time.Since(started).Seconds())
 			name, err := suites.RecordTrial(l, in, trials[0])
 			if err != nil {
-				return rep, err // the work directory stays
+				return rep, err
 			}
 			if o.Agent == "opencode" && o.Live != nil {
+				behavior := handOverBehavior(ctx, s, l, rec, work, manifest, name, b.Objective, str(m.(map[string]any)["task_family"]), trials[0].Exception == "")
+				if behavior.State != "imported" {
+					rep.BehaviorImportProblems++
+				}
+				if l.PutIndex("behavior-import/"+name, behavior) != nil {
+					rep.BehaviorImportProblems++
+				}
 				if err := workunits.Record(s, l, job, ref, name); err != nil {
 					return rep, err
 				}
