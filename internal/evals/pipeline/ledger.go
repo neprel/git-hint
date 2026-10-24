@@ -47,22 +47,43 @@ type ProjectRun struct {
 // ErrLedger is returned for a ledger that is not written (nothing was written).
 var ErrLedger = errors.New("the ledger is not written")
 
+// LedgerWriteReceipt identifies exactly one persisted ledger emission. It does not
+// assert latest revision, complete traffic, trust or calibration eligibility.
+// All fields own their values; no mutable account or source pointers escape.
+type LedgerWriteReceipt struct {
+	ObservationID           string
+	ObservationDigest       string
+	SourceID                string
+	SourceDeclarationDigest string
+	LedgerRef               string
+	LedgerDigest            string
+	Revision                int
+	Binding                 activity.LedgerBinding
+}
+
 // WriteLedger writes the USAGE record of one ledger revision (draft v0.2) to the activity
 // spool. It refuses an inconsistent account, a revision that is not the next one, a second
 // body for a written revision, a changed binding or seal time, and a revision that rewrites
 // or heals the sealed ledger; a replay of a written revision writes nothing. It returns a
 // short status line.
 func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
+	status, _, err := WriteLedgerWithReceipt(s, in)
+	return status, err
+}
+
+// WriteLedgerWithReceipt uses the same writer as WriteLedger. Every failure returns
+// a nil receipt; exact replay requires the matching persisted source declaration.
+func WriteLedgerWithReceipt(s *store.Store, in LedgerInput) (string, *LedgerWriteReceipt, error) {
 	names := []string{in.Trial, in.Run, in.Eval, in.Task, in.Family}
 	if in.Project != nil {
 		if in.Trial != "" || in.Run != "" || in.Eval != "" || in.Attempt != 0 {
-			return "", fmt.Errorf("%w: a project ledger names no trial, run, eval or attempt", ErrLedger)
+			return "", nil, fmt.Errorf("%w: a project ledger names no trial, run, eval or attempt", ErrLedger)
 		}
 		names = []string{in.Project.Label, in.Project.Run, in.Task, in.Family}
 	}
 	for _, v := range names {
 		if !project.ValidTaskID(v) {
-			return "", fmt.Errorf("%w: the input names an unusable trial, run, eval, task or family", ErrLedger)
+			return "", nil, fmt.Errorf("%w: the input names an unusable trial, run, eval, task or family", ErrLedger)
 		}
 	}
 	key := s.Key()
@@ -76,7 +97,7 @@ func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
 	}
 	m.LedgerRef, m.Revision, m.SealedAt = activity.LedgerRef(key, runRef), in.Revision, in.SealedAt
 	if in.Report.SealedAt != "" && in.Report.SealedAt != in.SealedAt {
-		return "", fmt.Errorf("%w: the account's seal time is not the handed-over seal time", ErrLedger)
+		return "", nil, fmt.Errorf("%w: the account's seal time is not the handed-over seal time", ErrLedger)
 	}
 	ledgerEntries(&m, key, in.Report)
 	m.Binding = activity.LedgerBinding{RunRef: runRef, TaskID: project.TaskID(key, in.Task), TaskFamilyID: activity.FamilyRef(key, in.Family),
@@ -84,29 +105,51 @@ func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
 		AttemptRef: hint.EvalRef(key, "attempt", "controlled", in.Run, in.Eval, fmt.Sprint(in.Attempt))}
 	if pr := in.Project; pr != nil {
 		if pr.ExecutionRef != hint.EvalRef(key, "execution", pr.Label, pr.Run) {
-			return "", fmt.Errorf("%w: the execution reference is not the enrolled one of this unit and run", ErrLedger)
+			return "", nil, fmt.Errorf("%w: the execution reference is not the enrolled one of this unit and run", ErrLedger)
 		}
 		m.Binding.UnitRef, m.Binding.AttemptRef = hint.EvalRef(key, "work-unit", pr.Label), pr.AttemptRef
 		m.Binding.Origin, m.Binding.ExecutionRef = "project", pr.ExecutionRef
 	}
 	if p := activity.LedgerProblems(m); len(p) > 0 {
-		return "", fmt.Errorf("%w: the ledger is inconsistent (%v)", ErrLedger, p)
+		return "", nil, fmt.Errorf("%w: the ledger is inconsistent (%v)", ErrLedger, p)
 	}
 	src := activity.LedgerSource(key, in.Agent, in.Configuration)
 	o := activity.LedgerObservation(key, src, m)
+	observationDigest, err := hint.Digest(o)
+	if err != nil {
+		return "", nil, err
+	}
+	sourceDigest, err := hint.Digest(src)
+	if err != nil {
+		return "", nil, err
+	}
+	ledgerDigest, err := hint.Digest(m)
+	if err != nil {
+		return "", nil, err
+	}
+	receipt := LedgerWriteReceipt{ObservationID: o.ObservationID, ObservationDigest: observationDigest, SourceID: src.SourceID,
+		SourceDeclarationDigest: sourceDigest, LedgerRef: m.LedgerRef, LedgerDigest: ledgerDigest, Revision: m.Revision, Binding: m.Binding}
 	lock, err := s.LockState(true)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer lock.Unlock()
 	if in.Project != nil {
 		if err := projectAttempt(s, in.Project.Label, in.Project.AttemptRef, m.Binding.TaskID); err != nil {
-			return "", err
+			return "", nil, err
 		}
+	}
+	sources, err := project.Sources(s)
+	if err != nil {
+		return "", nil, err
+	}
+	existingSource, sourceExists := sources[src.SourceID]
+	if sourceExists && !sameJSON(existingSource, src) {
+		return "", nil, fmt.Errorf("%w: a different declaration for the ledger source", ErrLedger)
 	}
 	obs, _, err := project.ReadSpool(s)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	next := 0
 	var prev *activity.ModelLedger
@@ -116,31 +159,34 @@ func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
 			continue
 		}
 		if l.Binding != m.Binding || l.SealedAt != m.SealedAt {
-			return "", fmt.Errorf("%w: the ledger changes its binding or seal time", ErrLedger)
+			return "", nil, fmt.Errorf("%w: the ledger changes its binding or seal time", ErrLedger)
 		}
 		if l.Revision == m.Revision {
 			if !sameJSON(x, o) {
-				return "", fmt.Errorf("%w: a different body for a written ledger revision", ErrLedger)
+				return "", nil, fmt.Errorf("%w: a different body for a written ledger revision", ErrLedger)
 			}
-			return "revision already written", nil
+			if !sourceExists {
+				return "", nil, fmt.Errorf("%w: the written ledger source is missing", ErrLedger)
+			}
+			return "revision already written", &receipt, nil
 		}
 		if l.Revision+1 > next {
 			next, prev = l.Revision+1, l
 		}
 	}
 	if m.Revision != next {
-		return "", fmt.Errorf("%w: the ledger revision must be %d", ErrLedger, next)
+		return "", nil, fmt.Errorf("%w: the ledger revision must be %d", ErrLedger, next)
 	}
 	if prev != nil && activity.LedgerLifecycleProblem(*prev, m) {
-		return "", fmt.Errorf("%w: the revision rewrites or heals the sealed ledger (only late traffic can be added)", ErrLedger)
+		return "", nil, fmt.Errorf("%w: the revision rewrites or heals the sealed ledger (only late traffic can be added)", ErrLedger)
 	}
 	if err := project.RegisterSource(s, src); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := project.AppendObservation(s, o); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return fmt.Sprintf("revision %d written (%s)", m.Revision, m.State), nil
+	return fmt.Sprintf("revision %d written (%s)", m.Revision, m.State), &receipt, nil
 }
 
 // projectAttempt checks that the work attempt is an attempt of the unit and that the task is one

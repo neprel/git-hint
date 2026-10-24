@@ -113,22 +113,27 @@ func ledgerConfiguration(key []byte, m workunits.Manifest) (activity.Configurati
 // teardown_incomplete whatever its account says; an attempt without a ledger writes nothing
 // (its usage stays unknown; no totals are made up).
 func handOverLedger(s *store.Store, work string, m workunits.Manifest, trial, run, eval string, attempt int, task, family string) error {
+	_, err := handOverLedgerWithReceipt(s, work, m, trial, run, eval, attempt, task, family)
+	return err
+}
+
+func handOverLedgerWithReceipt(s *store.Store, work string, m workunits.Manifest, trial, run, eval string, attempt int, task, family string) (*LedgerWriteReceipt, error) {
 	r, err := readJobResult(work)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if r.Container.Ledger == nil {
-		return nil
+		return nil, nil
 	}
 	if r.Container.SealedAt == "" {
-		return errors.New("the ledger has no seal time")
+		return nil, errors.New("the ledger has no seal time")
 	}
 	cfg, err := ledgerConfiguration(s.Key(), m)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	final := r.Container.LedgerFinal != nil && *r.Container.LedgerFinal
-	_, err = WriteLedger(s, LedgerInput{Trial: trial, Run: run, Eval: eval, Attempt: attempt, Task: task, Family: family, Agent: "opencode",
+	_, receipt, err := WriteLedgerWithReceipt(s, LedgerInput{Trial: trial, Run: run, Eval: eval, Attempt: attempt, Task: task, Family: family, Agent: "opencode",
 		Configuration: cfg, Revision: 0, SealedAt: r.Container.SealedAt, Report: *r.Container.Ledger, NotFinal: !final})
-	return err
+	return receipt, err
 }

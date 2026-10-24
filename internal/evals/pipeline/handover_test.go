@@ -46,10 +46,25 @@ func TestLedgerHandOver(t *testing.T) {
 			}
 			b, _ := json.Marshal(map[string]any{"hint_container": hc})
 			os.WriteFile(filepath.Join(dir, "result.json"), b, 0o600)
+			var firstReceipt *LedgerWriteReceipt
 			for i := 0; i < 2; i++ { // the second hand-over is a replay
-				if err := handOverLedger(s, work, m, "tr-0123456789abcdef", m.RunID, "ev-0123456789abcdef@2", 1, "ev-0123456789abcdef", "tf-0123456789abcdef"); err != nil {
+				receipt, err := handOverLedgerWithReceipt(s, work, m, "tr-0123456789abcdef", m.RunID, "ev-0123456789abcdef@2", 1, "ev-0123456789abcdef", "tf-0123456789abcdef")
+				if err != nil {
 					t.Fatal(err)
 				}
+				if (receipt == nil) != (c.ledger == nil) {
+					t.Fatal("missing ledger invented a receipt, or written ledger lost it")
+				}
+				if receipt != nil {
+					checkPersistedReceipt(t, s, receipt)
+					if firstReceipt != nil && *receipt != *firstReceipt {
+						t.Fatal("hand-over replay changed receipt")
+					}
+					firstReceipt = receipt
+				}
+			}
+			if err := handOverLedger(s, work, m, "tr-0123456789abcdef", m.RunID, "ev-0123456789abcdef@2", 1, "ev-0123456789abcdef", "tf-0123456789abcdef"); err != nil {
+				t.Fatal(err)
 			}
 			obs, _, err := project.ReadSpool(s)
 			if err != nil {

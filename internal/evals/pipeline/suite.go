@@ -55,6 +55,8 @@ type SuiteReport struct {
 	// BehaviorImportProblems counts unavailable/rejected CLI captures or failed local diagnostics.
 	BehaviorImportProblems int `json:"behavior_import_problems,omitempty"`
 	Kept                   int `json:"run_dirs_kept,omitempty"` // results that could not be archived stay on disk
+	// LedgerReceipts retain original in-memory emissions only; reports and exports omit them.
+	LedgerReceipts []LedgerWriteReceipt `json:"-"`
 }
 
 // RunSuite freezes a suite and runs bounded trials. Every attempt is recorded.
@@ -309,8 +311,10 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				if err := workunits.Record(s, l, job, ref, name); err != nil {
 					return rep, err
 				}
-				if handOverLedger(s, work, manifest, name, job, ref, a, b.Objective, str(m.(map[string]any)["task_family"])) != nil {
+				if receipt, err := handOverLedgerWithReceipt(s, work, manifest, name, job, ref, a, b.Objective, str(m.(map[string]any)["task_family"])); err != nil {
 					rep.LedgersNotWritten++
+				} else if receipt != nil {
+					rep.LedgerReceipts = append(rep.LedgerReceipts, *receipt)
 				}
 			}
 			rep.Trials++

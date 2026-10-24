@@ -119,6 +119,22 @@ func TestRunSuiteImportsAtomicCLIRootWithExactLedgerAndJournalBinding(t *testing
 		}
 		t.Fatalf("run %+v %v", rep, err)
 	}
+	if len(rep.LedgerReceipts) != rep.Trials || rep.Trials == 0 {
+		t.Fatal("suite did not retain each original ledger emission")
+	}
+	for i := range rep.LedgerReceipts {
+		checkPersistedReceipt(t, s, &rep.LedgerReceipts[i])
+	}
+	withReceipts, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutReceipts := rep
+	withoutReceipts.LedgerReceipts = nil
+	withoutJSON, err := json.Marshal(withoutReceipts)
+	if err != nil || !bytes.Equal(withReceipts, withoutJSON) {
+		t.Fatal("internal receipts changed public suite report JSON", err)
+	}
 	obs, damage, err := project.ReadSpoolChecked(s)
 	if err != nil || damage.Any() {
 		t.Fatal(damage, err)
