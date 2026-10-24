@@ -78,6 +78,11 @@ type RunOptions struct {
 	StudyLaunchPolicy StudyLaunchPolicy
 	// ExpectLaunchDigest is the frozen planned A; required by a study launch only.
 	ExpectLaunchDigest string
+	// BeforeAgentStart, when set, is called once after every prestart check passed and
+	// immediately before the agent container's start is requested (study launch only). It
+	// records a prestart intent, never a confirmed start; an error refuses the attempt before
+	// the launch. Nil keeps the runner's behavior unchanged.
+	BeforeAgentStart func(LaunchFacts) error
 	// CapturePrelaunchTree opts controlled studies into local observed-start evidence.
 	// It does not enable a trusted producer, export source, or change launch policy.
 	CapturePrelaunchTree bool

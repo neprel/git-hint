@@ -181,6 +181,7 @@ func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M)
 	}
 	write(filepath.Join(root, "tests", "conformance", "valid", "model-ledger-agent-run-aggregate.json"), ledgerAgentRunAggregateDoc(act))
 	write(filepath.Join(root, "tests", "conformance", "valid", "model-ledger-entries-revision.json"), ledgerEntriesRevisionDoc(act))
+	write(filepath.Join(root, "tests", "conformance", "valid", "membership-epochs.json"), membershipEpochsDoc(act))
 	write(filepath.Join(root, "tests", "conformance", "vectors", "ledger-selection.json"), M{"vectors": ledgerSelectionVectors(ledgerDoc(act))})
 	// a positive control for the effort rule: an explicitly synthetic complete whole-task choice
 	control := clone(findings)

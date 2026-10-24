@@ -31,6 +31,17 @@ type LedgerInput struct {
 	// NotFinal marks an account whose attempt was not torn down completely (07B-J §23): the
 	// record is incomplete with teardown_incomplete whatever the account says
 	NotFinal bool `json:"not_final,omitempty"`
+	// Project marks the ledger of one HINT-orchestrated project execution (exclusive with Trial,
+	// Run, Eval and Attempt). It is set only in process by the orchestrator: it has no JSON form,
+	// so the adapter ledger input cannot claim a project binding.
+	Project *ProjectRun `json:"-"`
+}
+
+// ProjectRun names a project execution by its raw local unit label and run name, the work
+// attempt it belongs to and its enrolled execution reference. The writer derives the run and
+// execution references itself and checks the attempt against the unit's local state.
+type ProjectRun struct {
+	Label, Run, AttemptRef, ExecutionRef string
 }
 
 // ErrLedger is returned for a ledger that is not written (nothing was written).
@@ -42,13 +53,23 @@ var ErrLedger = errors.New("the ledger is not written")
 // or heals the sealed ledger; a replay of a written revision writes nothing. It returns a
 // short status line.
 func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
-	for _, v := range []string{in.Trial, in.Run, in.Eval, in.Task, in.Family} {
+	names := []string{in.Trial, in.Run, in.Eval, in.Task, in.Family}
+	if in.Project != nil {
+		if in.Trial != "" || in.Run != "" || in.Eval != "" || in.Attempt != 0 {
+			return "", fmt.Errorf("%w: a project ledger names no trial, run, eval or attempt", ErrLedger)
+		}
+		names = []string{in.Project.Label, in.Project.Run, in.Task, in.Family}
+	}
+	for _, v := range names {
 		if !project.ValidTaskID(v) {
 			return "", fmt.Errorf("%w: the input names an unusable trial, run, eval, task or family", ErrLedger)
 		}
 	}
 	key := s.Key()
 	runRef := activity.RunRef(key, in.Trial)
+	if in.Project != nil {
+		runRef = activity.RunRef(key, in.Project.Run)
+	}
 	m := ledgerRecord(in.Report)
 	if in.NotFinal && !slices.Contains(m.Reasons, "teardown_incomplete") {
 		m.State, m.Reasons = "incomplete", append(m.Reasons, "teardown_incomplete")
@@ -61,6 +82,13 @@ func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
 	m.Binding = activity.LedgerBinding{RunRef: runRef, TaskID: project.TaskID(key, in.Task), TaskFamilyID: activity.FamilyRef(key, in.Family),
 		ConfigurationDigest: in.Configuration.Digest(), UnitRef: hint.EvalRef(key, "work-unit", "controlled", in.Run, in.Eval),
 		AttemptRef: hint.EvalRef(key, "attempt", "controlled", in.Run, in.Eval, fmt.Sprint(in.Attempt))}
+	if pr := in.Project; pr != nil {
+		if pr.ExecutionRef != hint.EvalRef(key, "execution", pr.Label, pr.Run) {
+			return "", fmt.Errorf("%w: the execution reference is not the enrolled one of this unit and run", ErrLedger)
+		}
+		m.Binding.UnitRef, m.Binding.AttemptRef = hint.EvalRef(key, "work-unit", pr.Label), pr.AttemptRef
+		m.Binding.Origin, m.Binding.ExecutionRef = "project", pr.ExecutionRef
+	}
 	if p := activity.LedgerProblems(m); len(p) > 0 {
 		return "", fmt.Errorf("%w: the ledger is inconsistent (%v)", ErrLedger, p)
 	}
@@ -71,6 +99,11 @@ func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
 		return "", err
 	}
 	defer lock.Unlock()
+	if in.Project != nil {
+		if err := projectAttempt(s, in.Project.Label, in.Project.AttemptRef, m.Binding.TaskID); err != nil {
+			return "", err
+		}
+	}
 	obs, _, err := project.ReadSpool(s)
 	if err != nil {
 		return "", err
@@ -108,6 +141,24 @@ func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("revision %d written (%s)", m.Revision, m.State), nil
+}
+
+// projectAttempt checks that the work attempt is an attempt of the unit and that the task is one
+// of its member tasks (the unit's local state, read under the caller's lock).
+func projectAttempt(s *store.Store, label, attemptRef, taskID string) error {
+	u, err := project.LoadWork(s, label)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrLedger, err)
+	}
+	for _, a := range u.Attempts {
+		if a.Ref == attemptRef {
+			if !slices.Contains(a.Tasks, taskID) {
+				return fmt.Errorf("%w: the task is not a member task of the work attempt", ErrLedger)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: the work attempt is not an attempt of the unit", ErrLedger)
 }
 
 // ledgerRecord maps the runner's account to the wire form: every count present (the runner's

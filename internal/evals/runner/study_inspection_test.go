@@ -26,6 +26,8 @@ import (
 type studyFakeOptions struct {
 	preexisting, ambiguous, ancestor, launcher, inventory string
 	loader, mismatch                                      bool
+	hook                                                  func(LaunchFacts) error
+	failStart                                             bool // the agent's start request fails
 }
 type storedStudyFile struct {
 	header tar.Header
@@ -259,6 +261,10 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 			st.mu.Lock()
 			st.starts++
 			st.mu.Unlock()
+			if o.failStart {
+				http.Error(w, `{"message":"synthetic start failure"}`, http.StatusInternalServerError)
+				return
+			}
 		}
 		if strings.HasSuffix(p, "/wait") && isAgent(p) {
 			req := httptest.NewRequest("POST", "http://proxy/t/"+c.token+"/chat/completions", strings.NewReader(`{"model":"m"}`))
@@ -294,7 +300,7 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 	task := t.TempDir()
 	os.MkdirAll(filepath.Join(task, "environment", "repo"), 0755)
 	os.WriteFile(filepath.Join(task, "instruction.md"), []byte("do"), 0600)
-	d.trial(context.Background(), task, st.dir, "t__1", RunOptions{Agent: "opencode", Attempts: 1, Live: live, Counter: c, OpenCode: &OpenCodeSource{Version: DockerOpenCodeVersion, TgzFile: file, CacheDir: t.TempDir()}, ExpectTarget: "linux-arm64", StudyLaunchPolicy: StudyLaunchSingleRootV1, CapturePrelaunchTree: true, ExpectLaunchDigest: planned}, taskLimits{agent: time.Second, verifier: time.Second, cpus: 1, memoryMB: 128}, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
+	d.trial(context.Background(), task, st.dir, "t__1", RunOptions{Agent: "opencode", Attempts: 1, Live: live, Counter: c, OpenCode: &OpenCodeSource{Version: DockerOpenCodeVersion, TgzFile: file, CacheDir: t.TempDir()}, ExpectTarget: "linux-arm64", StudyLaunchPolicy: StudyLaunchSingleRootV1, CapturePrelaunchTree: true, ExpectLaunchDigest: planned, BeforeAgentStart: o.hook}, taskLimits{agent: time.Second, verifier: time.Second, cpus: 1, memoryMB: 128}, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
 	var result trialResult
 	raw, err := os.ReadFile(filepath.Join(st.dir, "result.json"))
 	if err != nil || json.Unmarshal(raw, &result) != nil {

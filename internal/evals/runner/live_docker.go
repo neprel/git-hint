@@ -255,6 +255,17 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 			return finish(err)
 		}
 	}
+	// the last step before the start request: the prestart intent of the caller (study launch only)
+	if o.BeforeAgentStart != nil {
+		if res.study == nil || res.study.State != "prepared" {
+			return finish(errors.New("a launch hook requires a prepared study launch"))
+		}
+		facts := LaunchFacts{LaunchDigest: res.study.LaunchDigest, ExecutionDigest: digest, GatePolicyDigest: GatePolicyDigest(),
+			Target: fmt.Sprint(res.agentBinary["target"]), Model: o.Live.model}
+		if err := o.BeforeAgentStart(facts); err != nil {
+			return finish(fmt.Errorf("the launch hook refused the attempt: %w", err))
+		}
+	}
 	runErr := runAgentEnclosed(ctx, d.cli, id, lim.agent, o.Counter, digest)
 	o.Counter.Seal(5*time.Second, bypass, ScopeIsolatedContainer) // revoke admission and drain; not the final account
 	res.sealedAt = o.Counter.SealedAt()

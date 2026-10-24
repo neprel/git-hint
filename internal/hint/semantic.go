@@ -122,10 +122,11 @@ func ObservationOrchestratorProblem(o map[string]any) bool {
 	return false
 }
 
-// membershipFinish are the terminal states without and after a launch.
+// membershipFinish are the terminal states without and after a launch. A launch event is a
+// durable prestart intent, not a confirmed container start, so start_unconfirmed may follow it.
 var (
 	finishWithoutLaunch = []string{"refused_before_launch", "start_unconfirmed"}
-	finishAfterLaunch   = []string{"exited", "exited_nonzero", "stopped_after_timeout", "stopped_after_cancel", "stopped_after_wait_error", "stop_unconfirmed"}
+	finishAfterLaunch   = []string{"exited", "exited_nonzero", "stopped_after_timeout", "stopped_after_cancel", "stopped_after_wait_error", "stop_unconfirmed", "start_unconfirmed"}
 )
 
 // MembershipProblem reports whether one membership epoch is not complete, ordered and sealed:
@@ -608,6 +609,14 @@ func (c *checker) activity(payload map[string]any) {
 		}
 	}
 	memberExec, memberRun, memberEpoch := map[string]bool{}, map[string]bool{}, map[string]bool{} // across the document's membership records
+	type epochRecord struct {
+		unit        string
+		epoch       float64
+		predecessor any
+		body        map[string]any
+		at          int
+	}
+	epochs := map[string]epochRecord{} // unit, epoch -> the membership record that opens it
 	measured := map[string]bool{}
 	family := map[string]string{} // task -> its declared family
 	closed := map[string]bool{}   // source, session, collection ref
@@ -660,6 +669,7 @@ func (c *checker) activity(payload map[string]any) {
 					k := str(mem["unit_ref"]) + "\x00" + fmt.Sprint(num(ev["epoch"]))
 					bad = bad || memberEpoch[k]
 					memberEpoch[k] = true
+					epochs[k] = epochRecord{str(mem["unit_ref"]), num(ev["epoch"]), ev["predecessor_epoch_digest"], mem, i}
 				}
 			}
 			if bad {
@@ -687,6 +697,14 @@ func (c *checker) activity(payload map[string]any) {
 		ref, _, _ := strings.Cut(key, "\x00")
 		if prev, ok := revisions[ref+"\x00"+fmt.Sprint(num(next["revision"])-1)]; ok && ledgerLifecycle(prev, next) {
 			c.add(CodeLedger, "payload.observations[%d].model_ledger", revisionAt[key])
+		}
+	}
+	// a later epoch names the digest of the whole previous sealed epoch when both are in the document
+	for _, e := range epochs {
+		if prev, ok := epochs[e.unit+"\x00"+fmt.Sprint(e.epoch-1)]; ok {
+			if d, err := Digest(prev.body); err != nil || str(e.predecessor) != d {
+				c.add(CodeMembership, "payload.observations[%d].membership", e.at)
+			}
 		}
 	}
 	for i, x := range list(payload["metrics"]) {

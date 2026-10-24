@@ -1409,6 +1409,21 @@
     "code": "observation",
     "level": "schema"
   },
+  "membership-predecessor-is-head.json": {
+    "base": "membership-epochs.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-predecessor-of-events-only.json": {
+    "base": "membership-epochs.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
+  "membership-predecessor-other.json": {
+    "base": "membership-epochs.json",
+    "code": "membership_inconsistent",
+    "level": "semantic"
+  },
   "membership-refused-after-launch.json": {
     "base": "activity-membership.json",
     "code": "membership_inconsistent",

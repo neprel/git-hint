@@ -37,7 +37,24 @@ func (o RunOptions) checkStudyLaunch() error {
 	if o.StudyLaunchPolicy != "" && !prelaunchDigestPattern.MatchString(o.ExpectLaunchDigest) {
 		return errors.New("study launch needs a frozen planned launch digest")
 	}
+	if o.BeforeAgentStart != nil && o.StudyLaunchPolicy == "" {
+		return errors.New("a launch hook requires a study launch")
+	}
 	return nil
+}
+
+// LaunchFacts are the actual launch facts of an attempt after every prestart check passed: the
+// actual launch digest A (equal to the frozen plan), the execution digest the agent run records,
+// the gate policy identity that entered A, the installed target and the model.
+type LaunchFacts struct {
+	LaunchDigest, ExecutionDigest, GatePolicyDigest, Target, Model string
+}
+
+// GatePolicyDigest is the identity of the network gate policy: the same GatePolicy version and
+// policy text digest that enter the launch digest A.
+func GatePolicyDigest() string {
+	gate := sha256.Sum256([]byte(gatePolicyText))
+	return launchHash([]any{"hint-gate-policy-v1", GatePolicy, hex.EncodeToString(gate[:])})
 }
 
 type launchFile struct {

@@ -29,7 +29,9 @@ var LedgerComponents = []string{"prompt", "completion", "cached", "reasoning"}
 // LedgerBinding ties a ledger to exactly one agent run and its declared task (draft v0.2). All
 // references use the project-scoped eval-report domains: run_ref is the trial reference of the
 // run, unit_ref and attempt_ref the work-unit references, configuration_digest the digest of the
-// run's canonical configuration without its declared part (Configuration.Digest).
+// run's canonical configuration without its declared part (Configuration.Digest). A project
+// run adds origin "project" and the execution_ref of its membership enrollment; attempt_ref stays
+// the project work attempt. A controlled binding has neither field (its bytes are unchanged).
 type LedgerBinding struct {
 	RunRef              string `json:"run_ref"`
 	TaskID              string `json:"task_id"`
@@ -37,6 +39,8 @@ type LedgerBinding struct {
 	ConfigurationDigest string `json:"configuration_digest"`
 	UnitRef             string `json:"unit_ref"`
 	AttemptRef          string `json:"attempt_ref"`
+	Origin              string `json:"origin,omitempty"`        // "" (controlled) or "project"
+	ExecutionRef        string `json:"execution_ref,omitempty"` // project only
 }
 
 // ModelLedger is the sealed account of one run's model traffic at one revision (draft v0.2). It
@@ -223,6 +227,8 @@ func LedgerProblems(m ModelLedger) []string {
 	for _, v := range []string{m.LedgerRef, b.RunRef, b.TaskID, b.TaskFamilyID, b.UnitRef, b.AttemptRef} {
 		bad(!opaque.MatchString(v), "reference %q is not opaque", v)
 	}
+	bad(b.Origin == "" && b.ExecutionRef != "", "a controlled binding with an execution reference")
+	bad(b.Origin != "" && (b.Origin != "project" || !opaque.MatchString(b.ExecutionRef)), "a project binding without an opaque execution reference")
 	// the per-entry rules are shared with the document checker (one Go implementation)
 	var wire map[string]any
 	raw, _ := json.Marshal(m)

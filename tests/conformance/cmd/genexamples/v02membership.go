@@ -158,3 +158,65 @@ func membershipInvalid() []invalidCase {
 		}, nil},
 	}
 }
+
+// membershipEpochsDoc is the membership example plus the second sealed epoch of the same unit:
+// its predecessor is the digest of the whole first epoch, and its one execution was launched
+// (a durable prestart intent) and then start_unconfirmed.
+func membershipEpochsDoc(act M) M {
+	d := membershipDoc(act)
+	d["document_id"] = id("document", "activity", "membership-epochs")
+	obs := obj(d, "payload")["observations"].([]any)
+	first := obs[len(obs)-1].(map[string]any)
+	pred, err := hintconf.Digest(first["membership"])
+	check(err)
+	e3 := id("execution", "unit-1", "run-3")
+	cfg := digestOf("configuration")
+	events := A{
+		M{"seq": 1, "kind": "epoch_open", "epoch": 2, "original_scope_digest": digestOf("scope"), "enrollment_start_revision_digest": digestOf("open-3"),
+			"policy_digest": digestOf("policy"), "coverage": "hint_orchestrated_executions", "predecessor_epoch_digest": pred},
+		M{"seq": 2, "kind": "enroll", "execution_ref": e3, "run_ref": id("run", "run-3"), "attempt_ref": id("attempt", "a2"), "task_id": id("task", "t2"),
+			"planned_configuration_digest": cfg},
+		M{"seq": 3, "kind": "launch", "execution_ref": e3, "launch_digest": digestOf("launch"), "execution_digest": digestOf("execution-3"), "installed_target": "linux-arm64",
+			"model_ref": id("model", "m"), "gate_policy_digest": digestOf("gate"), "source_configuration_digest": cfg,
+			"prestart_checks": M{"target_matches": true, "model_matches": true, "policy_matches": true}, "launch_audit_ref": id("audit", "launch-3")},
+		M{"seq": 4, "kind": "finish", "execution_ref": e3, "finish_state": "start_unconfirmed", "finish_audit_ref": id("audit", "finish-3"), "ledger_ref": nil},
+		M{"seq": 5, "kind": "epoch_seal", "frozen_open_revision_digest": digestOf("open-4"), "executions": 1},
+	}
+	mem := M{"unit_ref": id("unit", "unit-1"), "events": events}
+	rechain(mem)
+	at := "2026-10-11T11:00:07Z"
+	rec := plain(first)
+	rec["observation_id"], rec["membership"] = id("membership", "unit-1", "2"), mem
+	rec["time"] = M{"clock": "collector", "start": at, "end": at}
+	rec["provenance"].(map[string]any)["captured_at"] = at
+	rec["provenance"].(map[string]any)["source_event_id"] = id("membership-event", "unit-1", "2")
+	obj(d, "payload")["observations"] = append(obs, rec)
+	return reseal(d)
+}
+
+// membershipEpochsInvalid are the negative cases of the predecessor rule.
+func membershipEpochsInvalid() []invalidCase {
+	const base = "membership-epochs.json"
+	second := func(d M) M {
+		obs := obj(d, "payload")["observations"].([]any)
+		return obs[len(obs)-1].(map[string]any)["membership"].(map[string]any)
+	}
+	first := func(d M) M {
+		obs := obj(d, "payload")["observations"].([]any)
+		return obs[len(obs)-2].(map[string]any)["membership"].(map[string]any)
+	}
+	opener := func(d M) M { return second(d)["events"].([]any)[0].(map[string]any) }
+	// each case rechains the second epoch, so only the predecessor rule fails
+	pred := func(name string, f func(d M) any) invalidCase {
+		return invalidCase{name, base, "semantic", hintconf.CodeMembership, func(d M) { opener(d)["predecessor_epoch_digest"] = f(d); rechain(second(d)) }, nil}
+	}
+	return []invalidCase{
+		pred("membership-predecessor-other", func(d M) any { return digestOf("other") }),
+		pred("membership-predecessor-is-head", func(d M) any { return first(d)["head_digest"] }),
+		pred("membership-predecessor-of-events-only", func(d M) any {
+			dd, err := hintconf.Digest(first(d)["events"])
+			check(err)
+			return dd
+		}),
+	}
+}
