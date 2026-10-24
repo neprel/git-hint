@@ -91,6 +91,11 @@ type RunOptions struct {
 	// testDigest is the execution digest that agent_run records for a test-agent attempt (tests);
 	// an opencode attempt computes its own
 	testDigest string
+	// capture and captureRef enable the backend captures of a live attempt (both needed; no public
+	// option sets them): the transport of the read-only inspect and the derivation of the
+	// references that replace raw backend identifiers
+	capture    captureTransport
+	captureRef func(kind, raw string) string
 }
 
 // check IDs: C<n> (generated verifier) and B<n> (process-separated behavior checks, B1)

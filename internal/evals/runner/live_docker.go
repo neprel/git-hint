@@ -86,15 +86,27 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	if o.Agent == "test-agent" {
 		digest = o.testDigest
 	}
+	// a capture-enabled attempt chooses the deferred final assembly before anything can seal,
+	// then captures the backend before the agent's launch
+	var capt *capturer
+	var startCap captureSide
+	if o.capture != nil && o.captureRef != nil && o.Counter.deferAssembly() {
+		capt = newCapturer(o.capture, o.captureRef)
+		startCap = capt.capture(ctx, o.Counter)
+	}
 	finish := func(err error) liveResult {
 		// refused before the agent's launch; after the launch runAgentEnclosed has already
 		// recorded the outcome and the first record is kept
 		if digest != "" {
 			o.Counter.recordAgentRun(agentRun{outcome: AgentRefusedBeforeLaunch, digest: digest})
 		}
-		if o.Counter.Report() == nil { // revoke admission on every path that admitted nothing yet
+		if !o.Counter.sealStarted() { // revoke admission on every path that admitted nothing yet
 			o.Counter.Seal(5*time.Second, BypassUnverified, ScopeIsolatedContainer)
 			res.sealedAt = o.Counter.SealedAt()
+		}
+		var endCap captureSide
+		if capt != nil { // after the drain end (Seal returned), before the teardown
+			endCap = capt.capture(ctx, o.Counter)
 		}
 		res.final = true
 		for i := len(cleanups) - 1; i >= 0; i-- {
@@ -102,6 +114,9 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 				res.final = false
 				res.teardown = append(res.teardown, cerr.Error())
 			}
+		}
+		if capt != nil { // the one final assembly, after the teardown attempt, on every path
+			_ = o.Counter.assemble(startCap, endCap)
 		}
 		res.ledger, res.err = o.Counter.Report(), err
 		return res

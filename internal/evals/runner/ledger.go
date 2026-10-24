@@ -3,6 +3,7 @@ package runner
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strings"
@@ -103,6 +104,51 @@ type ledger struct {
 	sealedMono    time.Duration
 	finalizedMono time.Duration
 	agentRun      *agentRun // the agent's launch/exit enclosure, recorded once before the seal
+	// deferred assembly (capture-enabled trials only): no account is exposed until the one final
+	// assembly attached the backend captures
+	deferred, assembled bool
+	capture             *[2]captureSide
+}
+
+// deferAssembly chooses the deferred final assembly before any seal: until assemble, Seal and
+// Report return nil. It says false (and changes nothing) once a seal has started.
+func (c *Counter) deferAssembly() bool {
+	c.ledger.mu.Lock()
+	defer c.ledger.mu.Unlock()
+	if c.ledger.finalized != nil {
+		return false
+	}
+	c.ledger.deferred = true
+	return true
+}
+
+// sealStarted says whether the first seal has started (admission is revoked).
+func (c *Counter) sealStarted() bool {
+	c.ledger.mu.Lock()
+	defer c.ledger.mu.Unlock()
+	return c.ledger.finalized != nil
+}
+
+// errAssembly is a final assembly that is not possible: no deferred mode, no completed seal, or
+// an earlier assembly (which is kept).
+var errAssembly = errors.New("the ledger's final assembly is not possible")
+
+// assemble attaches the backend captures once, after the seal's drain has ended; the first
+// assembly wins and the account is exposed from then on.
+func (c *Counter) assemble(start, end captureSide) error {
+	l := &c.ledger
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.deferred || l.assembled || l.finalized == nil {
+		return errAssembly
+	}
+	select {
+	case <-l.finalized:
+	default:
+		return errAssembly
+	}
+	l.capture, l.assembled = &[2]captureSide{start, end}, true
+	return nil
 }
 
 // agentRun is the agent container's outcome and its launch/exit enclosure as the runner observed
@@ -222,6 +268,8 @@ type LedgerReport struct {
 	ClockStepMs *int64        `json:"clock_step_ms,omitempty"`
 	// the agent's launch/exit enclosure (draft v0.2); offsets only when the entries are present
 	AgentRun *ReportAgentRun `json:"agent_run,omitempty"`
+	// the backend captures of a capture-enabled trial (draft v0.2), attached by the final assembly
+	BackendCapture *ReportBackendCapture `json:"backend_capture,omitempty"`
 }
 
 // ReportAgentRun is the agent container's outcome as the runner observed it: the enclosure in
@@ -321,6 +369,9 @@ func (c *Counter) Report() *LedgerReport {
 	default:
 		return nil
 	}
+	if l.deferred && !l.assembled {
+		return nil // no account before the final assembly
+	}
 	r := &LedgerReport{Counts: map[string]int{}, Components: map[string]int64{}, ComponentsN: map[string]int{},
 		Normalization: UsageNormalization, Bypass: l.bypass, Scope: l.scope, Revision: l.late}
 	model := map[string]int{}
@@ -373,6 +424,7 @@ func (c *Counter) Report() *LedgerReport {
 	}
 	l.entryEvidence(r)
 	l.agentRunEvidence(r)
+	l.captureEvidence(r)
 	sort.Strings(r.Reasons)
 	r.State = "incomplete"
 	if len(r.Reasons) == 0 {
@@ -445,6 +497,31 @@ func (l *ledger) agentRunEvidence(r *LedgerReport) {
 		}
 	}
 	r.AgentRun = x
+}
+
+// captureEvidence adds the assembled backend captures (new values on every call); offsets only
+// when the account has entries. The caller holds the lock.
+func (l *ledger) captureEvidence(r *LedgerReport) {
+	if l.capture == nil {
+		return
+	}
+	side := func(s captureSide) ReportCapture {
+		x := ReportCapture{Status: s.status, Snapshot: s.snap.clone()}
+		if len(r.Entries) > 0 {
+			for _, p := range []struct {
+				from *time.Duration
+				to   **int64
+			}{{s.send, &x.SendMs}, {s.recv, &x.RecvMs}} {
+				if p.from != nil {
+					v := p.from.Milliseconds()
+					*p.to = &v
+				}
+			}
+		}
+		return x
+	}
+	r.BackendCapture = &ReportBackendCapture{Method: CaptureMethod, Collector: map[string]string{"name": CaptureCollector, "version": CaptureVersion},
+		Start: side(l.capture[0]), End: side(l.capture[1])}
 }
 
 // Bounds of the usage reader: the bytes of one usage value, one stream line and the nesting

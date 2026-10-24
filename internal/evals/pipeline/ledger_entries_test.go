@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -165,5 +166,55 @@ func TestProducedAgentRunPassesTheChecker(t *testing.T) {
 	e.AgentRun = &runner.ReportAgentRun{Outcome: runner.AgentRefusedBeforeLaunch, ExecutionDigest: digest}
 	if p := activity.LedgerProblems(record(t, e)); len(p) != 0 {
 		t.Fatalf("a refusal before the launch without requests is refused: %v", p)
+	}
+}
+
+// The assembled backend captures are copied to the record as recorded (own memory) and pass the
+// public checker; a written revision 0 is never enriched: the same revision with other captures
+// is refused, a replay writes nothing.
+func TestProducedBackendCapturePassesAndIsNeverEnriched(t *testing.T) {
+	_, c, url := proxy(t, "", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"usage":{"prompt_tokens":7,"completion_tokens":2}}`)
+	})
+	send(context.Background(), url)
+	r := c.Seal(time.Second, runner.BypassEnforced, runner.ScopeIsolatedContainer)
+	zero, code, final := int64(0), 0, *r.FinalizedMs
+	digest := "sha256:" + strings.Repeat("b", 64)
+	r.AgentRun = &runner.ReportAgentRun{Outcome: runner.AgentExited, ExitCode: &code, EnclosureStartMs: &zero, EnclosureEndMs: r.SealedMs, ExecutionDigest: digest}
+	t1, l := true, int64(262144)
+	snap := &runner.CaptureSnapshot{ImageID: "sha256:" + strings.Repeat("a", 64), HostRef: strings.Repeat("1", 32), ContainerRef: strings.Repeat("2", 32),
+		Flags: runner.CaptureFlags{PromptTokensDetails: &t1, MaxModelLen: &l}}
+	endSend, endRecv := final, final+5
+	r.BackendCapture = &runner.ReportBackendCapture{Method: runner.CaptureMethod, Collector: map[string]string{"name": runner.CaptureCollector, "version": runner.CaptureVersion},
+		Start: runner.ReportCapture{Status: runner.CaptureComplete, SendMs: &zero, RecvMs: &zero, Snapshot: snap},
+		End:   runner.ReportCapture{Status: runner.CaptureComplete, SendMs: &endSend, RecvMs: &endRecv, Snapshot: snap}}
+	m := record(t, r)
+	if p := activity.LedgerProblems(m); len(p) != 0 || m.BackendCapture == nil {
+		t.Fatalf("the produced captures fail the checker: %v", p)
+	}
+	*snap.Flags.MaxModelLen = 1
+	if *m.BackendCapture.Start.Snapshot.Flags.MaxModelLen != 262144 {
+		t.Fatal("the record shares memory with the account")
+	}
+	*snap.Flags.MaxModelLen = 262144
+
+	s, _ := e2eProject(t)
+	cfg := activity.Configuration{}
+	in := LedgerInput{Trial: "tr-0123456789abcdef", Run: "jb-0123456789abcdef", Eval: "ev-0123456789abcdef@2", Attempt: 1, Task: "ev-0123456789abcdef",
+		Family: "tf-0123456789abcdef", Agent: "opencode", Configuration: cfg, SealedAt: r.SealedAt, Report: *r}
+	if _, err := WriteLedger(s, in); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := WriteLedger(s, in); err != nil || st != "revision already written" {
+		t.Fatalf("replay: %q %v", st, err)
+	}
+	other := *r
+	bc := *r.BackendCapture
+	later := endRecv + 1
+	bc.End.RecvMs = &later
+	other.BackendCapture = &bc
+	in.Report = other
+	if _, err := WriteLedger(s, in); !errors.Is(err, ErrLedger) {
+		t.Fatalf("revision 0 with other captures was written: %v", err)
 	}
 }

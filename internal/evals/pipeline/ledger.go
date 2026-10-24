@@ -112,7 +112,8 @@ func WriteLedger(s *store.Store, in LedgerInput) (string, error) {
 
 // ledgerRecord maps the runner's account to the wire form: every count present (the runner's
 // account enumerates its entries, so an absent state count is a known zero), the components
-// with their coverage, the requested-model label, the agent's launch/exit enclosure.
+// with their coverage, the requested-model label, the agent's launch/exit enclosure, the backend
+// captures.
 func ledgerRecord(r runner.LedgerReport) activity.ModelLedger {
 	m := activity.ModelLedger{State: r.State, Reasons: slices.Clone(r.Reasons), Counts: map[string]int{}, Components: map[string]*int64{},
 		ComponentCoverage: map[string]int{}, Bypass: r.Bypass, Scope: r.Scope}
@@ -142,7 +143,31 @@ func ledgerRecord(r runner.LedgerReport) activity.ModelLedger {
 		m.AgentRun = &activity.LedgerAgentRun{Outcome: a.Outcome, ExitCode: a.ExitCode, EnclosureStartMs: a.EnclosureStartMs, EnclosureEndMs: a.EnclosureEndMs,
 			ExecutionDigest: a.ExecutionDigest, EngineStartedAt: a.EngineStartedAt, EngineFinishedAt: a.EngineFinishedAt}
 	}
+	if b := r.BackendCapture; b != nil { // the assembled backend captures (draft v0.2), copied as recorded
+		m.BackendCapture = &activity.LedgerBackendCapture{Method: b.Method, Collector: activity.LedgerCollector{Name: b.Collector["name"], Version: b.Collector["version"]},
+			Start: ledgerCapture(b.Start), End: ledgerCapture(b.End)}
+	}
 	return m
+}
+
+// ledgerCapture copies one capture into its own values (no memory shared with the account).
+func ledgerCapture(c runner.ReportCapture) activity.LedgerCapture {
+	x := activity.LedgerCapture{Status: c.Status, SendMs: clonePtr(c.SendMs), RecvMs: clonePtr(c.RecvMs)}
+	if s := c.Snapshot; s != nil {
+		f := s.Flags
+		x.Snapshot = &activity.LedgerCaptureSnapshot{ImageID: s.ImageID, HostRef: s.HostRef, ContainerRef: s.ContainerRef, StartedAt: clonePtr(s.StartedAt),
+			RestartCount: clonePtr(s.RestartCount), Flags: activity.LedgerFlags{PromptTokensDetails: clonePtr(f.PromptTokensDetails), PrefixCaching: clonePtr(f.PrefixCaching),
+				MaxModelLen: clonePtr(f.MaxModelLen), ReasoningParser: clonePtr(f.ReasoningParser), ToolCallParser: clonePtr(f.ToolCallParser), ServedModelRef: clonePtr(f.ServedModelRef)}}
+	}
+	return x
+}
+
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 // ledgerEntries copies the account's per-entry evidence and timing to the record (draft v0.2),

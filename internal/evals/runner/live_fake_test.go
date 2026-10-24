@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,14 +21,15 @@ import (
 // result holds the ledger as read after the attempt's teardown.
 
 type liveFakeOpts struct {
-	lateDuringCapture bool          // a request reaches the proxy while the tree is captured
-	evilTree          bool          // the captured tree has an escaping symlink
-	blockWait         bool          // the agent never ends (wait blocks until the client gives up)
-	failNetworkDelete bool          // removing a network fails
-	cancelAfter       time.Duration // cancel the attempt's context
-	digest            bool          // the attempt has an execution digest (agent_run is recorded)
-	requestInWait     bool          // the one request arrives while the agent runs, not before the trial
-	refuseProbe       bool          // the gate probe fails: nothing is launched
+	lateDuringCapture bool           // a request reaches the proxy while the tree is captured
+	evilTree          bool           // the captured tree has an escaping symlink
+	blockWait         bool           // the agent never ends (wait blocks until the client gives up)
+	failNetworkDelete bool           // removing a network fails
+	cancelAfter       time.Duration  // cancel the attempt's context
+	digest            bool           // the attempt has an execution digest (agent_run is recorded)
+	requestInWait     bool           // the one request arrives while the agent runs, not before the trial
+	refuseProbe       bool           // the gate probe fails: nothing is launched
+	capture           *fakeTransport // the backend captures are enabled with this transport
 }
 
 func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
@@ -35,6 +37,9 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 	d, s := fakeQ4Docker(t, false)
 	lv, _ := fakeModel(t)
 	c := lv.NewTrial(10)
+	if o.capture != nil {
+		o.capture.counter = c
+	}
 	request := func() {
 		r := httptest.NewRequest("POST", "http://proxy/t/"+c.token+"/chat/completions", strings.NewReader(`{"model":"m"}`))
 		lv.srv.Handler.ServeHTTP(httptest.NewRecorder(), r)
@@ -113,7 +118,7 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 	if o.blockWait && o.cancelAfter == 0 {
 		lim.agent = time.Second
 	}
-	d.trial(ctx, task, dir, "t__1", RunOptions{Agent: "test-agent", Attempts: 1, Live: lv, Counter: c, agentCmd: []string{"test"}, testDigest: digest},
+	d.trial(ctx, task, dir, "t__1", RunOptions{Agent: "test-agent", Attempts: 1, Live: lv, Counter: c, agentCmd: []string{"test"}, testDigest: digest, capture: transportOf(o.capture), captureRef: refOf(o.capture)},
 		lim, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
 	var r trialResult
 	b, err := os.ReadFile(filepath.Join(dir, "result.json"))
@@ -184,5 +189,65 @@ func TestLiveAgentRunWiring(t *testing.T) {
 	r, _ = liveFake(t, liveFakeOpts{})
 	if l := persisted(t, r); l.AgentRun != nil {
 		t.Fatalf("a record without a digest: %+v", l.AgentRun)
+	}
+}
+
+func transportOf(f *fakeTransport) captureTransport {
+	if f == nil {
+		return nil
+	}
+	return f
+}
+
+func refOf(f *fakeTransport) func(kind, raw string) string {
+	if f == nil {
+		return nil
+	}
+	return testRef
+}
+
+// A capture-enabled live attempt captures before the launch and after the drain and assembles
+// once after the teardown attempt on every path: the assembled account passes the public rules;
+// a failed end capture, a teardown failure, a refused gate and a cancelled attempt still give one
+// account with the matching statuses; without capture options nothing changes.
+func TestLiveCaptureAssembly(t *testing.T) {
+	ok := func() *fakeTransport { return &fakeTransport{answers: []fakeAnswer{{raw: raw()}, {raw: raw()}}} }
+	r, c := liveFake(t, liveFakeOpts{digest: true, requestInWait: true, capture: ok()})
+	l := persisted(t, r)
+	bc := l.BackendCapture
+	if bc == nil || bc.Start.Status != CaptureComplete || bc.End.Status != CaptureComplete || r.Container["ledger_final"] != true {
+		t.Fatalf("captures %+v final %v", bc, r.Container["ledger_final"])
+	}
+	if *bc.Start.RecvMs > *l.AgentRun.EnclosureStartMs || *bc.End.SendMs < *l.FinalizedMs || checkedAll(t, &l) != "" {
+		t.Fatalf("order or rules: %+v %+v finalized %d: %s", bc, l.AgentRun, *l.FinalizedMs, checkedAll(t, &l))
+	}
+	if cur := c.Report(); cur.BackendCapture.End.Status != CaptureComplete {
+		t.Fatal("the counter's account differs from the persisted one")
+	}
+	failedEnd := &fakeTransport{answers: []fakeAnswer{{raw: raw()}, {err: errors.New("connection reset")}}}
+	r, _ = liveFake(t, liveFakeOpts{digest: true, requestInWait: true, capture: failedEnd})
+	if l := persisted(t, r); l.BackendCapture.End.Status != CaptureError || l.BackendCapture.End.SendMs == nil || l.BackendCapture.End.Snapshot != nil || checkedAll(t, &l) != "" {
+		t.Fatalf("failed end capture: %+v", l.BackendCapture.End)
+	}
+	r, _ = liveFake(t, liveFakeOpts{digest: true, requestInWait: true, failNetworkDelete: true, capture: ok()})
+	if l := persisted(t, r); r.Container["ledger_final"] != false || l.BackendCapture == nil || l.BackendCapture.End.Status != CaptureComplete {
+		t.Fatalf("teardown failure: final %v captures %+v", r.Container["ledger_final"], l.BackendCapture)
+	}
+	refused := ok()
+	r, _ = liveFake(t, liveFakeOpts{digest: true, requestInWait: true, refuseProbe: true, capture: refused}) // no request reaches a refused attempt
+	if l := persisted(t, r); l.AgentRun.Outcome != AgentRefusedBeforeLaunch || l.BackendCapture == nil || l.BackendCapture.Start.Status != CaptureComplete || checkedAll(t, &l) != "" {
+		t.Fatalf("refused: %+v %+v", l.AgentRun, l.BackendCapture)
+	}
+	// the start capture precedes every seal, the end capture follows the seal on the refused path too
+	if len(refused.sealed) != 2 || refused.sealed[0] || !refused.sealed[1] {
+		t.Fatalf("seal state at the captures: %v", refused.sealed)
+	}
+	r, _ = liveFake(t, liveFakeOpts{digest: true, blockWait: true, cancelAfter: 2 * time.Second, capture: ok()})
+	if l := persisted(t, r); l.BackendCapture == nil || l.BackendCapture.End.Status != CaptureNotAttempted {
+		t.Fatalf("cancelled: %+v", l.BackendCapture)
+	}
+	r, _ = liveFake(t, liveFakeOpts{digest: true, requestInWait: true})
+	if l := persisted(t, r); l.BackendCapture != nil {
+		t.Fatalf("captures without capture options: %+v", l.BackendCapture)
 	}
 }
