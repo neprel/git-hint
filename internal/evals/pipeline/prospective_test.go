@@ -213,7 +213,7 @@ func TestLiveProspectiveCapture(t *testing.T) {
 	wall := time.Since(start)
 	save("opencode-events.jsonl", events)
 	summary["session"] = map[string]any{"exit_error": fmt.Sprint(runErr), "wall_seconds": wall.Round(time.Second).Seconds(), "timed_out": ctx.Err() != nil,
-		"model_requests": counter.Requests(), "proxy_refusals": counter.Retries(), "limit_hit": counter.LimitHit()}
+		"model_requests": counter.Requests(), "proxy_refusals": counter.LimitRefusals(), "limit_hit": counter.LimitHit()}
 	logger.mu.Lock()
 	hosts := append([]string{}, logger.hosts...)
 	logger.mu.Unlock()

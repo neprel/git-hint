@@ -206,7 +206,7 @@ func (c *Counter) admit() (*ledgerEntry, int) {
 	if c.requests.Load() >= c.limit {
 		l.rejected++
 		c.hit.Store(true)
-		c.retries.Add(1)
+		c.refusals.Add(1)
 		return nil, http.StatusTooManyRequests
 	}
 	c.requests.Add(1)

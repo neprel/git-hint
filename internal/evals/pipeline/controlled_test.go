@@ -159,3 +159,24 @@ func TestControlledUnitsOfALiveRun(t *testing.T) {
 		t.Fatalf("a different model is not visible: %v", a) // the server keeps it out of complete coverage
 	}
 }
+
+// Limit refusals are not retries: with a limit of 1, three requests give one forwarded request,
+// two refusals and an unknown (nil) retry count in the trial counters.
+func TestLiveCountersNeverReportRefusalsAsRetries(t *testing.T) {
+	lv, stop := liveProject(t)
+	defer stop()
+	c := lv.NewTrial(1)
+	codes := []int{}
+	for range 3 {
+		resp, err := http.Post(lv.BaseURL(c)+"/chat/completions", "application/json", strings.NewReader(`{"model":"local-coder","messages":[]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		codes = append(codes, resp.StatusCode)
+	}
+	req, retries := liveCounters(c)
+	if *req != 1 || retries != nil || c.LimitRefusals() != 2 || codes[1] != http.StatusTooManyRequests || codes[2] != http.StatusTooManyRequests {
+		t.Fatalf("requests %d retries %v refusals %d codes %v", *req, retries, c.LimitRefusals(), codes)
+	}
+}

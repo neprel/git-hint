@@ -243,7 +243,7 @@ func TestLiveContextChannel(t *testing.T) {
 	statuses := append([]int{}, gate.statuses...)
 	gate.mu.Unlock()
 	summary["session"] = map[string]any{"exit_error": fmt.Sprint(runErr), "wall_seconds": wall.Round(time.Second).Seconds(), "timed_out": ctx.Err() != nil,
-		"model_requests": counter.Requests(), "requests_refused_by_limit": counter.Retries(), "limit_hit": counter.LimitHit(),
+		"model_requests": counter.Requests(), "requests_refused_by_limit": counter.LimitRefusals(), "limit_hit": counter.LimitHit(),
 		"failed_model_answers": gate.failures.Load(), "requests_refused_after_failures": gate.refused.Load(), "model_answer_statuses": statuses}
 	summary["endpoints"] = map[string]any{"model_gate_requests (method, last path segment)": paths, "proxied_host_attempts": hosts,
 		"note": "the egress rule allows loopback only; traffic that bypasses both the proxy and the gate is not observed"}

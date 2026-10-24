@@ -27,7 +27,7 @@ type Counter struct {
 	token    string
 	limit    int64
 	requests atomic.Int64
-	retries  atomic.Int64
+	refusals atomic.Int64 // requests refused at the limit (429); never forwarded
 	hit      atomic.Bool
 	// the model field of every forwarded request against the selected model
 	matched, mismatched, unverified atomic.Int64
@@ -50,8 +50,11 @@ func (c *Counter) ModelCheck() string {
 }
 
 func (c *Counter) Requests() int64 { return c.requests.Load() }
-func (c *Counter) Retries() int64  { return c.retries.Load() }
-func (c *Counter) LimitHit() bool  { return c.hit.Load() }
+
+// LimitRefusals counts the requests refused at the trial's limit. It is not a retry count: the
+// agent's own HTTP retries are not observed (each forwarded retry is one admitted request).
+func (c *Counter) LimitRefusals() int64 { return c.refusals.Load() }
+func (c *Counter) LimitHit() bool       { return c.hit.Load() }
 
 // Live is a running model proxy for live agent trials. It forwards to the LAN model
 // endpoint of the eval policy, injects the key (the container never sees it), counts

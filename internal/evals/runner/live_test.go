@@ -49,8 +49,8 @@ func TestModelProxy(t *testing.T) {
 	if code := post(base + "/chat/completions"); code != http.StatusTooManyRequests {
 		t.Fatalf("over the limit: %d", code)
 	}
-	if c.Requests() != 2 || !c.LimitHit() || c.Retries() != 1 || upstream.Load() != 2 {
-		t.Fatalf("counter %d hit %v retries %d upstream %d", c.Requests(), c.LimitHit(), c.Retries(), upstream.Load())
+	if c.Requests() != 2 || !c.LimitHit() || c.LimitRefusals() != 1 || upstream.Load() != 2 {
+		t.Fatalf("counter %d hit %v refusals %d upstream %d", c.Requests(), c.LimitHit(), c.LimitRefusals(), upstream.Load())
 	}
 	resp, _ := testClient.Get(base + "/models")
 	b, _ := io.ReadAll(resp.Body)

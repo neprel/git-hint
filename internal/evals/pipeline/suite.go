@@ -244,10 +244,11 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			in := suites.TrialInput{RunnerName: "hint-docker", RunID: job, Suite: suite, Eval: ref, Attempt: a, Arm: o.Arm, Agent: o.Agent, RunnerVersion: runnerVersion,
 				Started: started, MaxSeconds: lim.TrialSeconds, Objective: b.Objective, Baseline: b.Baseline, BaselineDigest: b.BaselineDigest, EvalDigest: b.EvalDigest,
 				ContextPolicy: "disabled", PlanBinding: b.PlanBinding} // HINT delivers no managed context in eval trials yet
-			var reqs, retries int64
+			var reqs int64
 			if counter != nil {
-				reqs, retries = counter.Requests(), counter.Retries()
-				in.Requests, in.Retries, in.MaxRequests = &reqs, &retries, lim.TrialRequests
+				in.Requests, in.Retries = liveCounters(counter)
+				reqs = *in.Requests
+				in.MaxRequests = lim.TrialRequests
 				in.AgentVersion, in.Model = runner.DockerOpenCodeVersion, o.Live.ModelLabel
 				in.ModelCheck = counter.ModelCheck()
 				// the launch HINT constructed and enforces, (A) of the target the attempt actually
@@ -275,7 +276,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			if kerr == nil {
 				in.Artifacts = []string{archived}
 			}
-			_ = l.Consume(job, int(reqs), int(retries), 1, time.Since(started).Seconds())
+			_ = l.Consume(job, int(reqs), 0, 1, time.Since(started).Seconds()) // no retry of HINT's own model client
 			name, err := suites.RecordTrial(l, in, trials[0])
 			if err != nil {
 				return rep, err // the work directory stays
@@ -409,4 +410,12 @@ func Compare(l *library.Library, suite string) ([]Row, error) {
 		return out[i].Objective+out[i].Suite+out[i].Arm+out[i].Agent < out[j].Objective+out[j].Suite+out[j].Arm+out[j].Agent
 	})
 	return out, nil
+}
+
+// liveCounters are a live trial's request counters: every forwarded request, the agent's retries
+// included, is one admitted request; the agent's retries themselves are not observed, so the
+// retry count is unknown (nil), never the limit refusals (the ledger's rejected_limit).
+func liveCounters(c *runner.Counter) (requests, retries *int64) {
+	n := c.Requests()
+	return &n, nil
 }
