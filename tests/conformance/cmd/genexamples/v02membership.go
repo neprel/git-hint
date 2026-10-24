@@ -7,7 +7,8 @@ func orchestratorSource() M {
 	return M{"source_id": id("source", "hint-project-orchestrator"), "agent": "other", "agent_version": nil,
 		"adapter":      M{"name": "hint-project-orchestrator", "version": "0.1.0"},
 		"capabilities": A{"membership"},
-		"unavailable":  A{"usage", "request_kind", "collection", "context", "coordination", "targets"}}
+		"unavailable": A{"usage", "request_kind", "collection", "context", "coordination", "targets", "correlation.session_id", "correlation.turn_id",
+			"correlation.trace_id", "correlation.span_id", "correlation.task_id", "correlation.run_ref"}}
 }
 
 // rechain recomputes every prev_digest and the head_digest of a membership epoch in order.
@@ -134,6 +135,18 @@ func membershipInvalid() []invalidCase {
 		chained("membership-duplicate-run", func(d M) { ev(d, 3)["run_ref"] = ev(d, 1)["run_ref"] }),
 		chained("membership-first-epoch-with-predecessor", func(d M) { ev(d, 0)["predecessor_epoch_digest"] = digestOf("earlier") }),
 		chained("membership-later-epoch-without-predecessor", func(d M) { ev(d, 0)["epoch"] = 2 }),
+		{"membership-correlation-session", base, "semantic", hintconf.CodeSourceOrchestrator, func(d M) { last(d)["correlation"] = M{"session_id": id("session", "s")} }, nil},
+		{"membership-correlation-turn", base, "semantic", hintconf.CodeSourceOrchestrator, func(d M) {
+			last(d)["correlation"] = M{"session_id": id("session", "s"), "turn_id": id("turn", "t")} // a turn needs its session (schema)
+		}, nil},
+		{"membership-correlation-trace", base, "semantic", hintconf.CodeSourceOrchestrator, func(d M) { last(d)["correlation"] = M{"trace_id": id("trace", "t")} }, nil},
+		{"membership-correlation-task", base, "semantic", hintconf.CodeSourceOrchestrator, func(d M) { last(d)["correlation"] = M{"task_id": id("task", "t1")} }, nil},
+		{"membership-correlation-run", base, "semantic", hintconf.CodeSourceOrchestrator, func(d M) {
+			last(d)["correlation"] = M{"task_id": id("task", "t1"), "run_ref": id("run", "run-1")} // a run binding needs its task (schema)
+		}, nil},
+		{"orchestrator-correlation-not-unavailable", base, "semantic", hintconf.CodeSourceOrchestrator, func(d M) {
+			src(d)["unavailable"] = A{"usage", "request_kind", "collection", "context", "coordination", "targets"}
+		}, nil},
 		{"orchestrator-claims-usage", base, "semantic", hintconf.CodeSourceOrchestrator, func(d M) { src(d)["capabilities"] = A{"membership", "usage"} }, nil},
 		{"orchestrator-other-version", base, "semantic", hintconf.CodeSourceOrchestrator, func(d M) { src(d)["adapter"].(map[string]any)["version"] = "9.0.0" }, nil},
 		{"membership-from-other-source", base, "semantic", hintconf.CodeSourceOrchestrator, func(d M) { last(d)["source_id"] = d["sources"].([]any)[0].(map[string]any)["source_id"] }, nil},

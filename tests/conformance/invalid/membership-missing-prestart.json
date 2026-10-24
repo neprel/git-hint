@@ -702,7 +702,13 @@
         "collection",
         "context",
         "coordination",
-        "targets"
+        "targets",
+        "correlation.session_id",
+        "correlation.turn_id",
+        "correlation.trace_id",
+        "correlation.span_id",
+        "correlation.task_id",
+        "correlation.run_ref"
       ]
     }
   ]

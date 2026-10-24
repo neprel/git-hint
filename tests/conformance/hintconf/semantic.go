@@ -83,7 +83,8 @@ const (
 	MembershipMaxExecutions    = 1024
 )
 
-var orchestratorUnavailable = []string{"usage", "request_kind", "collection", "context", "coordination", "targets"}
+var orchestratorUnavailable = []string{"usage", "request_kind", "collection", "context", "coordination", "targets", "correlation.session_id",
+	"correlation.turn_id", "correlation.trace_id", "correlation.span_id", "correlation.task_id", "correlation.run_ref"}
 
 // SourceOrchestratorProblem reports whether an orchestrator source declares more than the
 // administrative scope: the exact adapter version, the single membership capability, the
@@ -104,9 +105,13 @@ func SourceOrchestratorProblem(src map[string]any) bool {
 }
 
 // ObservationOrchestratorProblem reports whether an observation of an orchestrator source is
-// anything but an administrative MEMBERSHIP record.
+// anything but an administrative MEMBERSHIP record: no behavior, session, trace, task or run
+// correlation (the membership body carries the actual identities), no usage or closure fields.
 func ObservationOrchestratorProblem(o map[string]any) bool {
 	if str(o["op"]) != "MEMBERSHIP" || str(o["source"]) != "orchestrator" {
+		return true
+	}
+	if corr, _ := o["correlation"].(map[string]any); len(corr) > 0 {
 		return true
 	}
 	for _, k := range []string{"usage", "model_ledger", "context", "request_kind", "collection", "coordination", "targets"} {

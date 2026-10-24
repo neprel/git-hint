@@ -1324,6 +1324,31 @@
     "code": "membership_inconsistent",
     "level": "semantic"
   },
+  "membership-correlation-run.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
+  },
+  "membership-correlation-session.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
+  },
+  "membership-correlation-task.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
+  },
+  "membership-correlation-trace.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
+  },
+  "membership-correlation-turn.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
+  },
   "membership-duplicate-run.json": {
     "base": "activity-membership.json",
     "code": "membership_inconsistent",
@@ -1455,6 +1480,11 @@
     "level": "schema"
   },
   "orchestrator-claims-usage.json": {
+    "base": "activity-membership.json",
+    "code": "source_orchestrator_inconsistent",
+    "level": "semantic"
+  },
+  "orchestrator-correlation-not-unavailable.json": {
     "base": "activity-membership.json",
     "code": "source_orchestrator_inconsistent",
     "level": "semantic"
