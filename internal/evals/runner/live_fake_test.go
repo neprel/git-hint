@@ -23,6 +23,7 @@ import (
 // result holds the ledger as read after the attempt's teardown.
 
 type liveFakeOpts struct {
+	cutArchive          bool
 	clock               *ledgerClock
 	preexistingArtifact bool
 	prelaunch           bool
@@ -68,6 +69,9 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 		tw.WriteHeader(&tar.Header{Name: "app/evil", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"})
 	}
 	tw.Close()
+	if o.cutArchive {
+		tree.Truncate(512)
+	}
 	injected := false
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path

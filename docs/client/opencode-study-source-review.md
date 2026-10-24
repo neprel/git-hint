@@ -19,3 +19,9 @@ A future opt-in study policy needs an isolated inspected configuration/state env
 ## Actual starting source
 
 The task's declared BASE is an input overlay, not evidence of the resulting container filesystem. An opt-in source capture must read the unstarted container's `/app` after task/config overlays and topology validation, before the agent launch enclosure. It must use bounded archive validation, bind exact artifact bytes and monotonic capture offsets to the actual attempt, and keep declared BASE separate from observed start. Raw source stays in local audit artifacts. A resolver must scan the observed capture for that opt-in run; unavailable or invalid capture permits no BASE fallback. This capture alone does not enable source export, calibrated results, or trusted producer evidence.
+
+## Local archive validation bounds
+
+The internal `CapturePrelaunchTree` opt-in keeps ordinary valid-run behavior unchanged. Its source archive must contain both complete tar end blocks. File payload padding and any extra record padding must be zero. Extra record padding must contain complete 512-byte blocks. Physical EOF at an entry boundary, partial payload/padding/end blocks, concatenated archives, and nonzero trailing data fail before agent launch. This intentionally rejects malformed legacy input that a permissive tar reader can accept.
+
+Three independent limits apply: 200,000 tree entries; 2 GiB total regular-file content; and 2,557,084,672 raw archive bytes. The raw bound includes headers, PAX/GNU extension metadata, payload padding, end blocks, and record padding. The shared freezer enforces it while reading the source, before prelaunch capture can succeed. Failed capture removes only its own output; an existing artifact remains untouched. Valid USTAR, PAX, GNU long-name archives and complete zero record padding keep their canonical artifact bytes and digest. These checks do not enable producer trust or a single-root launch policy.

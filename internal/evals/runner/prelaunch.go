@@ -19,6 +19,9 @@ import (
 var prelaunchDigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 const prelaunchCaptureBound = time.Minute
+
+// Raw source/archive bound includes headers, extension metadata, payload padding, EOS
+// and zero record padding. It is separate from the 2 GiB file-content/200,000-entry bounds.
 const maxPrelaunchArchiveBytes int64 = maxTreeBytes + maxTreeFiles*2048 + 1024
 
 // PrelaunchTreeCapture is local audit metadata, not public producer evidence. Its offsets

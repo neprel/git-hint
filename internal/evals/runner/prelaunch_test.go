@@ -48,7 +48,7 @@ func TestPrelaunchCapturePrecedesStartAndSharesEnclosureClock(t *testing.T) {
 
 func TestPrelaunchFailuresPreventAgentStartAndModelRequests(t *testing.T) {
 	for name, opts := range map[string]liveFakeOpts{
-		"read": {archiveFailure: true}, "tree": {evilTree: true}, "unknown execution": {}, "existing artifact": {preexistingArtifact: true},
+		"cut archive": {cutArchive: true}, "read": {archiveFailure: true}, "tree": {evilTree: true}, "unknown execution": {}, "existing artifact": {preexistingArtifact: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			opts.prelaunch, opts.requestInWait = true, true
@@ -73,6 +73,11 @@ func TestPrelaunchFailuresPreventAgentStartAndModelRequests(t *testing.T) {
 				}
 			}
 			r, c := liveFake(t, opts)
+			var capture PrelaunchTreeCapture
+			raw, _ := json.Marshal(r.Container["prelaunch_tree"])
+			if json.Unmarshal(raw, &capture) != nil || capture.State != "failed" || capture.Digest != "" {
+				t.Fatalf("failed capture metadata %+v", capture)
+			}
 			mu.Lock()
 			defer mu.Unlock()
 			if started || c.Requests() != 0 || r.ExceptionInfo == nil {

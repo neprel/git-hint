@@ -530,27 +530,41 @@ const (
 // kept (never followed on the host) when they resolve inside the tree; hard links to an
 // earlier regular file of the tree; device files, FIFOs, sockets, non-canonical or
 // duplicate paths, entries below a symlink and any path that leaves the tree make the
-// attempt invalid; file count and size are bounded. It returns the digest of the artifact;
+// attempt invalid; file count, content size and total raw archive bytes are bounded.
+// Complete tar end blocks and zero file/record padding are required. It returns the artifact digest;
 // a refused tree leaves no artifact.
 func freezeTree(r io.Reader, artifact string) (string, error) {
+	return freezeTreeBounded(r, artifact, maxPrelaunchArchiveBytes)
+}
+
+// The separate limit permits small offline boundary tests; production always uses the
+// fixed raw archive bound above, in addition to content and entry limits.
+func freezeTreeBounded(r io.Reader, artifact string, rawLimit int64) (string, error) {
 	f, err := os.OpenFile(artifact, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", err
 	}
 	h := sha256.New()
 	tw := tar.NewWriter(io.MultiWriter(f, h))
-	tr := tar.NewReader(r)
-	var size int64
+	raw := &treeArchiveReader{source: r, limit: rawLimit}
+	tr := tar.NewReader(raw)
+	var size, padding int64
 	tree := map[string]*tar.Header{} // canonical path below app -> entry
 	err = func() error {
 		for {
+			before := raw.read
+			raw.padding = padding
 			hd, err := tr.Next()
 			if err == io.EOF {
+				if err := raw.finish(before, padding); err != nil {
+					return err
+				}
 				return checkLinks(tree)
 			}
 			if err != nil {
 				return err
 			}
+			padding = (tarBlockBytes - hd.Size%tarBlockBytes) % tarBlockBytes
 			p, ok := treePath(hd.Name)
 			if !ok {
 				return fmt.Errorf("path outside the tree or not canonical: %q", hd.Name)
