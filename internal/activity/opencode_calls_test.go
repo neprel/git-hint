@@ -453,21 +453,21 @@ func TestToolAndContextRecordsFollowTheOwnershipBoundary(t *testing.T) {
 // An unknown tool may deliver content: it carries an UNKNOWN secondary operation; a local tool
 // (todo, question) does not. A content-printing git command is an EXECUTE with a secondary READ.
 func TestToolAndGitEffects(t *testing.T) {
-	if e := toolEffect("mcp_docs_lookup", nil); e.op != "TOOL" || !slices.Equal(e.secondary, []string{"UNKNOWN"}) {
+	if e := ClassifyTool("mcp_docs_lookup", nil); e.Op != "TOOL" || !slices.Equal(e.Secondary, []string{"UNKNOWN"}) {
 		t.Fatalf("unknown tool: %+v", e)
 	}
 	for _, tool := range []string{"todowrite", "TodoRead", "question"} {
-		if e := toolEffect(tool, nil); e.op != "TOOL" || len(e.secondary) != 0 {
+		if e := ClassifyTool(tool, nil); e.Op != "TOOL" || len(e.Secondary) != 0 {
 			t.Fatalf("%s: %+v", tool, e)
 		}
 	}
-	if e := toolEffect("webfetch", nil); !slices.Equal(e.secondary, []string{"UNKNOWN"}) {
+	if e := ClassifyTool("webfetch", nil); !slices.Equal(e.Secondary, []string{"UNKNOWN"}) {
 		t.Fatalf("webfetch stays unknown: %+v", e)
 	}
-	if e := toolEffect("bash", map[string]any{"command": "git show HEAD"}); e.op != "EXECUTE" || e.class != "MIXED" || !slices.Contains(e.secondary, "READ") || len(e.targets) != 0 {
+	if e := ClassifyTool("bash", map[string]any{"command": "git show HEAD"}); e.Op != "EXECUTE" || e.CommandClass != "MIXED" || !slices.Contains(e.Secondary, "READ") || len(e.Targets) != 0 {
 		t.Fatalf("git show: %+v", e)
 	}
-	if e := toolEffect("bash", map[string]any{"command": "git diff --stat"}); slices.Contains(e.secondary, "READ") {
+	if e := ClassifyTool("bash", map[string]any{"command": "git diff --stat"}); slices.Contains(e.Secondary, "READ") {
 		t.Fatalf("git diff --stat: %+v", e)
 	}
 }

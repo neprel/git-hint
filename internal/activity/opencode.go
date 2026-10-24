@@ -138,14 +138,16 @@ type ocEvent struct {
 	} `json:"output"`
 }
 
-type effect struct {
-	op        string
-	secondary []string
-	precision string
-	source    string
-	class     string // command class of a shell call
-	targets   []string
-	missing   []string
+// ToolEffect is the syntax-only classification shared by event adapters.
+// Targets contain raw paths for in-memory resolution only; never serialize this value.
+type ToolEffect struct {
+	Op           string
+	Secondary    []string
+	Precision    string
+	Source       string
+	CommandClass string   // command class of a shell call
+	Targets      []string `json:"-"` // raw paths; even accidental JSON serialization must omit them
+	Missing      []string
 }
 
 func str(m map[string]any, keys ...string) string {
@@ -172,10 +174,10 @@ func isShellTool(tool string) bool {
 	return false
 }
 
-// toolEffect maps a tool name and its arguments. Native tools give exact operations.
+// ClassifyTool maps a tool name and its arguments. Native tools give exact operations.
 // Shell commands go through the syntax-only classifier; they are inferred, and a command
 // without a rule stays UNKNOWN.
-func toolEffect(tool string, args map[string]any) effect {
+func ClassifyTool(tool string, args map[string]any) ToolEffect {
 	nonEmpty := func(s string) []string {
 		if s == "" {
 			return nil
@@ -184,31 +186,31 @@ func toolEffect(tool string, args map[string]any) effect {
 	}
 	switch strings.ToLower(tool) {
 	case "read":
-		return effect{op: "READ", precision: "exact", source: "plugin", targets: nonEmpty(str(args, "filePath", "file_path", "path"))}
+		return ToolEffect{Op: "READ", Precision: "exact", Source: "plugin", Targets: nonEmpty(str(args, "filePath", "file_path", "path"))}
 	case "grep":
-		return effect{op: "SEARCH", precision: "exact", source: "plugin", targets: nonEmpty(str(args, "path"))}
+		return ToolEffect{Op: "SEARCH", Precision: "exact", Source: "plugin", Targets: nonEmpty(str(args, "path"))}
 	case "glob", "list", "ls":
-		return effect{op: "DISCOVER", precision: "exact", source: "plugin", targets: nonEmpty(str(args, "path"))}
+		return ToolEffect{Op: "DISCOVER", Precision: "exact", Source: "plugin", Targets: nonEmpty(str(args, "path"))}
 	case "edit", "write", "multiedit", "apply_patch", "patch":
-		return effect{op: "EDIT_INTENT", precision: "exact", source: "plugin", targets: nonEmpty(str(args, "filePath", "file_path", "path"))}
+		return ToolEffect{Op: "EDIT_INTENT", Precision: "exact", Source: "plugin", Targets: nonEmpty(str(args, "filePath", "file_path", "path"))}
 	case "task", "agent", "subagent":
-		return effect{op: "DELEGATE", precision: "exact", source: "plugin", missing: []string{"coordination"}}
+		return ToolEffect{Op: "DELEGATE", Precision: "exact", Source: "plugin", Missing: []string{"coordination"}}
 	}
 	if isContextTool(tool) {
-		return effect{op: "DISCOVER", precision: "exact", source: "plugin"}
+		return ToolEffect{Op: "DISCOVER", Precision: "exact", Source: "plugin"}
 	}
 	if isShellTool(tool) {
 		cmd := str(args, "command", "cmd")
 		if cmd == "" {
-			return effect{op: "EXECUTE", precision: "unknown", source: "plugin", class: "UNKNOWN", missing: []string{"command_class"}}
+			return ToolEffect{Op: "EXECUTE", Precision: "unknown", Source: "plugin", CommandClass: "UNKNOWN", Missing: []string{"command_class"}}
 		}
 		return shellEffect(cmd)
 	}
 	if slices.Contains(localTools, strings.ToLower(tool)) {
-		return effect{op: "TOOL", precision: "exact", source: "plugin"}
+		return ToolEffect{Op: "TOOL", Precision: "exact", Source: "plugin"}
 	}
 	// any other tool (MCP, skills, web tools) may deliver content: its further effects are unknown
-	return effect{op: "TOOL", precision: "exact", source: "plugin", secondary: []string{"UNKNOWN"}}
+	return ToolEffect{Op: "TOOL", Precision: "exact", Source: "plugin", Secondary: []string{"UNKNOWN"}}
 }
 
 // localTools are tools that work only on the agent's own local state (a todo list, a question to
@@ -227,40 +229,40 @@ var labelClass = map[string]string{
 	shellclass.NETWORK: "NETWORK",
 }
 
-func shellEffect(cmd string) effect {
+func shellEffect(cmd string) ToolEffect {
 	r := shellclass.Classify(cmd)
-	e := effect{precision: "inferred", source: "shell_parser"}
+	e := ToolEffect{Precision: "inferred", Source: "shell_parser"}
 	if !r.DynamicTargets {
-		e.targets = append(slices.Clone(r.ReadTargets), r.WriteTargets...)
+		e.Targets = append(slices.Clone(r.ReadTargets), r.WriteTargets...)
 	}
 	switch {
 	case slices.Contains(r.Labels, shellclass.UNKNOWN):
-		e.op, e.class, e.precision = "EXECUTE", "UNKNOWN", "unknown"
+		e.Op, e.CommandClass, e.Precision = "EXECUTE", "UNKNOWN", "unknown"
 		return e
 	case len(r.Labels) > 1:
-		e.class = "MIXED"
+		e.CommandClass = "MIXED"
 	default:
-		e.class = labelClass[r.Labels[0]]
-		if e.class == "" {
-			e.class = "UNKNOWN"
+		e.CommandClass = labelClass[r.Labels[0]]
+		if e.CommandClass == "" {
+			e.CommandClass = "UNKNOWN"
 		}
 	}
 	switch {
 	case slices.Contains(r.Labels, shellclass.TEST):
-		e.op = "TEST"
+		e.Op = "TEST"
 	case slices.Contains(r.Labels, shellclass.BUILD):
-		e.op = "BUILD"
+		e.Op = "BUILD"
 	case len(r.Labels) == 1 && labelOp[r.Labels[0]] != "":
-		e.op = labelOp[r.Labels[0]]
+		e.Op = labelOp[r.Labels[0]]
 	default:
-		e.op = "EXECUTE"
+		e.Op = "EXECUTE"
 	}
 	for _, l := range r.Labels {
-		if op := labelOp[l]; op != "" && op != e.op && !slices.Contains(e.secondary, op) {
-			e.secondary = append(e.secondary, op)
+		if op := labelOp[l]; op != "" && op != e.Op && !slices.Contains(e.Secondary, op) {
+			e.Secondary = append(e.Secondary, op)
 		}
 	}
-	slices.Sort(e.secondary)
+	slices.Sort(e.Secondary)
 	return e
 }
 
@@ -278,6 +280,11 @@ func shellBase(cwd, tool string, args map[string]any) string {
 }
 
 func (n *Normalizer) targets(base string, raw []string) []Target {
+	return ResolveTargets(base, raw, n.Resolve)
+}
+
+// ResolveTargets reduces paths to unique configured opaque entity references.
+func ResolveTargets(base string, raw []string, resolve Resolver) []Target {
 	var out []Target
 	seen := map[string]bool{}
 	for _, p := range raw {
@@ -290,7 +297,7 @@ func (n *Normalizer) targets(base string, raw []string) []Target {
 			}
 			p = path.Join(base, p)
 		}
-		id, ok := n.Resolve(path.Clean(p))
+		id, ok := resolve(path.Clean(p))
 		if ok && !seen[id] {
 			seen[id] = true
 			out = append(out, Target{EntityID: id})
@@ -343,21 +350,21 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 			if _, dup := pending[key]; dup {
 				return nil
 			}
-			ef := toolEffect(e.Input.Tool, e.Output.Args)
+			ef := ClassifyTool(e.Input.Tool, e.Output.Args)
 			base := shellBase(n.Cwd, e.Input.Tool, e.Output.Args)
 			start := Timestamp(time.UnixMilli(e.TWall))
 			o := Observation{
 				ObservationID: hint.DeriveID(n.Key, "event", n.SourceID, e.Input.SessionID, e.Input.CallID),
-				Class:         "observation", Op: ef.op, OpsSecondary: ef.secondary, Source: ef.source,
-				SourceID: n.SourceID, Precision: ef.precision,
+				Class:         "observation", Op: ef.Op, OpsSecondary: ef.Secondary, Source: ef.Source,
+				SourceID: n.SourceID, Precision: ef.Precision,
 				Time: Time{Start: &start, Clock: "agent"},
 				Correlation: map[string]string{
 					"session_id":   hint.DeriveID(n.Key, "session", n.SourceID, e.Input.SessionID),
 					"tool_call_id": hint.DeriveID(n.Key, "call", n.SourceID, e.Input.SessionID, e.Input.CallID)},
-				Targets:      n.targets(base, ef.targets),
+				Targets:      n.targets(base, ef.Targets),
 				Outcome:      Outcome{Status: "unknown"},
-				CommandClass: ef.class,
-				Missing:      append([]string{"correlation.task_id", "correlation.turn_id"}, ef.missing...),
+				CommandClass: ef.CommandClass,
+				Missing:      append([]string{"correlation.task_id", "correlation.turn_id"}, ef.Missing...),
 			}
 			if e.Input.SessionID == "" {
 				delete(o.Correlation, "session_id")
@@ -373,14 +380,14 @@ func (n *Normalizer) Stream(r io.Reader, emit func(Observation) error) (skipped 
 				}
 				o.Missing = slices.DeleteFunc(o.Missing, func(s string) bool { return s == "correlation.task_id" })
 			}
-			if ef.op == "READ" {
+			if ef.Op == "READ" {
 				// the plugin sees the returned text; delivery to the model is not proven
 				o.ContentDelivery = "unknown"
 			}
-			if ef.op == "DELEGATE" {
+			if ef.Op == "DELEGATE" {
 				o.Coordination = &Coordination{}
 			}
-			if len(ef.targets) > 0 && len(o.Targets) == 0 || len(ef.targets) == 0 && targetOp(ef.op) {
+			if len(ef.Targets) > 0 && len(o.Targets) == 0 || len(ef.Targets) == 0 && targetOp(ef.Op) {
 				o.Missing = append(o.Missing, "targets")
 			}
 			pending[key] = &open{obs: o, base: base}
