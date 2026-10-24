@@ -1,0 +1,225 @@
+{
+  "report_version": "0.3.1",
+  "report_id": "9a36474e995f3510733d85ef6d582802",
+  "project_namespace": "0123456789abcdef0123456789abcdef",
+  "created_at": "2026-10-18T12:00:00Z",
+  "producer": {
+    "tool": "git-hint",
+    "version": "0.1.0"
+  },
+  "trials": [],
+  "work_units": [
+    {
+      "unit_ref": "3623d2d7841d6c4ed66d2f949ff8b416",
+      "origin": "project",
+      "scope": {
+        "declared_at": "2026-10-18T10:00:00Z",
+        "plan": {
+          "recommendation_set_id": "161c81f69daa759e6aa782ab6aeda5c7",
+          "plan_id": "fa8c34806f51741889bb5e8b5fe87999"
+        },
+        "objective_ref": null,
+        "base_snapshots": [
+          "8ed5e08a44a40efd4e3454ebb73fc1ce"
+        ],
+        "family_ref": "d923713e3b73acd42b9141df7902a954",
+        "configuration": {
+          "agent": {
+            "name": "opencode",
+            "version": {
+              "state": "known",
+              "value": "2.0.26"
+            }
+          },
+          "model": {
+            "state": "known",
+            "ref": "9372c470eeadd5ecd9c3c74c2b3cb633",
+            "provenance": "launch_parameter"
+          },
+          "harness": {
+            "kind": "direct",
+            "version": {
+              "state": "not_applicable"
+            }
+          },
+          "context_policy": {
+            "state": "disabled"
+          },
+          "config_refs": {
+            "state": "known",
+            "refs": []
+          },
+          "budget": {
+            "max_requests": {
+              "state": "known",
+              "value": 40
+            },
+            "max_seconds": {
+              "state": "known",
+              "value": 900
+            }
+          }
+        },
+        "environment_ref": null,
+        "run_ref": null,
+        "eval_ref": null,
+        "baseline_ref": null,
+        "arm": null,
+        "planned_attempts": null,
+        "verification_intent": {
+          "definition_ref": "3664ead0b8804d67e69182854fa4e331",
+          "definition_digest": "sha256:1d4449aa58e27ac6bdffaf0c8a28937df5ae6684d04a77a05c2e3ba49c8d2079",
+          "qualification_ref": "3fd9a099f8a3df425474303512391dcd",
+          "spec_digest": "sha256:678d40f2a7e80e69951bcd31819f1658abacf5e522632174ce354af6e730de21",
+          "inputs_digest": "sha256:55e26fc828ec7730e084b48c491885865d17e6bbc048437fb9eebad1ef2bcac0",
+          "reference_artifact_digest": "sha256:b6d4242f1b651e70c85fdf518ceb363e9054df49a2e5e9d123b85ebc7e5c852e",
+          "mandatory_checks_digest": "sha256:220eaa355e97bff20f72c4b622a23ad20d9464052ee26af31ccbfae5f49048be",
+          "intent_version": "project-verification-intent-v1",
+          "reference_input": {
+            "domain": "hint-library-reference-patch-archive-v1",
+            "digest": "sha256:5a6252167a9962b2519de17d788496d2d6438667b4622a5eca66f55f89c80069"
+          },
+          "start_binding": {
+            "recommendation_set_digest": "sha256:c7f5814b92ec9430648136406d844823df66e1af010dfa9456b5ec7ff5017f8b",
+            "repo_id": "0699d0c2057c68091dadcf51cd786d7b",
+            "base_snapshot_id": "b5da3e8c0c22849cfdb7ea931ed01f60",
+            "base_snapshot_digest": "sha256:3620b7021dc0ba8a1050ae1e7af30532e4f4f981e86bfb601d132fa890bbb408",
+            "base_hint_tree_digest": "sha256:dec34acc05ef55d62daaf03a3a61e0987908dd614f5bee1240ba51122b82ecd2"
+          },
+          "capture_policy_ref": "4c4ff131f10bef08fee6312d44337abb",
+          "capture_policy_digest": "sha256:e7dafafb659a2f9d234bbc60cf4600d523853929cb96fc0703bcbd314e9653ca",
+          "capture_source_ref": "1bb0dd58850fe874286798afc5084a54",
+          "capture_source_digest": "sha256:3807810ee6f48fd6174adc4bb89ad0f934e1332c8e3af8f7adc4faffd87540d8",
+          "reference_preparation_ref": "9375a04d5285583375daef993b0e4c98",
+          "reference_preparation_digest": "sha256:15a1cc1905097246a9004555eeea262738bb834df60444004098a8a474c97d2f"
+        }
+      },
+      "scope_digest": "sha256:c59fb92b455c765217fe291809fb83a217d7d0569bdc33ca4117681160f98b24",
+      "revision": 1,
+      "predecessor": null,
+      "state": "open",
+      "attempts": [],
+      "declared_by": "user",
+      "revision_digest": "sha256:7adb2aae01b3620f366876481c04b636764c371e556a6787f0cf901641b181ea"
+    },
+    {
+      "unit_ref": "3623d2d7841d6c4ed66d2f949ff8b416",
+      "origin": "project",
+      "scope": {
+        "declared_at": "2026-10-18T10:00:00Z",
+        "plan": {
+          "recommendation_set_id": "161c81f69daa759e6aa782ab6aeda5c7",
+          "plan_id": "fa8c34806f51741889bb5e8b5fe87999"
+        },
+        "objective_ref": null,
+        "base_snapshots": [
+          "8ed5e08a44a40efd4e3454ebb73fc1ce"
+        ],
+        "family_ref": "d923713e3b73acd42b9141df7902a954",
+        "configuration": {
+          "agent": {
+            "name": "opencode",
+            "version": {
+              "state": "known",
+              "value": "2.0.26"
+            }
+          },
+          "model": {
+            "state": "known",
+            "ref": "9372c470eeadd5ecd9c3c74c2b3cb633",
+            "provenance": "launch_parameter"
+          },
+          "harness": {
+            "kind": "direct",
+            "version": {
+              "state": "not_applicable"
+            }
+          },
+          "context_policy": {
+            "state": "disabled"
+          },
+          "config_refs": {
+            "state": "known",
+            "refs": []
+          },
+          "budget": {
+            "max_requests": {
+              "state": "known",
+              "value": 40
+            },
+            "max_seconds": {
+              "state": "known",
+              "value": 900
+            }
+          }
+        },
+        "environment_ref": null,
+        "run_ref": null,
+        "eval_ref": null,
+        "baseline_ref": null,
+        "arm": null,
+        "planned_attempts": null,
+        "verification_intent": {
+          "definition_ref": "3664ead0b8804d67e69182854fa4e331",
+          "definition_digest": "sha256:1d4449aa58e27ac6bdffaf0c8a28937df5ae6684d04a77a05c2e3ba49c8d2079",
+          "qualification_ref": "3fd9a099f8a3df425474303512391dcd",
+          "spec_digest": "sha256:678d40f2a7e80e69951bcd31819f1658abacf5e522632174ce354af6e730de21",
+          "inputs_digest": "sha256:55e26fc828ec7730e084b48c491885865d17e6bbc048437fb9eebad1ef2bcac0",
+          "reference_artifact_digest": "sha256:b6d4242f1b651e70c85fdf518ceb363e9054df49a2e5e9d123b85ebc7e5c852e",
+          "mandatory_checks_digest": "sha256:220eaa355e97bff20f72c4b622a23ad20d9464052ee26af31ccbfae5f49048be",
+          "intent_version": "project-verification-intent-v1",
+          "reference_input": {
+            "domain": "hint-library-reference-patch-archive-v1",
+            "digest": "sha256:5a6252167a9962b2519de17d788496d2d6438667b4622a5eca66f55f89c80069"
+          },
+          "start_binding": {
+            "recommendation_set_digest": "sha256:c7f5814b92ec9430648136406d844823df66e1af010dfa9456b5ec7ff5017f8b",
+            "repo_id": "0699d0c2057c68091dadcf51cd786d7b",
+            "base_snapshot_id": "b5da3e8c0c22849cfdb7ea931ed01f60",
+            "base_snapshot_digest": "sha256:3620b7021dc0ba8a1050ae1e7af30532e4f4f981e86bfb601d132fa890bbb408",
+            "base_hint_tree_digest": "sha256:dec34acc05ef55d62daaf03a3a61e0987908dd614f5bee1240ba51122b82ecd2"
+          },
+          "capture_policy_ref": "4c4ff131f10bef08fee6312d44337abb",
+          "capture_policy_digest": "sha256:e7dafafb659a2f9d234bbc60cf4600d523853929cb96fc0703bcbd314e9653ca",
+          "capture_source_ref": "1bb0dd58850fe874286798afc5084a54",
+          "capture_source_digest": "sha256:3807810ee6f48fd6174adc4bb89ad0f934e1332c8e3af8f7adc4faffd87540d8",
+          "reference_preparation_ref": "9375a04d5285583375daef993b0e4c98",
+          "reference_preparation_digest": "sha256:15a1cc1905097246a9004555eeea262738bb834df60444004098a8a474c97d2f"
+        }
+      },
+      "scope_digest": "sha256:c59fb92b455c765217fe291809fb83a217d7d0569bdc33ca4117681160f98b24",
+      "revision": 2,
+      "predecessor": "sha256:7adb2aae01b3620f366876481c04b636764c371e556a6787f0cf901641b181ea",
+      "state": "open",
+      "attempts": [
+        {
+          "attempt_ref": "f3d047105a04a857640b7d4cd4bc4a49",
+          "task_ids": [
+            "e527db5aeae104be43c01c8a49398285"
+          ],
+          "outcome": "open",
+          "closure": {
+            "state": "unknown",
+            "result_trust": "unknown"
+          },
+          "application_change_set": null,
+          "usage": {
+            "requests": 3,
+            "input_tokens": 1000,
+            "output_tokens": 100,
+            "cache_tokens": null
+          },
+          "usage_provenance": "activity_usage",
+          "coverage": {
+            "tasks": 1,
+            "tasks_with_complete_usage": 1
+          },
+          "usage_normalization": "opencode-2.0.26:tokeninfo-v1"
+        }
+      ],
+      "declared_by": "user",
+      "revision_digest": "sha256:91d80b9f25e7f331e8b5bcae08db5d9431852634ab6be49fd97bc5be559479e5"
+    }
+  ],
+  "content_digest": "sha256:79b5d8de706e27e7779e506ab9980bb657773efe2c6a1d67027c11ca4e915f6d"
+}

@@ -1,7 +1,7 @@
 package report
 
 // These checks establish receipt consistency only. No writer or runner authority is
-// enabled by accepting version 0.3.0. Referenced history is self-contained in the receipt.
+// enabled by accepting versions 0.3.0 or 0.3.1. Referenced history is self-contained in the receipt.
 import (
 	"bytes"
 	"encoding/json"
@@ -28,8 +28,105 @@ func sealed(m map[string]any, key string) bool {
 	d, e := hint.Digest(rest)
 	return e == nil && d == str(m[key])
 }
+
+// projectHistoryConsistent is the existing receipt chain rule shared with intent-only 0.3.1.
+// It validates assertions, not external latest history or real pre-work ordering.
+func projectHistoryConsistent(rs []map[string]any) bool {
+	if len(rs) == 0 {
+		return false
+	}
+	start := rs[0]
+	for i, r := range rs {
+		if r["revision"].(float64) != float64(i+1) || str(r["origin"]) != "project" || str(r["scope_digest"]) != str(start["scope_digest"]) {
+			return false
+		}
+		if i > 0 && str(r["predecessor"]) != str(rs[i-1]["revision_digest"]) {
+			return false
+		}
+		if i > 0 { // Append-only attempt order and member tasks; terminal attempts stay immutable.
+			if str(rs[i-1]["state"]) == "closed" {
+				return false
+			}
+			oldAttempts := array(rs[i-1]["attempts"])
+			newAttempts := array(r["attempts"])
+			if len(newAttempts) < len(oldAttempts) {
+				return false
+			}
+			for j, x := range oldAttempts {
+				a, b := object(x), object(newAttempts[j])
+				if str(a["attempt_ref"]) != str(b["attempt_ref"]) {
+					return false
+				}
+				for _, id := range array(a["task_ids"]) {
+					found := false
+					for _, v := range array(b["task_ids"]) {
+						if id == v {
+							found = true
+						}
+					}
+					if !found {
+						return false
+					}
+				}
+				for _, id := range array(a["late_tasks"]) {
+					found := false
+					for _, v := range array(b["late_tasks"]) {
+						if id == v {
+							found = true
+						}
+					}
+					if !found {
+						return false
+					}
+				}
+			}
+			current := map[string]map[string]any{}
+			for _, a := range array(r["attempts"]) {
+				am := object(a)
+				if current[str(am["attempt_ref"])] != nil {
+					return false
+				}
+				current[str(am["attempt_ref"])] = am
+			}
+			for _, a := range array(rs[i-1]["attempts"]) {
+				am := object(a)
+				now := current[str(am["attempt_ref"])]
+				if now == nil || (str(am["outcome"]) != "open" && !sameValue(am, now)) {
+					return false
+				}
+			}
+		}
+	}
+
+	return true
+}
+
+func projectOriginalIntent(rs []map[string]any) bool {
+	if len(rs) == 0 {
+		return false
+	}
+	start := rs[0]
+	return start["revision"].(float64) == 1 && start["predecessor"] == nil &&
+		str(start["origin"]) == "project" && str(start["state"]) == "open" &&
+		len(array(start["attempts"])) == 0 && object(object(start["scope"])["verification_intent"]) != nil
+}
+
+func prospectiveStartBinding(scope map[string]any) bool {
+	intent := object(scope["verification_intent"])
+	binding := object(intent["start_binding"])
+	if object(scope["plan"]) == nil || binding == nil {
+		return false
+	}
+	for _, id := range array(scope["base_snapshots"]) {
+		if id == binding["base_snapshot_id"] {
+			return true
+		}
+	}
+	return false
+}
+
 func projectProblem(m map[string]any) error {
-	if str(m["report_version"]) != "0.3.0" {
+	if str(m["report_version"]) != "0.3.0" && str(m["report_version"]) != "0.3.1" {
 		return nil
 	}
 	invalid := func() error { return fmt.Errorf("%w: project verification binding", ErrInvalid) }
@@ -67,6 +164,24 @@ func projectProblem(m map[string]any) error {
 			}
 		}
 	}
+	// Unlike legacy assertions, 0.3.1 also validates prospective intent-only history.
+	// Detect intent anywhere, so adding it after an original intent-free start refuses.
+	if str(m["report_version"]) == "0.3.1" {
+		for _, rs := range units {
+			hasIntent := false
+			for _, r := range rs {
+				_, present := object(r["scope"])["verification_intent"]
+				hasIntent = hasIntent || present
+			}
+			if !hasIntent {
+				continue
+			}
+			sort.Slice(rs, func(i, j int) bool { return rs[i]["revision"].(float64) < rs[j]["revision"].(float64) })
+			if !projectOriginalIntent(rs) || !projectHistoryConsistent(rs) || !prospectiveStartBinding(object(rs[0]["scope"])) {
+				return invalid()
+			}
+		}
+	}
 	records := map[string]map[string]any{}
 	verifyExecutions := map[string]bool{}
 	for _, x := range array(m["project_verifications"]) {
@@ -95,7 +210,7 @@ func projectProblem(m map[string]any) error {
 		start := rs[0]
 		scope := object(start["scope"])
 		intent := object(scope["verification_intent"])
-		if start["revision"].(float64) != 1 || start["predecessor"] != nil || str(start["origin"]) != "project" || str(start["state"]) != "open" || len(array(start["attempts"])) != 0 || intent == nil {
+		if !projectOriginalIntent(rs) {
 			return invalid()
 		}
 		if str(w["start_scope_digest"]) != str(start["scope_digest"]) {
@@ -115,71 +230,18 @@ func projectProblem(m map[string]any) error {
 		if plan == nil || !sameValue(plan["recommendation_set_id"], actualPlan["recommendation_set_id"]) || !sameValue(plan["plan_id"], actualPlan["plan_id"]) {
 			return invalid()
 		}
+		if str(m["report_version"]) == "0.3.1" && !sameValue(object(intent["start_binding"])["recommendation_set_digest"], actualPlan["recommendation_set_digest"]) {
+			return invalid()
+		}
 		var frozen map[string]any
 		frozenIndex := -1
+		if !projectHistoryConsistent(rs) {
+			return invalid()
+		}
 		for i, r := range rs {
-			if r["revision"].(float64) != float64(i+1) || str(r["origin"]) != "project" || str(r["scope_digest"]) != str(start["scope_digest"]) {
-				return invalid()
-			}
-			if i > 0 && str(r["predecessor"]) != str(rs[i-1]["revision_digest"]) {
-				return invalid()
-			}
 			if str(r["revision_digest"]) == str(w["frozen_open_revision_digest"]) {
 				frozen = r
 				frozenIndex = i
-			}
-			if i > 0 { // Append-only attempt order and member tasks; terminal attempts stay immutable.
-				if str(rs[i-1]["state"]) == "closed" {
-					return invalid()
-				}
-				oldAttempts := array(rs[i-1]["attempts"])
-				newAttempts := array(r["attempts"])
-				if len(newAttempts) < len(oldAttempts) {
-					return invalid()
-				}
-				for j, x := range oldAttempts {
-					a, b := object(x), object(newAttempts[j])
-					if str(a["attempt_ref"]) != str(b["attempt_ref"]) {
-						return invalid()
-					}
-					for _, id := range array(a["task_ids"]) {
-						found := false
-						for _, v := range array(b["task_ids"]) {
-							if id == v {
-								found = true
-							}
-						}
-						if !found {
-							return invalid()
-						}
-					}
-					for _, id := range array(a["late_tasks"]) {
-						found := false
-						for _, v := range array(b["late_tasks"]) {
-							if id == v {
-								found = true
-							}
-						}
-						if !found {
-							return invalid()
-						}
-					}
-				}
-				current := map[string]map[string]any{}
-				for _, a := range array(r["attempts"]) {
-					am := object(a)
-					if current[str(am["attempt_ref"])] != nil {
-						return invalid()
-					}
-					current[str(am["attempt_ref"])] = am
-				}
-				for _, a := range array(rs[i-1]["attempts"]) {
-					am := object(a)
-					now := current[str(am["attempt_ref"])]
-					if now == nil || (str(am["outcome"]) != "open" && !sameValue(am, now)) {
-						return invalid()
-					}
-				}
 			}
 		}
 		if frozen == nil || str(frozen["state"]) != "open" || frozenIndex < len(rs)-2 {

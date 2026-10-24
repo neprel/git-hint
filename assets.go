@@ -41,3 +41,8 @@ var OpenCodePlugin []byte
 //
 //go:embed schemas/evalreport-v0.3/report.schema.json
 var SchemaEvalReportV03 []byte
+
+// SchemaEvalReportV031 validates prospective intent assertions only; no writer is enabled.
+//
+//go:embed schemas/evalreport-v0.3.1/report.schema.json
+var SchemaEvalReportV031 []byte

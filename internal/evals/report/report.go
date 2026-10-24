@@ -28,7 +28,7 @@ import (
 	"github.com/neprel/git-hint/internal/version"
 )
 
-// Version of the report format that Build writes. Check reads 0.1, 0.2 and 0.3.0.
+// Version of the report format that Build writes. Check reads 0.1, 0.2, 0.3.0 and 0.3.1.
 const Version = "0.2.1"
 
 // MediaType of a report on the wire.
@@ -36,14 +36,14 @@ const MediaType = "application/vnd.hint-evalreport+json"
 
 var (
 	once    sync.Once
-	schemas map[string]*jsonschema.Schema // "0.1", "0.2", "0.3"
+	schemas map[string]*jsonschema.Schema // "0.1", "0.2", "0.3", "0.3.1"
 	errLoad error
 )
 
 func compiled() (map[string]*jsonschema.Schema, error) {
 	once.Do(func() {
 		schemas = map[string]*jsonschema.Schema{}
-		for v, raw := range map[string][]byte{"0.1": githint.SchemaEvalReportV01, "0.2": githint.SchemaEvalReportV02, "0.3": githint.SchemaEvalReportV03} {
+		for v, raw := range map[string][]byte{"0.1": githint.SchemaEvalReportV01, "0.2": githint.SchemaEvalReportV02, "0.3": githint.SchemaEvalReportV03, "0.3.1": githint.SchemaEvalReportV031} {
 			c := jsonschema.NewCompiler()
 			c.DefaultDraft(jsonschema.Draft2020)
 			c.AssertFormat()
@@ -68,6 +68,8 @@ func compiled() (map[string]*jsonschema.Schema, error) {
 // reportMinor returns the schema minor for a supported report version, "" otherwise.
 func reportMinor(v string) string {
 	switch {
+	case v == "0.3.1":
+		return "0.3.1"
 	case v == "0.3.0":
 		return "0.3"
 	case v == "0.1.0":
@@ -111,7 +113,7 @@ func Check(data []byte) error {
 		}
 		return fmt.Errorf("%w: schema", ErrInvalid)
 	}
-	if minor == "0.3" && !uniqueJSONMembers(data) {
+	if (minor == "0.3" || minor == "0.3.1") && !uniqueJSONMembers(data) {
 		return fmt.Errorf("%w: not strict JSON", ErrInvalid)
 	}
 	var m map[string]any
@@ -147,7 +149,7 @@ func Check(data []byte) error {
 // without the fields stays valid and reads as unknown.
 func trustProblem(m map[string]any) error {
 	v := str(m["report_version"])
-	if reportMinor(v) != "0.2" && reportMinor(v) != "0.3" {
+	if reportMinor(v) != "0.2" && reportMinor(v) != "0.3" && reportMinor(v) != "0.3.1" {
 		return nil
 	}
 	required := v != "0.2.0"
