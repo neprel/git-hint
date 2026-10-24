@@ -25,6 +25,7 @@ var Arms = []string{"baseline", "configuration", "no_change", "context_only", "r
 
 // RunOptions of a suite run.
 type SuiteOptions struct {
+	StudyLaunchPolicy runner.StudyLaunchPolicy
 	// CapturePrelaunchTree is an internal study opt-in; no CLI/default enables it.
 	CapturePrelaunchTree bool
 	Evals                []string // eval IDs or versions; empty: every validated eval
@@ -59,6 +60,18 @@ type SuiteReport struct {
 // RunSuite freezes a suite and runs bounded trials. Every attempt is recorded.
 func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersion string, o SuiteOptions, now time.Time) (SuiteReport, error) {
 	rep := SuiteReport{Outcomes: map[string]int{}}
+	if err := o.StudyLaunchPolicy.Check(); err != nil {
+		return rep, err
+	}
+	if o.StudyLaunchPolicy != "" {
+		capability, ok := r.(interface {
+			SupportsStudyLaunchPolicy(runner.StudyLaunchPolicy) bool
+		})
+		if !ok || !capability.SupportsStudyLaunchPolicy(o.StudyLaunchPolicy) || o.Agent != "opencode" || !o.CapturePrelaunchTree {
+			return rep, fmt.Errorf("study policy requires a supporting opencode runner and prelaunch capture")
+		}
+	}
+
 	p := s.Cfg.Evals
 	if err := p.Check(evals.OpExecute, ""); err != nil {
 		return rep, err
@@ -170,7 +183,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			target = t
 		}
 		var err error
-		if launch, err = runner.DockerLaunchDigest(runner.DockerOpenCodeVersion, o.Live.ModelLabel, target); err != nil {
+		if launch, err = runner.DockerLaunchDigestWithPolicy(runner.DockerOpenCodeVersion, o.Live.ModelLabel, target, o.StudyLaunchPolicy); err != nil {
 			return rep, err
 		}
 	}
@@ -229,7 +242,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			if _, err := runner.Export(l, rec, work+"/task", settings); err != nil {
 				return rep, err
 			}
-			ro := runner.RunOptions{CapturePrelaunchTree: o.CapturePrelaunchTree, Agent: o.Agent, JobsDir: work + "/jobs", JobName: "trial"}
+			ro := runner.RunOptions{StudyLaunchPolicy: o.StudyLaunchPolicy, ExpectLaunchDigest: launch, CapturePrelaunchTree: o.CapturePrelaunchTree, Agent: o.Agent, JobsDir: work + "/jobs", JobName: "trial"}
 			var counter *runner.Counter
 			if o.Live != nil {
 				counter = o.Live.NewTrial(lim.TrialRequests)
@@ -261,7 +274,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				if t := jobAgentTarget(work); t != "" {
 					got = t
 				}
-				a, err := runner.DockerLaunchDigest(runner.DockerOpenCodeVersion, o.Live.ModelLabel, got)
+				a, err := runner.DockerLaunchDigestWithPolicy(runner.DockerOpenCodeVersion, o.Live.ModelLabel, got, o.StudyLaunchPolicy)
 				if err != nil {
 					return rep, err
 				}
@@ -286,7 +299,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				return rep, err
 			}
 			if o.Agent == "opencode" && o.Live != nil {
-				behavior := handOverBehavior(ctx, s, l, rec, work, manifest, name, b.Objective, str(m.(map[string]any)["task_family"]), trials[0].Exception == "", o.CapturePrelaunchTree)
+				behavior := handOverBehavior(ctx, s, l, rec, work, manifest, name, b.Objective, str(m.(map[string]any)["task_family"]), trials[0].Exception == "", o.CapturePrelaunchTree, o.StudyLaunchPolicy)
 				if behavior.State != "imported" {
 					rep.BehaviorImportProblems++
 				}

@@ -234,7 +234,7 @@ func TestBehaviorCaptureFailurePublishesNoPartialSourceOrEvents(t *testing.T) {
 				os.WriteFile(filepath.Join(work, "task", "environment", "repo", "cart.go"), []byte("wrong baseline"), 0o600)
 			}
 			manifest := workunits.Manifest{Agent: "opencode", AgentVersion: "2.0.26", Harness: "hint-docker", RunnerVersion: runner.DockerRunnerSemver, ModelLabel: "synthetic", MaxRequests: 5, MaxSeconds: 30}
-			result := handOverBehavior(context.Background(), s, l, rec, work, manifest, "trial", "task", "family", c.runOK, c.name == "missing_observed_start")
+			result := handOverBehavior(context.Background(), s, l, rec, work, manifest, "trial", "task", "family", c.runOK, c.name == "missing_observed_start", "")
 			if c.name == "missing_observed_start" && result.Reason != "observed_start_unusable" {
 				t.Fatalf("missing capture diagnostic %+v", result)
 			}

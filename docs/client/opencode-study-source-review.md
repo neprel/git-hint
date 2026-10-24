@@ -1,6 +1,6 @@
 # OpenCode single-root study launch: source review
 
-Status: source review only. No study launch policy is implemented or accepted here. Ordinary launch defaults remain unchanged.
+Status: source review only. The separate [internal study launch implementation](study-launch-policy.md) remains unqualified until finite real-binary validation. Ordinary launch defaults remain unchanged.
 
 The reviewed tag is `9b4ec5714d481559990db0a816d5dec19541a814` (2.0.26). The reported binary build source is `5e73d5cb1f788637b1b3d5cf1298ea694cbad0c5`. Their [primary comparison](https://github.com/anomalyco/opencode/compare/5e73d5cb1f788637b1b3d5cf1298ea694cbad0c5...9b4ec5714d481559990db0a816d5dec19541a814) contains one release commit changing package versions and the lockfile, with no inspected source changes. This does not prove that a distributed binary implements the reviewed source.
 

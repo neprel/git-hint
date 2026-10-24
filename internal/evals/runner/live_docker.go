@@ -54,7 +54,7 @@ func (lv *Live) attach(host string) (int, func() error, error) {
 
 // gateEnv is the agent's model environment through the gate.
 func gateEnv(c *Counter) []string {
-	return []string{"OPENAI_BASE_URL=http://gate:8080/t/" + c.token, "OPENAI_API_KEY=hint-proxy", "HOME=/tmp"}
+	return openCodeEnvironment(c.token, "")
 }
 
 // liveResult is what a live attempt leaves: the frozen tree's digest, the ledger as read
@@ -62,6 +62,7 @@ func gateEnv(c *Counter) []string {
 // attempt's error.
 type liveResult struct {
 	prelaunch *PrelaunchTreeCapture
+	study     *StudyLaunchReceipt
 	digest    string
 	ledger    *LedgerReport
 	final     bool     // every per-attempt path (agent, gate, networks, listener) is gone
@@ -82,6 +83,15 @@ type liveResult struct {
 // exists (the ledger is then sealed empty with unverified egress by the caller).
 func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, lim taskLimits, img, artifact string) liveResult {
 	var res liveResult
+	if err := o.checkStudyLaunch(); err != nil {
+		if o.Counter != nil {
+			o.Counter.Seal(0, BypassUnverified, ScopeIsolatedContainer)
+			res.ledger = o.Counter.Report()
+			res.sealedAt = o.Counter.SealedAt()
+		}
+		res.err, res.final = err, true
+		return res
+	}
 	var cleanups []func() error
 	digest := "" // the attempt's execution digest; no agent_run is recorded without it
 	if o.Agent == "test-agent" {
@@ -96,6 +106,10 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		startCap = capt.capture(ctx, o.Counter)
 	}
 	finish := func(err error) liveResult {
+		if res.study != nil && res.study.State != "prepared" {
+			end := o.Counter.mark().Milliseconds()
+			res.study.FinishedMs = &end
+		}
 		// refused before the agent's launch; after the launch runAgentEnclosed has already
 		// recorded the outcome and the first record is kept
 		if digest != "" {
@@ -124,6 +138,8 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	}
 	refuse := func(err error) liveResult { return finish(gateRefused(err)) }
 	cmd := o.agentCmd
+	env := gateEnv(o.Counter)
+	var recipe openCodeRecipe
 	var install []byte
 	if o.Agent == "opencode" { // target and binary first: nothing is set up for a refused install
 		bin, err := d.openCodeBinaryFor(ctx, *o.OpenCode, img)
@@ -139,11 +155,26 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		if err != nil {
 			return finish(agentInstallError{err})
 		}
-		if install, err = openCodeFiles(bin.data, o.Counter, o.Live.model); err != nil {
+		recipe, err = makeOpenCodeRecipe(o.Live.model, instr, o.Counter.token, o.StudyLaunchPolicy)
+		if err != nil {
 			return finish(agentInstallError{err})
 		}
-		cmd = openCodeArgv(o.Live.model, instr)
-		digest = openCodeExecutionDigest(o.Live.model, instr, bin.prov)
+		if install, err = recipe.archive(bin.data); err != nil {
+			return finish(agentInstallError{err})
+		}
+		cmd, env = recipe.Argv, recipe.Env
+		digest, err = openCodeExecutionDigestWithPolicy(o.Live.model, instr, bin.prov, img, o.StudyLaunchPolicy)
+		if err != nil {
+			return finish(agentInstallError{err})
+		}
+		if o.StudyLaunchPolicy != "" {
+			a, err := DockerLaunchDigestWithPolicy(fmt.Sprint(bin.prov["version"]), o.Live.model, fmt.Sprint(bin.prov["target"]), o.StudyLaunchPolicy)
+			if err != nil || a != o.ExpectLaunchDigest {
+				return finish(agentInstallError{errors.New("study actual launch differs from frozen planned digest")})
+			}
+			studyStart := o.Counter.mark().Milliseconds()
+			res.study = &StudyLaunchReceipt{Policy: o.StudyLaunchPolicy, State: "failed", Clock: "ledger_anchor_monotonic_ms", StartedMs: &studyStart, LaunchDigest: a, ExecutionDigest: digest, ImageID: img, BinaryValidation: "not_run", Eligibility: "requires_real_binary_validation"}
+		}
 		res.agentBinary["execution_digest"] = digest
 	}
 	gateImg, err := d.gateImage(ctx)
@@ -174,11 +205,22 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	h := g.agentHost()
 	pids := int64(1024)
 	h.Resources = container.Resources{NanoCPUs: int64(lim.cpus * 1e9), Memory: lim.memoryMB << 20, PidsLimit: &pids}
-	id, err := d.create(ctx, &container.Config{Image: img, User: "65534:65534", WorkingDir: "/app", Cmd: cmd, Entrypoint: []string{}, Env: gateEnv(o.Counter)}, h)
+	id, err := d.create(ctx, &container.Config{Image: img, User: "65534:65534", WorkingDir: "/app", Cmd: cmd, Entrypoint: []string{}, Env: env}, h)
 	if err != nil {
 		return refuse(err)
 	}
 	cleanups = append(cleanups, func() error { return d.removeErr(id) })
+	var studyCtx context.Context
+	if res.study != nil {
+		var cancel context.CancelFunc
+		studyCtx, cancel = context.WithTimeout(ctx, studyInspectionBound)
+		defer cancel()
+		launcher, err := d.inspectStudyBefore(studyCtx, id, img, recipe)
+		if err != nil {
+			return finish(errors.New("study pre-install inspection failed"))
+		}
+		res.study.LauncherDigest = launcher
+	}
 	// the starting tree, owned by the agent's user (no root step inside the container)
 	repo, err := ownedTree(filepath.Join(taskDir, "environment", "repo"))
 	if err != nil {
@@ -195,6 +237,16 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	bypass := d.Bypass(ctx, g, id)
 	if bypass != BypassEnforced {
 		return refuse(errors.New("the inspected topology is not the probed policy"))
+	}
+	if res.study != nil {
+		inventory, err := d.inspectStudyAfter(studyCtx, id, img, recipe)
+		if err != nil {
+			return finish(errors.New("study initial state inspection failed"))
+		}
+		res.study.InventoryDigest = inventory
+		res.study.State = "prepared"
+		end := o.Counter.mark().Milliseconds()
+		res.study.FinishedMs = &end
 	}
 	if o.CapturePrelaunchTree {
 		var err error

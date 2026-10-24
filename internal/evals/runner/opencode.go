@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -332,41 +331,11 @@ var openCodeModel = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 // openCodeFiles is the archive copied into the agent container before the start: the binary
 // (root, 0755) and the config (owner 65534) that names the gate and a dummy key.
 func openCodeFiles(bin []byte, c *Counter, model string) ([]byte, error) {
-	if !openCodeModel.MatchString(model) {
-		return nil, errors.New("unexpected model name")
-	}
-	cfg, _ := json.Marshal(map[string]any{
-		"provider": map[string]any{"hint": map[string]any{"npm": "@ai-sdk/openai-compatible", "name": "hint",
-			"options": map[string]any{"baseURL": "http://gate:8080/t/" + c.token, "apiKey": "hint-proxy"},
-			"models":  map[string]any{model: map[string]any{"name": model}}}},
-		"autoupdate": false, "share": "disabled"})
-	var b bytes.Buffer
-	tw := tar.NewWriter(&b)
-	epoch := time.Unix(0, 0)
-	for _, h := range []*tar.Header{
-		{Name: "opt/", Typeflag: tar.TypeDir, Mode: 0o755},
-		{Name: "opt/hint/", Typeflag: tar.TypeDir, Mode: 0o755},
-		{Name: "opt/hint/bin/", Typeflag: tar.TypeDir, Mode: 0o755},
-		{Name: "opt/hint/bin/opencode", Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len(bin))},
-		{Name: "tmp/.config/", Typeflag: tar.TypeDir, Mode: 0o700, Uid: 65534, Gid: 65534},
-		{Name: "tmp/.config/opencode/", Typeflag: tar.TypeDir, Mode: 0o700, Uid: 65534, Gid: 65534},
-		{Name: "tmp/.config/opencode/opencode.json", Typeflag: tar.TypeReg, Mode: 0o600, Uid: 65534, Gid: 65534, Size: int64(len(cfg))},
-	} {
-		h.ModTime, h.Format = epoch, tar.FormatPAX
-		if err := tw.WriteHeader(h); err != nil {
-			return nil, err
-		}
-		switch h.Name {
-		case "opt/hint/bin/opencode":
-			tw.Write(bin)
-		case "tmp/.config/opencode/opencode.json":
-			tw.Write(cfg)
-		}
-	}
-	if err := tw.Close(); err != nil {
+	r, err := makeOpenCodeRecipe(model, "", c.token, "")
+	if err != nil {
 		return nil, err
 	}
-	return b.Bytes(), nil
+	return r.archive(bin)
 }
 
 // OpenCodeTitle is the fixed title of every attempt's new session. In the pinned source (2.0.26,
@@ -376,9 +345,14 @@ func openCodeFiles(bin []byte, c *Counter, model string) ([]byte, error) {
 const OpenCodeTitle = "hint-trial"
 
 // openCodeArgv is the fixed command of one attempt (no shell).
-func openCodeArgv(model, instruction string) []string {
+func baseOpenCodeArgv(model, instruction string) []string {
 	return []string{"/opt/hint/bin/opencode", "run", "--standalone", "--format", "json", "--thinking", "--auto", "--title", OpenCodeTitle,
 		"-m", "hint/" + model, "--", instruction}
+}
+
+func openCodeArgv(model, instruction string) []string {
+	r, _ := makeOpenCodeRecipe(model, instruction, "", "")
+	return r.Argv
 }
 
 // taskInstruction is the instruction of an exported task without its leading canary comment.
@@ -409,13 +383,8 @@ func readFileBounded(p string, max int64) ([]byte, error) {
 // with the instruction replaced by its digest, the config without the attempt's token, the
 // version, the target and the installed binary's digest.
 func openCodeExecutionDigest(model, instruction string, prov map[string]any) string {
-	is := sha256.Sum256([]byte(instruction))
-	argv := openCodeArgv(model, "sha256:"+hex.EncodeToString(is[:]))
-	cfg, _ := openCodeFiles(nil, &Counter{token: "<token>"}, model)
-	cs := sha256.Sum256(cfg)
-	b, _ := json.Marshal([]any{argv, hex.EncodeToString(cs[:]), prov["version"], prov["binary_sha256"], prov["target"]})
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	digest, _ := openCodeExecutionDigestWithPolicy(model, instruction, prov, "", "")
+	return digest
 }
 
 // DockerLaunchDigest is the canonical configuration identity (A) of a controlled OpenCode run
@@ -425,32 +394,7 @@ func openCodeExecutionDigest(model, instruction string, prov map[string]any) str
 // archive pin, the normalized argv and config, the environment and the container controls. An
 // unpinned target has no configuration.
 func DockerLaunchDigest(version, model, target string) (string, error) {
-	pin := OpenCodePins[version][target]
-	if pin == "" {
-		return "", fmt.Errorf("OpenCode %s has no pin for target %q", version, target)
-	}
-	cfg, err := openCodeFiles(nil, &Counter{token: "<token>"}, model)
-	if err != nil {
-		return "", err
-	}
-	tr := tar.NewReader(bytes.NewReader(cfg))
-	var conf []byte
-	for {
-		h, err := tr.Next()
-		if err != nil {
-			break
-		}
-		if h.Name == "tmp/.config/opencode/opencode.json" {
-			conf, _ = io.ReadAll(tr)
-		}
-	}
-	policy := sha256.Sum256([]byte(gatePolicyText))
-	b, _ := json.Marshal([]any{"hint-docker-launch-v1", DockerRunnerVersion, GatePolicy, hex.EncodeToString(policy[:]),
-		"opencode", version, target, pin, openCodeArgv(model, "<instruction>"), string(conf),
-		[]string{"HOME=/tmp", "OPENAI_API_KEY=hint-proxy", "OPENAI_BASE_URL=http://gate:8080/t/<token>"},
-		map[string]any{"user": "65534:65534", "cap_drop": "ALL", "no_new_privileges": true, "tree_owner": "65534:65534", "binary": "root:0755"}})
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	return DockerLaunchDigestWithPolicy(version, model, target, "")
 }
 
 // PreflightTarget builds a task's agent image and resolves its OpenCode target with the clean

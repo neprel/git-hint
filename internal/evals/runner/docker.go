@@ -115,6 +115,9 @@ func readLimits(taskDir string) (taskLimits, error) {
 
 // Run executes the attempts of one job on a task directory and reads its trials.
 func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial, error) {
+	if err := o.checkStudyLaunch(); err != nil {
+		return nil, err
+	}
 	if o.Attempts <= 0 {
 		o.Attempts = 1
 	}
@@ -231,6 +234,9 @@ func (d *Docker) trial(ctx context.Context, taskDir, dir, name string, o RunOpti
 		lr := d.livePhase(ctx, taskDir, o, lim, im.agent, artifact)
 		if lr.agentBinary != nil {
 			r.Container["agent_binary"] = lr.agentBinary
+		}
+		if lr.study != nil {
+			r.Container["study_launch"] = lr.study
 		}
 		if lr.prelaunch != nil {
 			r.Container["prelaunch_tree"] = lr.prelaunch

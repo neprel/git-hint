@@ -40,7 +40,7 @@ type BehaviorImport struct {
 // Its default resolver scans immutable BASE; study opt-in scans observed start instead.
 // Neither path scans the current project or final agent tree.
 func handOverBehavior(ctx context.Context, s *store.Store, l *library.Library, rec map[string]any, work string, m workunits.Manifest,
-	trial, task, family string, runOK bool, observedStart bool) BehaviorImport {
+	trial, task, family string, runOK bool, observedStart bool, policy runner.StudyLaunchPolicy) BehaviorImport {
 	result := BehaviorImport{State: "unknown", RunRef: activity.RunRef(s.Key(), trial)}
 	fail := func(code string) BehaviorImport { result.Reason = code; return result }
 	if !runOK {
@@ -49,6 +49,9 @@ func handOverBehavior(ctx context.Context, s *store.Store, l *library.Library, r
 	job, err := readJobResult(work)
 	if err != nil {
 		return fail("capture_metadata_unavailable")
+	}
+	if policy != "" && (!observedStart || !studyBehaviorReceipt(job, m, policy)) {
+		return fail("study_launch_unusable")
 	}
 	if job.Container.AgentOutput["stdout"] != "complete" {
 		return fail("capture_not_complete")
@@ -277,4 +280,20 @@ func observedStartResolver(ctx context.Context, s *store.Store, rec map[string]a
 		id, ok := ids[name]
 		return id, ok
 	}, str(repo["base_tree"]), capture.Digest, cleanup, nil
+}
+
+// Inspection-only receipts do not grant canonical/calibration eligibility. The separate
+// real-binary acceptance is deliberately not enabled by this local behavior import.
+func studyBehaviorReceipt(job jobResult, m workunits.Manifest, p runner.StudyLaunchPolicy) bool {
+	r := job.Container.StudyLaunch
+	c := job.Container.PrelaunchTree
+	if p.Check() != nil || r == nil || c == nil || r.Policy != p || r.State != "prepared" || r.Clock != "ledger_anchor_monotonic_ms" || r.StartedMs == nil || r.FinishedMs == nil || *r.StartedMs < 0 || *r.FinishedMs < *r.StartedMs || *r.FinishedMs > c.StartedMs || r.BinaryValidation != "not_run" || r.Eligibility != "requires_real_binary_validation" || r.LaunchDigest != m.LaunchDigest || r.ExecutionDigest != c.ExecutionDigest || r.ExecutionDigest != job.Container.AgentBinary.ExecutionDigest || r.ImageID != job.Container.ImageID {
+		return false
+	}
+	for _, d := range []string{r.LaunchDigest, r.ExecutionDigest, r.ImageID, r.LauncherDigest, r.InventoryDigest} {
+		if !observedStartDigestPattern.MatchString(d) {
+			return false
+		}
+	}
+	return true
 }

@@ -75,6 +75,9 @@ func (t Trial) Outcome() string {
 
 // RunOptions of one runner job.
 type RunOptions struct {
+	StudyLaunchPolicy StudyLaunchPolicy
+	// ExpectLaunchDigest is the frozen planned A; required by a study launch only.
+	ExpectLaunchDigest string
 	// CapturePrelaunchTree opts controlled studies into local observed-start evidence.
 	// It does not enable a trusted producer, export source, or change launch policy.
 	CapturePrelaunchTree bool

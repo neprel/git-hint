@@ -66,9 +66,11 @@ func SelectRunner(ctx context.Context, p *evals.Policy) (qualify.Runner, RunnerI
 // jobResult is the container runner's result.json of a pass's single trial.
 type jobResult struct {
 	Container struct {
-		Ledger      *runner.LedgerReport `json:"ledger"`
-		LedgerFinal *bool                `json:"ledger_final"`
-		SealedAt    string               `json:"ledger_sealed_at"`
+		ImageID     string                     `json:"agent_image"`
+		StudyLaunch *runner.StudyLaunchReceipt `json:"study_launch"`
+		Ledger      *runner.LedgerReport       `json:"ledger"`
+		LedgerFinal *bool                      `json:"ledger_final"`
+		SealedAt    string                     `json:"ledger_sealed_at"`
 		AgentBinary struct {
 			Target          string `json:"target"`
 			Version         string `json:"version"`
