@@ -62,8 +62,8 @@ file or subtree remains absent; stable-absence/repeat proof belongs to the later
 
 Legacy `FromWorktree` uses the same bounded regular-file core while preserving ordinary
 supported final-symlink target bytes, modes, Git selection and canonical tree bytes. Its
-existing defaults remain 8 MiB/file, 256 MiB/tree and 50,000 paths; Git stdout now has a
-32 MiB bound. Unsafe observed ancestor/file replacement refuses. Legacy root aliases are
+existing defaults remain 8 MiB/file, 256 MiB/tree and 50,000 paths; Git stdout now has a 32 MiB bound. Read-only Git callback suppression applies in both modes,
+including store exclusion checks made by object persistence. Unsafe observed ancestor/file replacement refuses. Legacy root aliases are
 resolved once; strict root/ancestor aliases refuse. Non-Unix platforms keep bounded legacy
 reads and explicitly refuse the new strict contract rather than claim unavailable no-follow
 semantics. No approved implementation/source digest is self-pinned here.
@@ -95,3 +95,54 @@ The actual APFS alias regression runs without a skip on the review host. A tempo
 overlay restoring the original guard causes that regression to fail. Pure spelling
 controls run on every filesystem; the actual-alias test explicitly skips when the
 filesystem does not exhibit that alias. Targeted race tests include the legacy golden.
+
+## CR-2 correction: callback-safe Git and persistence deadlines
+
+The original `08e32b8` and `4320ac6` did not disable configured Git fsmonitor callbacks.
+Independent review demonstrated a fake configured hook executing on the host during strict
+capture. Those original packages are not accepted as callback-safe reader evidence.
+
+The shared `internal/readgit` command builder now uses this fixed prefix for inventory and
+store safety inspections (including their rev-parse calls), in BOTH reader modes:
+
+```text
+git --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null -C <root> <fixed read command>
+```
+
+Each command receives its own copied environment. Ambient `GIT_CONFIG_PARAMETERS`,
+`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*` command injections are removed;
+`GIT_OPTIONAL_LOCKS=0` replaces any ambient setting. No global environment mutation occurs.
+Ordinary global/system configuration sources remain selected; fixed argv overrides their
+callback settings. Intentional ambient command-config overrides no longer influence these
+inspections. Default ordinary fixture object/tree bytes remain unchanged. This does not
+attest an arbitrary executable selected from PATH or resolve the full ignore-source policy.
+
+Source inventory keeps its existing output/root/cancellation checks. Store safety commands
+use bounded stdout (4 MiB), stderr (64 KiB), process cancellation and bounded stream cleanup.
+Both stream readers must independently observe EOF: a process exit 1 must not hide a
+WaitDelay-truncated stream. Only clean complete exit 0 or deliberate check-ignore exit 1
+can return stdout. Exit 1 still
+undergoes the existing exclusion parser and never means an ignored path by itself. Bounds,
+cancellation, stderr failures, other exits and incomplete streams discard output; a matching
+partial prefix cannot clear the guard. No command retry is introduced.
+
+`Library.PutObjectContext` and `Store.CheckPathContext` wrap the SAME existing persistence/
+exclusion cores. Strict capture passes its original caller context through every file object,
+final tree object, writer-lock wait, quota walk and transitive Git guard. A pre-existing
+deadline is preserved exactly; no per-file deadline renewal occurs. Legacy no-context guards
+receive a disclosed 10-second fallback. Metadata/content formatting and immutable object
+digests do not change. Cancelled checks return failure rather than a successful object/tree;
+this is not a kernel-I/O interruption or whole-workflow quiescence guarantee.
+
+Actual fake-hook sentinels first prove configured fsmonitor execution through a raw local
+Git control. The marker then stays absent during strict capture INCLUDING same-store object
+persistence, and during legacy capture. Local config, ambient count/keys and ambient parameter
+injections all receive controls. Root's original separate-store probe passes unchanged.
+Further tests cover exact argv/environment, unchanged deadline identity, check-ignore exit 1,
+failed matching output, cancellation during a started persistence safety command, and legacy
+golden bytes. No model, engine, CI or capture-policy authority follows from these tests.
+
+During the combined local gate, the cancellation fixture's original one-second pre-cancel
+startup wait failed under parallel load. It now waits for the observed fake-check entry
+for at most eight seconds within a ten-second test context. The post-cancel join assertion
+remains one second. No production capture, cancellation or resource threshold changed.

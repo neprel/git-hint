@@ -3,16 +3,14 @@ package trees
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/readgit"
 )
 
 // CapturePolicy is an explicit reader contract, not catalogue or completion authority.
@@ -146,7 +144,7 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 		if total > lim.MaxTotalBytes {
 			return "", unsupported("binary_too_large", "the state exceeds the tree byte limit")
 		}
-		d, e := l.PutObject(entry.data)
+		d, e := l.PutObjectContext(ctx, entry.data)
 		if e != nil {
 			return "", e
 		}
@@ -158,7 +156,7 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
-	digest, e := putTree(l, files)
+	digest, e := putTreeContext(ctx, l, files)
 	if e != nil {
 		return "", e
 	}
@@ -216,45 +214,19 @@ func readRegular(ctx context.Context, f *os.File, limit int64, hooks readHooks) 
 	return out, nil
 }
 
-type gitOutput struct {
-	buf    bytes.Buffer
-	limit  int64
-	cancel context.CancelFunc
-	over   bool
-}
-
-func (w *gitOutput) Write(p []byte) (int, error) {
-	if int64(w.buf.Len()+len(p)) > w.limit {
-		w.over = true
-		w.cancel()
-		return 0, errors.New("git_output_limit")
-	}
-	return w.buf.Write(p)
-}
 func (s *worktreeRoot) git(ctx context.Context, limit int64, args ...string) ([]byte, error) {
 	if e := s.verify(); e != nil {
 		return nil, e
 	}
-	child, cancel := context.WithCancel(ctx)
-	defer cancel()
-	dir, extra := s.gitDirectory()
-	argv := append([]string{"-C", dir}, args...)
-	cmd := exec.CommandContext(child, "git", argv...)
-	cmd.ExtraFiles = extra
-	cmd.WaitDelay = time.Second
-	out := &gitOutput{limit: limit, cancel: cancel}
-	stderr := &gitOutput{limit: 64 << 10, cancel: cancel}
-	cmd.Stdout, cmd.Stderr = out, stderr
-	if e := cmd.Run(); e != nil {
-		return nil, fmt.Errorf("bounded Git command failed")
+	dir, _ := s.gitDirectory()
+	out, e := readgit.Output(ctx, dir, limit, args...)
+	if e != nil {
+		return nil, unsupported("inventory_unavailable", "the bounded Git command failed")
 	}
-	if out.over || stderr.over || ctx.Err() != nil {
-		return nil, fmt.Errorf("bounded Git command incomplete")
-	}
-	if e := s.verify(); e != nil {
+	if e = s.verify(); e != nil {
 		return nil, e
 	}
-	return out.buf.Bytes(), nil
+	return out, nil
 }
 
 var stageObjectHash = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)

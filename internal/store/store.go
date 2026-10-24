@@ -14,6 +14,7 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -21,13 +22,13 @@ import (
 	"fmt"
 	"github.com/neprel/git-hint/internal/evals"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/neprel/git-hint/internal/hint"
+	"github.com/neprel/git-hint/internal/readgit"
 )
 
 // Dir is the store directory name in the project root.
@@ -136,7 +137,7 @@ func keyPath(id string) (string, error) {
 
 // GitTopLevel returns the root of the Git work tree that contains dir.
 func GitTopLevel(dir string) (string, error) {
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	out, err := readgit.Output(context.Background(), dir, readgit.MaxOutput, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", fmt.Errorf("%s is not inside a Git work tree", dir)
 	}
@@ -416,7 +417,7 @@ func ensureExcludeEntry(root string) error {
 	if err := tracked(root); err != nil {
 		return err
 	}
-	out, err := exec.Command("git", "-C", root, "rev-parse", "--git-path", "info/exclude").Output()
+	out, err := readgit.Output(context.Background(), root, readgit.MaxOutput, "rev-parse", "--git-path", "info/exclude")
 	if err != nil {
 		return fmt.Errorf("git: %w", err)
 	}
@@ -451,7 +452,12 @@ var ErrNotExcluded = errors.New(".hint/ is not ignored by Git; run `git hint ini
 // tracked fails when Git already tracks a file below `.hint/`: ignore rules do not apply
 // to tracked files, so their content would reach the next commit.
 func tracked(root string) error {
-	out, err := exec.Command("git", "-C", root, "ls-files", "-z", "--", Dir).Output()
+	ctx, done := readgit.Guard(context.Background())
+	defer done()
+	return trackedContext(ctx, root)
+}
+func trackedContext(ctx context.Context, root string) error {
+	out, err := readgit.Output(ctx, root, readgit.MaxOutput, "ls-files", "-z", "--", Dir)
 	if err != nil {
 		return fmt.Errorf("git ls-files: %w", err)
 	}
@@ -465,10 +471,17 @@ func tracked(root string) error {
 // checkPaths fails unless no file below `.hint/` is tracked and Git ignores every given
 // path (absolute paths below the root).
 func checkPaths(root string, paths ...string) error {
-	if err := tracked(root); err != nil {
+	ctx, done := readgit.Guard(context.Background())
+	defer done()
+	return checkPathsContext(ctx, root, paths...)
+}
+func checkPathsContext(ctx context.Context, root string, paths ...string) error {
+	ctx, done := readgit.Guard(ctx)
+	defer done()
+	if err := trackedContext(ctx, root); err != nil {
 		return err
 	}
-	args := []string{"-C", root, "check-ignore", "--no-index", "-v", "-n", "--"}
+	args := []string{"check-ignore", "--no-index", "-v", "-n", "--"}
 	for _, p := range paths {
 		rel, err := filepath.Rel(root, p)
 		if err != nil || !strings.HasPrefix(filepath.ToSlash(rel), Dir+"/") {
@@ -476,8 +489,8 @@ func checkPaths(root string, paths ...string) error {
 		}
 		args = append(args, filepath.ToSlash(rel))
 	}
-	out, err := exec.Command("git", args...).Output()
-	if err != nil && len(out) == 0 {
+	out, err := readgit.Output(ctx, root, readgit.MaxOutput, args...)
+	if err != nil && !readgit.ExitOne(err) {
 		return fmt.Errorf("git check-ignore: %w", err)
 	}
 	// -v -n prints "<source>:<line>:<pattern>\t<path>" per path; "::\t<path>" when no
@@ -493,6 +506,9 @@ func checkPaths(root string, paths ...string) error {
 			return fmt.Errorf("%w (%s)", ErrNotExcluded, path)
 		}
 	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return nil
 }
 
@@ -507,8 +523,11 @@ func (s *Store) CheckExcluded() error {
 // CheckPath fails closed unless Git ignores this path below `.hint/`, every other area of
 // the store, and tracks no file below the store. Every write calls it with its actual
 // path; a partly ignored store stops all writes.
-func (s *Store) CheckPath(p string) error {
-	return checkPaths(s.Root, append(storePaths(s.Root, probePaths), p)...)
+func (s *Store) CheckPath(p string) error { return s.CheckPathContext(context.Background(), p) }
+
+// CheckPathContext preserves a caller's deadline across all callback-disabled Git checks.
+func (s *Store) CheckPathContext(ctx context.Context, p string) error {
+	return checkPathsContext(ctx, s.Root, append(storePaths(s.Root, probePaths), p)...)
 }
 
 // WriteState writes a file below `.hint/` atomically with owner-only permissions. It

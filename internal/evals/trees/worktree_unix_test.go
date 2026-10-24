@@ -5,6 +5,7 @@ package trees
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
@@ -13,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/testkit"
 	"golang.org/x/sys/unix"
 )
@@ -314,7 +317,7 @@ func TestStrictCaptureStageFailureAndMalformedOutput(t *testing.T) {
 				action = "printf 'malformed\\000'; exit 0"
 			}
 			quoted := "'" + strings.ReplaceAll(realGit, "'", "'\\''") + "'"
-			script := "#!/bin/sh\nif [ \"$5\" = \"--stage\" ]; then " + action + "; fi\nexec " + quoted + " \"$@\"\n"
+			script := "#!/bin/sh\nfor arg do if [ \"$arg\" = \"--stage\" ]; then " + action + "; fi; done\nexec " + quoted + " \"$@\"\n"
 			if e := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755); e != nil {
 				t.Fatal(e)
 			}
@@ -463,4 +466,62 @@ func TestStrictProtectedPathActualAlias(t *testing.T) {
 		t.Fatalf("legacy spelling behavior changed: %v", e)
 	}
 	t.Log("actual case-insensitive alias exercised; no skip")
+}
+
+func TestCaptureDoesNotRunConfiguredFsmonitorSameStore(t *testing.T) {
+	for _, mode := range []string{"local-config", "ambient-count", "ambient-parameters"} {
+		t.Run(mode, func(t *testing.T) {
+			root := canonicalDir(t)
+			testkit.Git(t, root, "init", "-q")
+			testkit.WriteFile(t, root, "main.py", "print(1)\n")
+			testkit.Git(t, root, "add", "main.py")
+			t.Setenv("HINT_KEY_DIR", t.TempDir())
+			s, _, e := store.Init(root, store.InitOptions{})
+			if e != nil {
+				t.Fatal(e)
+			}
+			l := library.Open(s, 0)
+			marker := filepath.Join(root, ".git", "monitor-marker")
+			hook := filepath.Join(root, ".git", "fake-monitor.sh")
+			quote := func(v string) string { return "'" + strings.ReplaceAll(v, "'", "'\\''") + "'" }
+			script := fmt.Sprintf("#!/bin/sh\nprintf hit >> %s\nprintf 'token\\000'\n", quote(marker))
+			if e = os.WriteFile(hook, []byte(script), 0o700); e != nil {
+				t.Fatal(e)
+			}
+			testkit.Git(t, root, "config", "core.fsmonitor", hook)
+			testkit.Git(t, root, "config", "core.hooksPath", filepath.Join(root, ".git"))
+			testkit.Git(t, root, "status", "--porcelain")
+			if _, e = os.Stat(marker); e != nil {
+				t.Fatal("sentinel control did not execute configured fake fsmonitor")
+			}
+			if e = os.Remove(marker); e != nil {
+				t.Fatal(e)
+			}
+			if mode == "ambient-count" {
+				t.Setenv("GIT_CONFIG_COUNT", "2")
+				t.Setenv("GIT_CONFIG_KEY_0", "core.fsmonitor")
+				t.Setenv("GIT_CONFIG_VALUE_0", hook)
+				t.Setenv("GIT_CONFIG_KEY_1", "core.hooksPath")
+				t.Setenv("GIT_CONFIG_VALUE_1", filepath.Join(root, ".git"))
+			}
+			if mode == "ambient-parameters" {
+				t.Setenv("GIT_CONFIG_PARAMETERS", quote("core.fsmonitor="+hook)+" "+quote("core.hooksPath="+filepath.Join(root, ".git")))
+			}
+			strict, e := FromWorktreeWithCapturePolicy(context.Background(), l, root, Limits{}, StrictCapturePolicyV1)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if _, e = os.Stat(marker); !os.IsNotExist(e) {
+				t.Fatal("strict capture or transitive persistence executed configured hook")
+			}
+			legacy, e := FromWorktree(context.Background(), l, root, Limits{})
+			if e != nil || strict != legacy {
+				t.Fatalf("ordinary selected bytes changed: %v", e)
+			}
+			if _, e = os.Stat(marker); !os.IsNotExist(e) {
+				t.Fatal("legacy read-only inspection executed configured hook")
+			}
+			t.Log("configured fsmonitor control executed; strict+transitive and legacy captures did not")
+		})
+	}
 }

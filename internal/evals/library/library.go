@@ -9,6 +9,7 @@ package library
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,8 +22,10 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/neprel/git-hint/internal/evals"
+	"github.com/neprel/git-hint/internal/readgit"
 	"github.com/neprel/git-hint/internal/store"
 )
 
@@ -56,7 +59,11 @@ func (l *Library) path(elem ...string) string {
 
 // checkTarget refuses a path whose existing part resolves outside `.hint/` (a symbolic
 // link planted inside the store) and checks the Git exclusion of the path.
-func (l *Library) checkTarget(p string) error {
+func (l *Library) checkTarget(p string) error { return l.checkTargetContext(context.Background(), p) }
+func (l *Library) checkTargetContext(ctx context.Context, p string) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	root, err := filepath.EvalSymlinks(l.s.Path())
 	if err != nil {
 		return err
@@ -79,13 +86,16 @@ func (l *Library) checkTarget(p string) error {
 	if fi, err := os.Lstat(p); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
 		return fmt.Errorf("%w: %s is a symbolic link", ErrEscape, p)
 	}
-	return l.s.CheckPath(p)
+	return l.s.CheckPathContext(ctx, p)
 }
 
 // writeNew writes data to p atomically. With exclusive, an existing p is never replaced
 // (os.Link fails); the caller decides whether the existing content is acceptable.
 func (l *Library) writeNew(p string, data []byte, exclusive bool) error {
-	if err := l.checkTarget(p); err != nil {
+	return l.writeNewContext(context.Background(), p, data, exclusive)
+}
+func (l *Library) writeNewContext(ctx context.Context, p string, data []byte, exclusive bool) error {
+	if err := l.checkTargetContext(ctx, p); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
@@ -112,6 +122,9 @@ func (l *Library) writeNew(p string, data []byte, exclusive bool) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if exclusive {
 		return os.Link(name, p)
 	}
@@ -133,9 +146,13 @@ func (l *Library) objectPath(digest string) (string, error) {
 }
 
 // Usage returns the bytes stored in the library (temporary files included).
-func (l *Library) Usage() (int64, error) {
+func (l *Library) Usage() (int64, error) { return l.usageContext(context.Background()) }
+func (l *Library) usageContext(ctx context.Context) (int64, error) {
 	var n int64
 	err := filepath.WalkDir(l.path(), func(_ string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return nil
@@ -153,8 +170,9 @@ func (l *Library) Usage() (int64, error) {
 	return n, err
 }
 
-func (l *Library) reserve(n int) error {
-	used, err := l.Usage()
+func (l *Library) reserve(n int) error { return l.reserveContext(context.Background(), n) }
+func (l *Library) reserveContext(ctx context.Context, n int) error {
+	used, err := l.usageContext(ctx)
 	if err != nil {
 		return err
 	}
@@ -167,29 +185,55 @@ func (l *Library) reserve(n int) error {
 // PutObject stores data and returns its digest. Storing the same content again writes
 // nothing; a damaged copy is replaced.
 func (l *Library) PutObject(data []byte) (string, error) {
+	return l.PutObjectContext(context.Background(), data)
+}
+
+// PutObjectContext shares the ordinary object writer and preserves the caller deadline
+// through its lock and all transitive Git exclusion checks. No background renewal.
+func (l *Library) PutObjectContext(ctx context.Context, data []byte) (string, error) {
+	ctx, done := readgit.Guard(ctx)
+	defer done()
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
 	d := Digest(data)
 	p, err := l.objectPath(d)
 	if err != nil {
 		return "", err
 	}
-	l.mu.Lock()
+	for !l.mu.TryLock() {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(time.Millisecond):
+		}
+	}
 	defer l.mu.Unlock()
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
 	if old, err := os.ReadFile(p); err == nil {
 		if Digest(old) == d {
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
 			return d, nil
 		}
-		if err := l.checkTarget(p); err != nil {
+		if err := l.checkTargetContext(ctx, p); err != nil {
 			return "", err
 		}
 		if err := os.Remove(p); err != nil {
 			return "", err
 		}
 	}
-	if err := l.reserve(len(data)); err != nil {
+	if err := l.reserveContext(ctx, len(data)); err != nil {
 		return "", err
 	}
-	if err := l.writeNew(p, data, true); err != nil && !errors.Is(err, fs.ErrExist) {
+	if err := l.writeNewContext(ctx, p, data, true); err != nil && !errors.Is(err, fs.ErrExist) {
 		return "", err
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
 	}
 	return d, nil
 }
