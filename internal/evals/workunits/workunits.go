@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"time"
@@ -74,11 +75,22 @@ type Run struct {
 
 var ErrRunExists = errors.New("the run manifest exists already")
 
-// ReadManifest returns the stored manifest of a run (written once by Start).
+// runIDPattern is the form of every run ID ("jb-" and 16 hex digits); nothing else names a
+// stored run file.
+var runIDPattern = regexp.MustCompile(`^jb-[0-9a-f]{16}$`)
+
+// ReadManifest returns the stored manifest of a run (written once by Start): the run ID must
+// have the run form, and the stored file must be a run whose manifest names that run.
 func ReadManifest(s *store.Store, runID string) (Manifest, error) {
+	if !runIDPattern.MatchString(runID) {
+		return Manifest{}, errors.New("not a run ID")
+	}
 	var r Run
 	if err := s.ReadJSON(&r, "state", "evals", "work", runFile(runID)); err != nil {
 		return Manifest{}, err
+	}
+	if r.Manifest.RunID != runID || r.Manifest.Agent == "" || r.Manifest.RunnerVersion == "" || r.Manifest.CreatedAt == "" {
+		return Manifest{}, errors.New("the stored run is not a usable manifest")
 	}
 	return r.Manifest, nil
 }

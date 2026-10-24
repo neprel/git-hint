@@ -112,13 +112,44 @@ type captureExpect struct {
 
 var fullContainerID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+// uniqueMembers reports whether b starts with one JSON object whose member names occur once (a
+// repeated member would otherwise keep its last value).
+func uniqueMembers(b []byte) bool {
+	d := json.NewDecoder(bytes.NewReader(b))
+	if t, err := d.Token(); err != nil || t != json.Delim('{') {
+		return false
+	}
+	seen := map[string]bool{}
+	for d.More() {
+		t, err := d.Token()
+		k, ok := t.(string)
+		if err != nil || !ok || seen[k] {
+			return false
+		}
+		seen[k] = true
+		var v json.RawMessage
+		if d.Decode(&v) != nil {
+			return false
+		}
+	}
+	return true
+}
+
 // readCaptureExpect reads the expect file: exactly one complete object; the container is the
 // full engine ID (not a shortened record value). Errors name no raw value.
 func readCaptureExpect(expectFile string) (captureExpect, error) {
-	var e captureExpect
 	b, err := os.ReadFile(expectFile)
 	if err != nil {
-		return e, errors.New("the capture expect file is not readable")
+		return captureExpect{}, errors.New("the capture expect file is not readable")
+	}
+	return parseCaptureExpect(b)
+}
+
+// parseCaptureExpect parses the expect file's bytes (read once by the caller).
+func parseCaptureExpect(b []byte) (captureExpect, error) {
+	var e captureExpect
+	if !uniqueMembers(b) {
+		return e, errors.New("the capture expect file is not usable")
 	}
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()

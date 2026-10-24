@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -56,11 +57,17 @@ func readBackendInstance(path string) (backendInstance, []byte, error) {
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
 	var extra json.RawMessage
-	if d.Decode(&in) != nil || d.Decode(&extra) != io.EOF || !profilePattern.MatchString(in.ProfileID) || !digestPattern.MatchString(in.WeightsID) ||
-		!digestPattern.MatchString(in.ImageID) || !rfc3339Pattern.MatchString(in.StartedAt) || in.RestartCount == nil || *in.RestartCount < 0 {
+	if !uniqueMembers(b) || d.Decode(&in) != nil || d.Decode(&extra) != io.EOF || !profilePattern.MatchString(in.ProfileID) || !digestPattern.MatchString(in.WeightsID) ||
+		!digestPattern.MatchString(in.ImageID) || !validTime(in.StartedAt) || in.RestartCount == nil || *in.RestartCount < 0 {
 		return backendInstance{}, nil, errors.New("the backend instance file is not usable")
 	}
 	return in, b, nil
+}
+
+// validTime is an RFC 3339 timestamp that names an actual instant.
+func validTime(s string) bool {
+	_, err := time.Parse(time.RFC3339Nano, s)
+	return rfc3339Pattern.MatchString(s) && err == nil
 }
 
 func sha256Hex(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
@@ -75,11 +82,15 @@ func backendRecord(s *store.Store, runID, expectFile, instanceFile string) (map[
 	if err != nil {
 		return nil, err
 	}
-	e, err := readCaptureExpect(expectFile)
+	// one read: the references and the input digest come from the same bytes
+	expectRaw, err := os.ReadFile(expectFile)
+	if err != nil {
+		return nil, errors.New("the capture expect file is not readable")
+	}
+	e, err := parseCaptureExpect(expectRaw)
 	if err != nil {
 		return nil, err
 	}
-	expectRaw, _ := os.ReadFile(expectFile)
 	in, instRaw, err := readBackendInstance(instanceFile)
 	if err != nil {
 		return nil, err
@@ -136,7 +147,8 @@ func TestBackendRecordBindsTheWrittenLedger(t *testing.T) {
 	complete := runner.LedgerReport{State: "complete", Counts: map[string]int{runner.EntryComplete: 1}, Components: map[string]int64{"prompt": 3, "completion": 2},
 		ComponentsN: map[string]int{"prompt": 1, "completion": 1}, ModelCheck: "verified", Bypass: runner.BypassEnforced, Scope: runner.ScopeIsolatedContainer}
 	m := workunits.Manifest{RunID: "jb-0123456789abcdef", Agent: "opencode", AgentVersion: "2.0.26", RunnerVersion: runner.DockerRunnerVersion,
-		ModelLabel: "m", LaunchDigest: "sha256:" + strings.Repeat("d", 64), MaxRequests: 10, MaxSeconds: 900, Harness: "hint-docker", Attempts: 1}
+		ModelLabel: "m", LaunchDigest: "sha256:" + strings.Repeat("d", 64), MaxRequests: 10, MaxSeconds: 900, Harness: "hint-docker", Attempts: 1,
+		CreatedAt: "2026-10-24T00:00:00Z"}
 	if err := workunits.Start(s, l, m, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -192,5 +204,68 @@ func TestBackendRecordBindsTheWrittenLedger(t *testing.T) {
 		if _, err := backendRecord(s, m.RunID, expect, instance); err == nil || strings.Contains(err.Error(), "example") {
 			t.Errorf("%s: %v", bad, err)
 		}
+	}
+}
+
+// Regressions of the review findings: a path-like or foreign run ID never reads a non-run file;
+// the expect file is read once (the digest is of the parsed bytes, also from a pipe); impossible
+// timestamps and repeated members are refused.
+func TestBackendRecordReviewRegressions(t *testing.T) {
+	s, l := validatedProject(t)
+	m := workunits.Manifest{RunID: "jb-00000000000000aa", Agent: "opencode", AgentVersion: "2.0.26", RunnerVersion: runner.DockerRunnerVersion,
+		ModelLabel: "m", LaunchDigest: "sha256:" + strings.Repeat("d", 64), MaxRequests: 10, MaxSeconds: 900, Harness: "hint-docker", Attempts: 1,
+		CreatedAt: "2026-10-24T00:00:00Z"}
+	if err := workunits.Start(s, l, m, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	expect, instance := filepath.Join(dir, "expect.json"), filepath.Join(dir, "instance.json")
+	raw := []byte(`{"host":"capture-host.example.invalid","container":"` + fullID + `","served_model":"example-model"}`)
+	os.WriteFile(expect, raw, 0o600)
+	inst := `{"profile_id":"example-profile","weights_id":"sha256:` + strings.Repeat("b", 64) + `","image_id":"sha256:` + strings.Repeat("e", 64) +
+		`","started_at":"2026-01-02T03:04:05Z","restart_count":0}`
+	os.WriteFile(instance, []byte(inst), 0o600)
+	for _, id := range []string{"../../project", "jb-00000000000000AA", "jb-00000000000000aa/../x", ""} {
+		if _, err := backendRecord(s, id, expect, instance); err == nil {
+			t.Errorf("%q accepted", id)
+		}
+	}
+	// a stored file whose manifest names another run is refused
+	var other workunits.Run
+	s.ReadJSON(&other, "state", "evals", "work", m.RunID+".json")
+	other.Manifest.RunID = "jb-00000000000000bb"
+	s.WriteJSON(other, "state", "evals", "work", "jb-00000000000000cc.json")
+	if _, err := backendRecord(s, "jb-00000000000000cc", expect, instance); err == nil {
+		t.Error("a manifest of another run was accepted")
+	}
+	// from a pipe: one read, the digest is of the parsed bytes
+	r, w, _ := os.Pipe()
+	defer r.Close()
+	w.Write(raw)
+	w.Close()
+	rec, err := backendRecord(s, m.RunID, "/dev/fd/"+strconv.Itoa(int(r.Fd())), instance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range rec {
+		got := v.(map[string]any)["provenance"].(map[string]any)["inputs"].(map[string]any)["expect_sha256"]
+		if got != sha256Hex(raw) {
+			t.Fatalf("expect digest %v is not of the parsed bytes", got)
+		}
+	}
+	for _, bad := range []string{
+		strings.Replace(inst, "2026-01-02T03:04:05Z", "2026-99-99T99:99:99Z", 1),
+		strings.Replace(inst, "2026-01-02T03:04:05Z", "2026-02-30T00:00:00Z", 1),
+		strings.Replace(inst, `"profile_id":"example-profile"`, `"profile_id":"first","profile_id":"second"`, 1),
+	} {
+		os.WriteFile(instance, []byte(bad), 0o600)
+		if _, err := backendRecord(s, m.RunID, expect, instance); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+	os.WriteFile(instance, []byte(inst), 0o600)
+	os.WriteFile(expect, []byte(strings.Replace(string(raw), `"host":"capture-host.example.invalid"`, `"host":"a","host":"capture-host.example.invalid"`, 1)), 0o600)
+	if _, err := backendRecord(s, m.RunID, expect, instance); err == nil {
+		t.Error("a repeated expect member was accepted")
 	}
 }
