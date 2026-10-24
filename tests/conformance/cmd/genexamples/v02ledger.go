@@ -480,3 +480,146 @@ func ledgerAgentRunInvalid() []invalidCase {
 		}, nil},
 	}
 }
+
+// snapshot is a sanitized backend inspect with client-derived opaque references (draft v0.2).
+func snapshot() M {
+	return M{"image_id": "sha256:" + id("image", "backend") + id("image", "backend", "2"), "host_ref": id("capture", "host"),
+		"container_ref": id("capture", "container"), "started_at": "2026-10-11T09:00:00Z", "restart_count": 0,
+		"flags": M{"prompt_tokens_details": true, "prefix_caching": true, "max_model_len": 262144, "reasoning_parser": "qwen3",
+			"tool_call_parser": "qwen3_coder", "served_model_ref": id("capture", "served-model")}}
+}
+
+// capture is one bracketed capture record.
+func capture(status string, send, recv any, snap any) M {
+	return M{"status": status, "send_ms": send, "recv_ms": recv, "snapshot": snap}
+}
+
+// backendCapture is the start and end capture record of a ledger.
+func backendCapture(start, end M) M {
+	return M{"method": "runner_bracket_v1", "collector": M{"name": "hint-runner-capture", "version": "0.1.0"}, "start": start, "end": end}
+}
+
+// ledgerBackendCaptureDoc is the agent-run example plus the backend captures: the start capture
+// bracketed at 120..480 ms (before the enclosure start at 500 ms), the end capture at
+// 309990..310400 ms (from the drain end at finalized_ms 309990), equal snapshots.
+func ledgerBackendCaptureDoc(act M) M {
+	d := ledgerAgentRunDoc(act)
+	d["document_id"] = id("document", "activity", "model-ledger-backend-capture")
+	obj(d, "payload", "observations", 6, "model_ledger")["backend_capture"] = backendCapture(
+		capture("complete", 120, 480, snapshot()), capture("complete", 309990, 310400, snapshot()))
+	return reseal(d)
+}
+
+// ledgerBackendCaptureValid are the valid boundary and null cases: equal floored readings,
+// readings at the enclosure start and at the drain end, the widest bracket; failed and
+// unattempted captures with only the observed offsets; unknown flags as null; an aggregate-only
+// ledger with snapshots and statuses but no offsets.
+func ledgerBackendCaptureValid(act M) map[string]M {
+	l := func(d M) M { return obj(d, "payload", "observations", 6, "model_ledger") }
+	with := func(name string, bc M) M {
+		d := ledgerAgentRunDoc(act)
+		d["document_id"] = id("document", "activity", name)
+		l(d)["backend_capture"] = bc
+		return reseal(d)
+	}
+	unknown := snapshot()
+	unknown["started_at"], unknown["restart_count"] = nil, nil
+	unknown["flags"] = M{"prompt_tokens_details": nil, "prefix_caching": nil, "max_model_len": nil, "reasoning_parser": nil, "tool_call_parser": nil, "served_model_ref": nil}
+	agg := ledgerAgentRunAggregateDoc(act)
+	agg["document_id"] = id("document", "activity", "backend-capture-aggregate")
+	l(agg)["backend_capture"] = backendCapture(capture("complete", nil, nil, snapshot()), capture("timeout", nil, nil, nil))
+	return map[string]M{
+		"backend-capture-boundaries.json": with("backend-capture-boundaries", backendCapture(
+			capture("complete", 500, 500, snapshot()), capture("complete", 309990, 369990, snapshot()))),
+		"backend-capture-failed.json": with("backend-capture-failed", backendCapture(
+			capture("error", 200, nil, nil), capture("timeout", 309995, nil, nil))),
+		"backend-capture-not-attempted.json": with("backend-capture-not-attempted", backendCapture(
+			capture("not_attempted", nil, nil, nil), capture("not_attempted", nil, nil, nil))),
+		"backend-capture-unknown-flags.json": with("backend-capture-unknown-flags", backendCapture(
+			capture("complete", 120, 480, unknown), capture("complete", 309990, 310400, unknown))),
+		"backend-capture-aggregate.json": reseal(agg),
+	}
+}
+
+// ledgerBackendCaptureInvalid are the negative cases of the backend captures.
+func ledgerBackendCaptureInvalid() []invalidCase {
+	const base, agg = "activity-model-ledger-backend-capture.json", "activity-model-ledger-agent-run.json"
+	l := func(d M) M { return obj(d, "payload", "observations", 6, "model_ledger") }
+	bc := func(d M) M { return l(d)["backend_capture"].(map[string]any) }
+	side := func(d M, s string) M { return bc(d)[s].(map[string]any) }
+	snap := func(d M) M { return side(d, "start")["snapshot"].(map[string]any) }
+	flags := func(d M) M { return snap(d)["flags"].(map[string]any) }
+	semantic := func(name string, f func(d M)) invalidCase {
+		return invalidCase{name, base, "semantic", "ledger_inconsistent", f, nil}
+	}
+	schema := func(name string, f func(d M)) invalidCase {
+		return invalidCase{name, base, "schema", "observation", f, nil}
+	}
+	set := func(s string, status string, send, recv, sn any) func(d M) {
+		return func(d M) {
+			x := side(d, s)
+			if sn == true {
+				sn = snapshot()
+			}
+			x["status"], x["send_ms"], x["recv_ms"], x["snapshot"] = status, send, recv, sn
+		}
+	}
+	revision := func(d M, change func(x M)) {
+		obs := obj(d, "payload")["observations"].([]any)
+		r := plain(obs[6].(map[string]any))
+		r["observation_id"] = id("ledger-usage", "backend-capture", "1")
+		x := r["model_ledger"].(map[string]any)
+		x["revision"], x["state"] = 1, "incomplete"
+		x["reasons"] = append(x["reasons"].([]any), "late_requests")
+		x["counts"].(map[string]any)["late"] = 1
+		change(x)
+		obj(d, "payload")["observations"] = append(obs, r)
+	}
+	return []invalidCase{
+		schema("capture-unknown-method", func(d M) { bc(d)["method"] = "host_wall_v1" }),
+		schema("capture-unknown-collector", func(d M) { bc(d)["collector"].(map[string]any)["name"] = "operator-script" }),
+		schema("capture-bad-collector-version", func(d M) { bc(d)["collector"].(map[string]any)["version"] = "latest" }),
+		schema("capture-unknown-status", func(d M) { side(d, "end")["status"] = "partial" }),
+		schema("capture-extra-field", func(d M) { side(d, "start")["captured_at"] = "2026-10-11T10:54:59Z" }),
+		schema("capture-negative-offset", func(d M) { side(d, "start")["send_ms"] = -1 }),
+		schema("capture-snapshot-extra-field", func(d M) { snap(d)["env"] = "A=B" }),
+		schema("capture-snapshot-raw-container-id", func(d M) { snap(d)["container_ref"] = "ai-qwen38-27b" }),
+		schema("capture-snapshot-bad-image-id", func(d M) { snap(d)["image_id"] = "ghcr.io/x/y:latest" }),
+		schema("capture-snapshot-local-time", func(d M) { snap(d)["started_at"] = "2026-10-11T11:00:00+02:00" }),
+		schema("capture-snapshot-missing-field", func(d M) { delete(snap(d), "restart_count") }),
+		schema("capture-flags-extra-field", func(d M) { flags(d)["api_key"] = "x" }),
+		schema("capture-flags-missing-field", func(d M) { delete(flags(d), "served_model_ref") }),
+		schema("capture-flags-string-boolean", func(d M) { flags(d)["prompt_tokens_details"] = "yes" }),
+		schema("capture-flags-zero-length", func(d M) { flags(d)["max_model_len"] = 0 }),
+		schema("capture-flags-length-over-bound", func(d M) { flags(d)["max_model_len"] = 2147483648 }),
+		schema("capture-flags-parser-content", func(d M) { flags(d)["reasoning_parser"] = "Qwen3 parser" }),
+		schema("capture-flags-parser-unlisted", func(d M) { flags(d)["tool_call_parser"] = "qwen9_coder" }),
+		schema("capture-flags-raw-served-model", func(d M) { flags(d)["served_model_ref"] = "qwen3.6-27b" }),
+		semantic("capture-complete-without-snapshot", set("start", "complete", 120, 480, nil)),
+		semantic("capture-complete-without-recv", set("start", "complete", 120, nil, true)),
+		semantic("capture-timeout-with-recv", set("end", "timeout", 309990, 310400, nil)),
+		semantic("capture-error-with-snapshot", set("end", "error", 309990, nil, true)),
+		semantic("capture-error-without-send", set("start", "error", nil, nil, nil)),
+		semantic("capture-not-attempted-with-send", set("start", "not_attempted", 120, nil, nil)),
+		semantic("capture-bracket-reversed", set("start", "complete", 480, 479, true)),
+		semantic("capture-bracket-over-width", set("end", "complete", 309990, 369991, true)),
+		semantic("capture-start-after-enclosure-start", set("start", "complete", 120, 501, true)),
+		semantic("capture-start-after-admission", func(d M) {
+			delete(l(d), "agent_run")
+			set("start", "complete", 120, 1001, true)(d) // the first admission is at 1000 ms
+		}),
+		semantic("capture-end-before-drain-end", set("end", "complete", 309989, 310400, true)),
+		semantic("capture-revision-changes-it", func(d M) {
+			revision(d, func(x M) { x["backend_capture"].(map[string]any)["end"].(map[string]any)["recv_ms"] = 310401 })
+		}),
+		semantic("capture-revision-removes-it", func(d M) { revision(d, func(x M) { delete(x, "backend_capture") }) }),
+		{"capture-revision-enriches", agg, "semantic", "ledger_inconsistent", func(d M) {
+			revision(d, func(x M) {
+				x["backend_capture"] = backendCapture(capture("complete", 120, 480, snapshot()), capture("complete", 309990, 310400, snapshot()))
+			})
+		}, nil},
+		{"capture-offsets-without-entries", "activity-model-ledger.json", "semantic", "ledger_inconsistent", func(d M) {
+			l(d)["backend_capture"] = backendCapture(capture("complete", 120, 480, snapshot()), capture("complete", 309990, 310400, snapshot()))
+		}, nil},
+	}
+}

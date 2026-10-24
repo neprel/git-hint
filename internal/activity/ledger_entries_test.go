@@ -158,3 +158,55 @@ func TestLedgerAgentRun(t *testing.T) {
 		}
 	}
 }
+
+func TestLedgerBackendCapture(t *testing.T) {
+	m := exampleLedger(t, "activity-model-ledger-backend-capture.json")
+	if p := LedgerProblems(m); len(p) != 0 || m.BackendCapture == nil || m.BackendCapture.Start.Snapshot == nil {
+		t.Fatalf("the backend-capture example is refused: %v", p)
+	}
+	i64 := func(v int64) *int64 { return &v }
+	for name, change := range map[string]func(b *LedgerBackendCapture){
+		"complete without snapshot": func(b *LedgerBackendCapture) { b.Start.Snapshot = nil },
+		"timeout with recv":         func(b *LedgerBackendCapture) { b.End.Status = "timeout"; b.End.Snapshot = nil },
+		"not attempted with send":   func(b *LedgerBackendCapture) { b.Start = LedgerCapture{Status: "not_attempted", SendMs: i64(120)} },
+		"reversed":                  func(b *LedgerBackendCapture) { b.Start.SendMs, b.Start.RecvMs = i64(480), i64(479) },
+		"over width":                func(b *LedgerBackendCapture) { b.End.RecvMs = i64(309990 + 60001) },
+		"start after enclosure":     func(b *LedgerBackendCapture) { b.Start.RecvMs = i64(501) },
+		"end before drain end":      func(b *LedgerBackendCapture) { b.End.SendMs = i64(309989) },
+		"unknown status":            func(b *LedgerBackendCapture) { b.End.Status = "partial" },
+	} {
+		c := clone(t, m)
+		change(c.BackendCapture)
+		if len(LedgerProblems(c)) == 0 {
+			t.Errorf("%s: an inconsistent capture passed", name)
+		}
+	}
+	// equal floored readings and the boundaries are valid (no zero round trip is implied)
+	c := clone(t, m)
+	c.BackendCapture.Start.SendMs, c.BackendCapture.Start.RecvMs = i64(500), i64(500)
+	c.BackendCapture.End.SendMs, c.BackendCapture.End.RecvMs = i64(309990), i64(309990+60000)
+	if p := LedgerProblems(c); len(p) != 0 {
+		t.Fatalf("boundary brackets are refused: %v", p)
+	}
+	// frozen across revisions: no change, no removal, no enrichment
+	next := func(c ModelLedger) ModelLedger {
+		c.Revision, c.Counts["late"], c.Reasons = c.Revision+1, c.Counts["late"]+1, append(c.Reasons, "late_requests")
+		return c
+	}
+	if LedgerLifecycleProblem(m, next(clone(t, m))) {
+		t.Fatal("an identical revision is refused")
+	}
+	changed := next(clone(t, m))
+	changed.BackendCapture.End.RecvMs = i64(310401)
+	removed := next(clone(t, m))
+	removed.BackendCapture = nil
+	plain := exampleLedger(t, "activity-model-ledger-agent-run.json")
+	enriched := next(clone(t, plain))
+	enriched.State = "incomplete"
+	enriched.BackendCapture = clone(t, m).BackendCapture
+	for name, pair := range map[string][2]ModelLedger{"changed": {m, changed}, "removed": {m, removed}, "enriched": {plain, enriched}} {
+		if !LedgerLifecycleProblem(pair[0], pair[1]) {
+			t.Errorf("%s: a revision that rewrites the captures passed", name)
+		}
+	}
+}

@@ -1585,6 +1585,10 @@
         "agent_run": {
           "description": "Optional launch/exit enclosure of the run's agent container (draft v0.2); absent on older ledgers (lifecycle unknown).",
           "$ref": "#/$defs/LedgerAgentRun"
+        },
+        "backend_capture": {
+          "description": "Optional backend start/end captures (draft v0.2); absent on older ledgers (capture window unknown).",
+          "$ref": "#/$defs/LedgerBackendCapture"
         }
       },
       "required": [
@@ -1861,6 +1865,262 @@
         "execution_digest",
         "engine_started_at",
         "engine_finished_at"
+      ]
+    },
+    "LedgerCaptureSnapshot": {
+      "description": "A sanitized read-only inspect of the model backend container (draft v0.2): host, container and served-model identifiers are opaque references derived on the client with the project key (raw identifiers never leave the client); image_id is the engine's image ID; started_at is the backend's own clock, compared only for equality between the two snapshots. An unreported value is null, never false or zero. Parser names are a reviewed list of technical identifiers; other marks a parser outside the list (never matched as a profile value).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image_id": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/Digest"
+        },
+        "host_ref": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "container_ref": {
+          "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+        },
+        "started_at": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "restart_count": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prompt_tokens_details": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "prefix_caching": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "max_model_len": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reasoning_parser": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "deepseek_r1",
+                    "qwen3",
+                    "granite",
+                    "glm45",
+                    "gpt_oss",
+                    "mistral",
+                    "hunyuan_a13b",
+                    "step3",
+                    "seed_oss",
+                    "other"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tool_call_parser": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "hermes",
+                    "mistral",
+                    "llama3_json",
+                    "llama4_json",
+                    "pythonic",
+                    "granite",
+                    "internlm",
+                    "jamba",
+                    "xlam",
+                    "qwen3_coder",
+                    "qwen3_xml",
+                    "deepseek_v3",
+                    "deepseek_v31",
+                    "kimi_k2",
+                    "glm45",
+                    "openai",
+                    "minimax",
+                    "hunyuan_a13b",
+                    "seed_oss",
+                    "other"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "served_model_ref": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.2:common#/$defs/OpaqueId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "prompt_tokens_details",
+            "prefix_caching",
+            "max_model_len",
+            "reasoning_parser",
+            "tool_call_parser",
+            "served_model_ref"
+          ]
+        }
+      },
+      "required": [
+        "image_id",
+        "host_ref",
+        "container_ref",
+        "started_at",
+        "restart_count",
+        "flags"
+      ]
+    },
+    "LedgerCapture": {
+      "description": "One backend capture as a causal bracket on the runner process's monotonic clock (offsets from anchor_utc, floored to milliseconds): send_ms is read before the request is sent, recv_ms after the complete filtered response was received. Equal values are valid (no zero round trip is implied); the capture instant lies in [send_ms, recv_ms + 1) ms. The bracket states claimed observations; it does not prove that or when the remote inspect happened. complete: send, recv and snapshot; timeout or error: send only; not_attempted: none; offsets only when the ledger has entries.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "timeout",
+            "error",
+            "not_attempted"
+          ]
+        },
+        "send_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recv_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LedgerCaptureSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "send_ms",
+        "recv_ms",
+        "snapshot"
+      ]
+    },
+    "LedgerBackendCapture": {
+      "description": "The model backend's start and end captures of the ledger's run (draft v0.2), bracketed on the runner's monotonic clock: the start capture before the agent's launch enclosure, the end capture after the drain (finalized_ms). Frozen across revisions.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "runner_bracket_v1"
+          ]
+        },
+        "collector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "hint-runner-capture"
+              ]
+            },
+            "version": {
+              "$ref": "urn:hint:schema:v0.2:common#/$defs/SemVer"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        },
+        "start": {
+          "$ref": "#/$defs/LedgerCapture"
+        },
+        "end": {
+          "$ref": "#/$defs/LedgerCapture"
+        }
+      },
+      "required": [
+        "method",
+        "collector",
+        "start",
+        "end"
       ]
     }
   }

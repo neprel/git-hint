@@ -418,6 +418,7 @@ func writeInvalid(conf func(string) string, docs map[string]M) {
 	cases = append(cases, ledgerInvalid()...)
 	cases = append(cases, ledgerEntriesInvalid()...)
 	cases = append(cases, ledgerAgentRunInvalid()...)
+	cases = append(cases, ledgerBackendCaptureInvalid()...)
 	for _, c := range cases {
 		d := clone(docs[c.base])
 		c.mutate(d)

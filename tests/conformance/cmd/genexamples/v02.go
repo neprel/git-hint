@@ -173,6 +173,10 @@ func writeV02(root string, act, pol, rec, changes M) (ctx, findings, declared M)
 	write(ex("activity-model-ledger.json"), ledgerDoc(act))
 	write(ex("activity-model-ledger-entries.json"), ledgerEntriesDoc(act))
 	write(ex("activity-model-ledger-agent-run.json"), ledgerAgentRunDoc(act))
+	write(ex("activity-model-ledger-backend-capture.json"), ledgerBackendCaptureDoc(act))
+	for name, d := range ledgerBackendCaptureValid(act) {
+		write(filepath.Join(root, "tests", "conformance", "valid", name), d)
+	}
 	write(filepath.Join(root, "tests", "conformance", "valid", "model-ledger-agent-run-aggregate.json"), ledgerAgentRunAggregateDoc(act))
 	write(filepath.Join(root, "tests", "conformance", "valid", "model-ledger-entries-revision.json"), ledgerEntriesRevisionDoc(act))
 	write(filepath.Join(root, "tests", "conformance", "vectors", "ledger-selection.json"), M{"vectors": ledgerSelectionVectors(ledgerDoc(act))})

@@ -63,6 +63,56 @@ type ModelLedger struct {
 	ClockStepMs *int64        `json:"clock_step_ms,omitempty"` // observed (sealed_at - anchor_utc) minus sealed_ms
 	// The launch/exit enclosure of the run's agent container (draft v0.2); nil: lifecycle unknown.
 	AgentRun *LedgerAgentRun `json:"agent_run,omitempty"`
+	// The backend's start and end captures, bracketed on the runner's monotonic clock (draft
+	// v0.2); nil: capture window unknown.
+	BackendCapture *LedgerBackendCapture `json:"backend_capture,omitempty"`
+}
+
+// LedgerBackendCapture holds the start and end captures of the model backend of a run: causal
+// brackets on the runner process's monotonic clock (offsets from the anchor, only with entries)
+// around a sanitized read-only inspect. The bracket states claimed observations, not proof that
+// or when the remote inspect happened.
+type LedgerBackendCapture struct {
+	Method    string          `json:"method"` // runner_bracket_v1
+	Collector LedgerCollector `json:"collector"`
+	Start     LedgerCapture   `json:"start"`
+	End       LedgerCapture   `json:"end"`
+}
+
+// LedgerCollector names the capture producer.
+type LedgerCollector struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// LedgerCapture is one capture: complete (offsets with entries, snapshot), timeout or error (a
+// send offset with entries, no snapshot), not_attempted (nothing).
+type LedgerCapture struct {
+	Status   string                 `json:"status"`
+	SendMs   *int64                 `json:"send_ms"`
+	RecvMs   *int64                 `json:"recv_ms"`
+	Snapshot *LedgerCaptureSnapshot `json:"snapshot"`
+}
+
+// LedgerCaptureSnapshot is the sanitized inspect: identifiers are client-derived opaque
+// references; an unreported value is nil, never false or zero.
+type LedgerCaptureSnapshot struct {
+	ImageID      string      `json:"image_id"`
+	HostRef      string      `json:"host_ref"`
+	ContainerRef string      `json:"container_ref"`
+	StartedAt    *string     `json:"started_at"` // the backend's clock: equality between snapshots only
+	RestartCount *int64      `json:"restart_count"`
+	Flags        LedgerFlags `json:"flags"`
+}
+
+// LedgerFlags are the allowlisted backend flags of a snapshot.
+type LedgerFlags struct {
+	PromptTokensDetails *bool   `json:"prompt_tokens_details"`
+	PrefixCaching       *bool   `json:"prefix_caching"`
+	MaxModelLen         *int64  `json:"max_model_len"`
+	ReasoningParser     *string `json:"reasoning_parser"`
+	ToolCallParser      *string `json:"tool_call_parser"`
+	ServedModelRef      *string `json:"served_model_ref"`
 }
 
 // LedgerAgentRun is the runner-observed launch/exit enclosure of the agent container: offsets
@@ -183,6 +233,9 @@ func LedgerProblems(m ModelLedger) []string {
 		if e := hint.LedgerAgentRunProblem(wire); e != "" {
 			p = append(p, e)
 		}
+		if e := hint.LedgerBackendCaptureProblem(wire); e != "" {
+			p = append(p, e)
+		}
 	} else {
 		p = append(p, "ledger not encodable")
 	}
@@ -220,7 +273,7 @@ func LedgerLifecycleProblem(prev, next ModelLedger) bool {
 	}
 	// entries and their timing are frozen: the same presence and the same values in every revision
 	frozen := func(m ModelLedger) string {
-		b, _ := json.Marshal([]any{m.Entries, m.AnchorUTC, m.SealedMs, m.FinalizedMs, m.ClockStepMs, m.AgentRun})
+		b, _ := json.Marshal([]any{m.Entries, m.AnchorUTC, m.SealedMs, m.FinalizedMs, m.ClockStepMs, m.AgentRun, m.BackendCapture})
 		return string(b)
 	}
 	if frozen(prev) != frozen(next) {

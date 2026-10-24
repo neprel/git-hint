@@ -195,8 +195,11 @@ func TestV02IsV01PlusContextAndFindings(t *testing.T) {
 			delete(corr["properties"].(map[string]any), "run_ref")        // the run binding of a model ledger (draft v0.2)
 			delete(o["properties"].(map[string]any), "model_ledger")
 			delete(v2["$defs"].(map[string]any), "ModelLedger")
-			delete(v2["$defs"].(map[string]any), "LedgerEntry")    // per-entry ledger evidence (draft v0.2)
-			delete(v2["$defs"].(map[string]any), "LedgerAgentRun") // the agent launch/exit enclosure (draft v0.2)
+			delete(v2["$defs"].(map[string]any), "LedgerEntry")                                            // per-entry ledger evidence (draft v0.2)
+			delete(v2["$defs"].(map[string]any), "LedgerAgentRun")                                         // the agent launch/exit enclosure (draft v0.2)
+			for _, k := range []string{"LedgerBackendCapture", "LedgerCapture", "LedgerCaptureSnapshot"} { // backend captures (draft v0.2)
+				delete(v2["$defs"].(map[string]any), k)
+			}
 			delete(corr, "dependentRequired")
 			delete(o["properties"].(map[string]any), "request_kind")
 			delete(o["properties"].(map[string]any), "collection")

@@ -780,7 +780,7 @@ func ledgerProblem(m, l map[string]any, norms, seen map[string]string) bool {
 			return true
 		}
 	}
-	if LedgerEntriesProblem(l) != "" || LedgerAgentRunProblem(l) != "" {
+	if LedgerEntriesProblem(l) != "" || LedgerAgentRunProblem(l) != "" || LedgerBackendCaptureProblem(l) != "" {
 		return true
 	}
 	full := admitted > 0 && complete == admitted && int(num(cov["prompt"])) == admitted && int(num(cov["completion"])) == admitted &&
@@ -830,7 +830,7 @@ func ledgerLifecycle(prev, next map[string]any) bool {
 		return string(a) == string(b)
 	}
 	// entries and their timing are frozen at the first seal: present or absent in every revision alike
-	for _, k := range append([]string{"ledger_ref", "binding", "sealed_at", "model_check", "scope", "bypass", "components", "component_coverage", "entries", "agent_run"}, LedgerTiming...) {
+	for _, k := range append([]string{"ledger_ref", "binding", "sealed_at", "model_check", "scope", "bypass", "components", "component_coverage", "entries", "agent_run", "backend_capture"}, LedgerTiming...) {
 		_, inPrev := prev[k]
 		_, inNext := next[k]
 		if !same(k) || inPrev != inNext {

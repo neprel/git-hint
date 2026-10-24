@@ -253,3 +253,100 @@ func LedgerAgentRunProblem(l map[string]any) string {
 	}
 	return ""
 }
+
+// LedgerCaptureWidthMs is the widest claimed bracket of one backend capture (its 60 s bound).
+const LedgerCaptureWidthMs = 60000
+
+// LedgerBackendCaptureProblem checks the optional backend captures of a decoded model ledger
+// (draft v0.2) against the status table and the ledger's own monotonic offsets: complete has a
+// snapshot and, with entries, send and receive offsets; timeout and error have no snapshot and,
+// with entries, a send offset only; not_attempted has nothing; without entries no offsets at
+// all. send_ms <= recv_ms (equal is valid: floored readings, no zero round trip implied), at most
+// LedgerCaptureWidthMs apart; the start capture not after the enclosure start or any admission,
+// the end capture not before the drain end (finalized_ms). The rules check the consistency of the
+// claimed observations on one clock; they do not prove that the remote inspect happened. It
+// returns the first violated rule, or "" when backend_capture is absent (window unknown) or agrees.
+func LedgerBackendCaptureProblem(l map[string]any) string {
+	raw, has := l["backend_capture"]
+	if !has {
+		return ""
+	}
+	bc, ok := raw.(map[string]any)
+	if !ok {
+		return "backend_capture is not an object"
+	}
+	nat := func(v any) (int64, bool) {
+		f, ok := v.(float64)
+		return int64(f), ok && f >= 0 && f <= 1<<53-1 && f == math.Trunc(f)
+	}
+	entries, withEntries := l["entries"].([]any)
+	type bracket struct {
+		send, recv       int64
+		hasSend, hasRecv bool
+	}
+	side := func(name string) (bracket, string) {
+		c, ok := bc[name].(map[string]any)
+		if !ok {
+			return bracket{}, name + " capture is not an object"
+		}
+		var b bracket
+		b.send, b.hasSend = nat(c["send_ms"])
+		b.recv, b.hasRecv = nat(c["recv_ms"])
+		if (c["send_ms"] != nil && !b.hasSend) || (c["recv_ms"] != nil && !b.hasRecv) {
+			return b, name + " capture offset is not a non-negative integer"
+		}
+		status, snap := str(c["status"]), c["snapshot"] != nil
+		var wantSend, wantRecv, wantSnap bool
+		switch status {
+		case "complete":
+			wantSend, wantRecv, wantSnap = true, true, true
+		case "timeout", "error":
+			wantSend = true
+		case "not_attempted":
+		default:
+			return b, "unknown " + name + " capture status"
+		}
+		if !withEntries {
+			wantSend, wantRecv = false, false
+		}
+		if b.hasSend != wantSend || b.hasRecv != wantRecv || snap != wantSnap {
+			return b, name + " capture disagrees with its status"
+		}
+		if b.hasRecv && (b.recv < b.send || b.recv-b.send > LedgerCaptureWidthMs) {
+			return b, name + " capture bracket reversed or wider than its bound"
+		}
+		return b, ""
+	}
+	start, p := side("start")
+	if p != "" {
+		return p
+	}
+	end, p := side("end")
+	if p != "" {
+		return p
+	}
+	if !withEntries {
+		return ""
+	}
+	last := start.send // the latest claimed reading of the start capture
+	if start.hasRecv {
+		last = start.recv
+	}
+	if start.hasSend {
+		if a, _ := l["agent_run"].(map[string]any); a != nil {
+			if es, ok := nat(a["enclosure_start_ms"]); ok && last > es {
+				return "start capture after the launch enclosure start"
+			}
+		}
+		for _, x := range entries {
+			e, _ := x.(map[string]any)
+			if adm, _ := nat(e["admitted_ms"]); last > adm {
+				return "start capture after an admission"
+			}
+		}
+	}
+	if final, _ := nat(l["finalized_ms"]); end.hasSend && end.send < final {
+		return "end capture before the drain end"
+	}
+	return ""
+}

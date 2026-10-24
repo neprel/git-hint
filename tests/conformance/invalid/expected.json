@@ -129,6 +129,176 @@
     "code": "observation",
     "level": "schema"
   },
+  "capture-bad-collector-version.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-bracket-over-width.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-bracket-reversed.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-complete-without-recv.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-complete-without-snapshot.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-end-before-drain-end.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-error-with-snapshot.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-error-without-send.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-extra-field.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-flags-extra-field.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-flags-length-over-bound.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-flags-missing-field.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-flags-parser-content.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-flags-parser-unlisted.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-flags-raw-served-model.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-flags-string-boolean.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-flags-zero-length.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-negative-offset.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-not-attempted-with-send.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-offsets-without-entries.json": {
+    "base": "activity-model-ledger.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-revision-changes-it.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-revision-enriches.json": {
+    "base": "activity-model-ledger-agent-run.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-revision-removes-it.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-snapshot-bad-image-id.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-snapshot-extra-field.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-snapshot-local-time.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-snapshot-missing-field.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-snapshot-raw-container-id.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-start-after-admission.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-start-after-enclosure-start.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-timeout-with-recv.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "ledger_inconsistent",
+    "level": "semantic"
+  },
+  "capture-unknown-collector.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-unknown-method.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
+  "capture-unknown-status.json": {
+    "base": "activity-model-ledger-backend-capture.json",
+    "code": "observation",
+    "level": "schema"
+  },
   "coarse-with-seconds.json": {
     "base": "activity-trace.json",
     "code": "time_resolution",
