@@ -6,9 +6,12 @@ your own coding-agent sessions. Use them to measure how well agents work on your
 before and after a refactoring that HINT recommends, or when you change the agent, model,
 context or instructions.
 
-Everything stays on your machine. Session texts, file states, checks and reference
-solutions are stored in `.hint/state/evals/` (owner-only files, ignored by Git). Nothing
-is sent to a HINT server.
+Session texts, file states, checks, and reference solutions are stored locally in
+`.hint/state/evals/` (owner-only files, ignored by Git). With a separately allowed LAN-model
+policy, eval processing can send request text or code to that configured model for
+segmentation, mapping, or test drafting. Permitted container jobs can build images and
+download dependencies. Raw eval content does not enter HINT server reports; the optional
+minimized report upload requires its own export permission and approval.
 
 ## Ordinary use
 

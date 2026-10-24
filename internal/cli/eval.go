@@ -26,7 +26,7 @@ import (
 	"github.com/neprel/git-hint/internal/store"
 )
 
-const evalEffects = "reads agent session records; writes local state only; runs code in containers only when the eval policy allows it; sends nothing"
+const evalEffects = "local eval state; model requests and container builds/runs follow the eval policy; dependency downloads can use the network; --send requires separate export consent"
 
 func evalUsage(e *Env) {
 	fmt.Fprint(e.Stderr, `usage: git hint eval [command]   [`+evalEffects+`]

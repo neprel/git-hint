@@ -20,9 +20,9 @@ Tool input and output schemas use one `type` per property (no nullable type list
 | Tool | Input | Result | Side effect |
 |---|---|---|---|
 | `hint_status` | — | repositories with snapshot ID and digest, activity sources and their gaps, server configured, MCP upload rule, privacy profile, queued packages | none |
-| `hint_collect` | `full`, optional `task_id` | per repository: snapshot ID and digest, changed, files, entities, relations, file changes; missing capabilities; `evals` counts when the user enabled local evals ([evals.md](evals.md)) | local write (`.hint/` only); container runs only when the user allowed them with `git hint eval on --run docker` |
+| `hint_collect` | `full`, optional `task_id` | per repository: snapshot ID and digest, changed, files, entities, relations, file changes; missing capabilities; `evals` counts when the user enabled local evals ([evals.md](evals.md)) | local writes by default; an enabled eval policy can allow text/code requests to the configured LAN model; permitted container jobs can build images, download dependencies, and run code |
 | `hint_evals` | optional `eval` | local evals: state, family, qualification checks, reasons; raw trial results per arm. No session text, path or solution | none |
-| `hint_eval_run` | optional `evals` (a list; omit it for every validated eval), `agent` (`oracle`, `nop`, `opencode`), `attempts`, `arm` | suite ID, trials, outcomes, model requests | runs trials in local containers; only when the user's rule `mcp.eval_run` is `allow` (`git hint init --mcp-eval-run allow`) and the eval policy allows container runs |
+| `hint_eval_run` | optional `evals` (a list; omit it for every validated eval), `agent` (`oracle`, `nop`, `opencode`), `attempts`, `arm` | suite ID, trials, outcomes, model requests | runs trials in local containers; image builds/dependency downloads can use the network, and live runs contact the configured LAN model through its gate; only when the user's rule `mcp.eval_run` is `allow` (`git hint init --mcp-eval-run allow`) and the eval policy allows container runs |
 | `hint_export_preview` | — | validity, documents and sizes, record counts, fields removed by the policy, profile | none |
 | `hint_recommend` | — | `approval_required` (nothing sent) or `sent` with plan summaries: status, affected repositories, forecasts marked as forecasts | network upload, only with the user's rule |
 | `hint_plan` | optional `recommendation_id`, `output_path` | validation result, plan summaries, Markdown path and text | local write (one plan file) |
@@ -34,6 +34,10 @@ Tool input and output schemas use one `type` per property (no nullable type list
 | `hint_importers` | `package` (directory relative to the repository root), optional `repository` | files that import the package | none |
 | `hint_file_outline` | `path`, optional `repository` | declarations of the file with kinds and lines | none |
 | `hint_context` | `seed` (a declaration name, file path or package directory) or `ref` (from an earlier answer); optional `repository`, `depth` (1–2), `max_entities` (1–100), `max_bytes` (4096–65536), `max_ms` (100–5000) | a bounded context: the definition with its source, the other declarations of its file, imports, importers and tests, each with a `ref`; snapshot ID and digest, freshness, limits, what the limits left out, and an artifact ID | none |
+
+`hint_collect` and `hint_eval_run` carry open-world annotations because their explicitly permitted eval processing can use the network. This annotation grants no permission. Repository scanning is local by default; eval model requests and container execution still require their existing policy permissions. A `local_write` result label identifies the local state update, not a guarantee that enabled eval processing used no network. HINT server uploads keep their separate consent rules.
+
+`hint_recommend` currently accepts no forecast policy arguments. The CLI exposes `--forecast-horizon`, `--forecast-threshold`, and `--assumed-cost`. MCP tools can inspect and render forecasts in stored or imported recommendations. A conditional L3 result does not establish calibrated support for arbitrary project data. The ordinary intervention cost model remains unavailable.
 
 The three navigation tools answer from the local index of the last collected snapshot. They read no file content and write nothing.
 

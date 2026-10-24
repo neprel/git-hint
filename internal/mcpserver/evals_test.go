@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/neprel/git-hint/internal/evals"
 	"github.com/neprel/git-hint/internal/evals/evaltest"
 	"github.com/neprel/git-hint/internal/evals/library"
@@ -132,5 +134,47 @@ func TestEvalRunToolUsesTheBuiltInRunner(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatal("Harbor was called")
+	}
+}
+
+// A fake eval environment exercises both policies without a model, Docker, or an agent.
+func TestCollectTextDescribesPolicyEffectsWithoutClaimingNoNetwork(t *testing.T) {
+	shop, _ := project_(t)
+	cs := session(t, mcpserver.Options{Dir: shop,
+		EvalEnv: func() pipeline.Env {
+			return pipeline.Env{Home: t.TempDir(), DataHome: t.TempDir(), Cmd: noAgents{}, Now: time.Now}
+		}, Spawn: func() error { t.Fatal("unexpected worker"); return nil }})
+	for _, enabled := range []bool{false, true} {
+		s, err := store.Open(shop)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if enabled {
+			p := evals.Enabled(nil)
+			s.Cfg.Evals = &p
+		}
+		if err := s.SaveConfig(); err != nil {
+			t.Fatal(err)
+		}
+		res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "hint_collect", Arguments: map[string]any{}})
+		if err != nil || res.IsError {
+			t.Fatalf("collect: %v %v", res, err)
+		}
+		var message strings.Builder
+		for _, content := range res.Content {
+			if text, ok := content.(*mcp.TextContent); ok {
+				message.WriteString(text.Text)
+			}
+		}
+		for _, forbidden := range []string{"No data left the machine", "No network"} {
+			if strings.Contains(message.String(), forbidden) {
+				t.Fatalf("unconditional effect claim: %s", message.String())
+			}
+		}
+		for _, term := range []string{"local by default", "LAN model", "containers", "dependency downloads", "separate consent"} {
+			if !strings.Contains(message.String(), term) {
+				t.Fatalf("missing %q: %s", term, message.String())
+			}
+		}
 	}
 }

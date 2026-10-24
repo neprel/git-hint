@@ -120,6 +120,16 @@ func TestListToolsAndSideEffects(t *testing.T) {
 	if got["hint_recommend"].Annotations.OpenWorldHint == nil || !*got["hint_recommend"].Annotations.OpenWorldHint {
 		t.Error("hint_recommend must be marked as open world (network)")
 	}
+	for _, n := range []string{"hint_collect", "hint_eval_run"} {
+		if got[n].Annotations.OpenWorldHint == nil || !*got[n].Annotations.OpenWorldHint {
+			t.Errorf("%s must describe optional network effects as open world", n)
+		}
+	}
+	for _, term := range []string{"local by default", "LAN model", "download dependencies", "separate consent"} {
+		if !strings.Contains(got["hint_collect"].Description, term) {
+			t.Errorf("hint_collect omits effect boundary %q", term)
+		}
+	}
 	// portable schemas: no property has a list of types (e.g. ["null","array"]), in the input
 	// or the output of any tool (clients that map schemas onto one type per property)
 	var multi func(at string, v any) []string

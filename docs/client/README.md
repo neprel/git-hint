@@ -33,6 +33,8 @@ git hint collect --full          # scan the repository and store the first snaps
 git hint export --dry-run --privacy-report   # see what an export contains; nothing is written
 ```
 
+Repository collection is local by default. If you enable eval processing, its policy can separately permit request text or code to reach your configured LAN model. Permitted container jobs can build images, download dependencies, and run code. HINT server uploads retain their separate consent rules. See [collection and eval effects](commands.md#collection-and-eval-effects).
+
 `init` adds `/.hint/` to `.git/info/exclude`. Every later write checks its own path and every area of the store with Git, and checks that Git tracks no file below `.hint/`. If one check fails, the write stops.
 
 The project key is not in the work tree. `init` writes it to the user configuration directory (`$XDG_CONFIG_HOME/git-hint/keys/` on Linux, `~/Library/Application Support/git-hint/keys/` on macOS), or to `HINT_KEY_DIR`. Coding agents read the work tree; the key can reverse exported identifiers, so it stays outside. The client refuses a key directory or key file inside any repository of the project, also through a relative path or a symbolic link.

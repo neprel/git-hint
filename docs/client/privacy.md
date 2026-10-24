@@ -4,6 +4,8 @@ This document states what the client keeps on the machine, what can leave it, ho
 
 ## 1. What stays on the machine
 
+The table describes repository scanning and allowlisted adapter telemetry. Optional eval processing has the separate scope below.
+
 | Data | Where |
 |---|---|
 | Project key (32 random bytes) | user configuration directory or `HINT_KEY_DIR`, mode 0600; never in the work tree, never exported |
@@ -12,6 +14,8 @@ This document states what the client keeps on the machine, what can leave it, ho
 | Agent tool output, edit text, search patterns, prompts | never leave the OpenCode process; the plugin keeps an allowlist and replaces output by its length. For `hint_context` it also passes the validated metadata line of the answer (enumerations, numbers, opaque IDs), never its source or names |
 | Shell command strings | reach the local child process through a pipe; stored only as a command class and file IDs |
 | Commit hashes, branch names, remotes, author names | never exported; a commit is an opaque ID |
+
+**Optional eval processing.** Enabled eval collection stores session texts, exact file states, checks, and solutions locally in `.hint/state/evals/`. An allowed LAN-model policy can send request text or code to the configured model for segmentation, mapping, or test drafting. Permitted container jobs can build images, download dependencies, and run code. These permissions remain separate from HINT server uploads. A minimized eval report contains no task text or code; sending it needs result-export permission and approval. See [evals](evals.md).
 
 ## 2. What an export contains
 

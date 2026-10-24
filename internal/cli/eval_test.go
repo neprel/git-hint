@@ -365,3 +365,28 @@ func TestEvalRunWithVariant(t *testing.T) {
 		t.Fatal("an unqualified variant ran")
 	}
 }
+
+func TestCollectAndEvalHelpDescribeConfiguredEffects(t *testing.T) {
+	for _, args := range [][]string{{"collect", "-h"}, {"eval", "help"}} {
+		var out, errb bytes.Buffer
+		code := Run(args, &Env{Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errb})
+		want := 0
+		if args[0] == "collect" {
+			want = 2
+		} // Existing flag-help exit convention.
+		if code != want {
+			t.Fatalf("%v: exit %d, want %d", args, code, want)
+		}
+		text := out.String() + errb.String()
+		for _, forbidden := range []string{"no network", "sends nothing", "No data left the machine"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%v claims %q: %s", args, forbidden, text)
+			}
+		}
+		for _, term := range []string{"eval", "dependency downloads"} {
+			if !strings.Contains(text, term) {
+				t.Fatalf("%v omits %q: %s", args, term, text)
+			}
+		}
+	}
+}

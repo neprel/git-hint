@@ -56,7 +56,7 @@ func init() {
 	commands = []command{
 		{"init", "writes local state; no network", "Create the local project store, the key and the repository list.", cmdInit},
 		{"status", "reads local state; no network", "Show repositories, snapshots, adapters, queued packages and the privacy profile.", cmdStatus},
-		{"collect", "reads the work trees; writes local state; no network", "Scan the repositories and store a new snapshot when they changed.", cmdCollect},
+		{"collect", "local repository scanning by default; configured eval processing may contact the LAN model or build/run containers with dependency downloads", "Scan the repositories and store a new snapshot when they changed.", cmdCollect},
 		{"changes", "reads local state; no network; --declare-plan writes a local declaration", "Show the changes between the last two snapshots; declare a completed change as the application of a plan.", cmdChanges},
 		{"observe", "reads local state; no network", "Show how agent activity is collected.", cmdObserve},
 		{"export", "reads local state; writes files; no network", "Build, validate and write an export package (file mode).", cmdExport},
@@ -244,7 +244,7 @@ func adapterStatus(e *Env, s *store.Store) {
 }
 
 func cmdCollect(e *Env, args []string) int {
-	fs := flags(e, "collect", "reads the work trees; writes local state; no network")
+	fs := flags(e, "collect", "local repository scanning by default; configured eval processing may contact the LAN model or build/run containers with dependency downloads")
 	full := fs.Bool("full", false, "ignore the scan cache and build a full baseline")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	if fs.Parse(args) != nil {
