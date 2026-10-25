@@ -267,8 +267,18 @@ func Open(dir string) (*Store, error) {
 	}
 	for {
 		p := filepath.Join(d, Dir, "state", "project.json")
-		if b, err := os.ReadFile(p); err == nil {
-			s := &Store{Root: d}
+		if _, err := os.Lstat(p); err == nil {
+			selected, err := selectStoreRoot(d)
+			if err != nil {
+				return nil, err
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), readgit.FallbackTimeout)
+			defer cancel()
+			b, err := selected.read(ctx)
+			if err != nil {
+				return nil, err
+			}
+			s := &Store{Root: selected.canonical}
 			if err := json.Unmarshal(b, &s.Cfg); err != nil {
 				return nil, fmt.Errorf("%s: %w", p, err)
 			}
@@ -278,10 +288,15 @@ func Open(dir string) (*Store, error) {
 			if err := s.checkKeyLocation(); err != nil {
 				return nil, err
 			}
+			if err = selected.verify(ctx, b); err != nil {
+				return nil, err
+			}
 			if s.key, err = readKey(s.Cfg.KeyID); err != nil {
 				return nil, err
 			}
 			return s, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, errStoreSelection
 		}
 		parent := filepath.Dir(d)
 		if parent == d {
