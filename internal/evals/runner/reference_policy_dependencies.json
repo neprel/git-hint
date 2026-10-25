@@ -1,0 +1,22 @@
+[
+  {
+    "Bytes": 1622,
+    "Digest": "sha256:cdcd0592ecde1046bd6e23c02777683543c707c57285b52c43ce207f042c7968",
+    "Path": "go.mod"
+  },
+  {
+    "Bytes": 8673,
+    "Digest": "sha256:933341080c1b0d05f9aae652eac31c8af03d3336713f706758b203f68309f27e",
+    "Path": "go.sum"
+  },
+  {
+    "Bytes": 3282,
+    "Digest": "sha256:a38126e1b8e7760311bf023133f9c0df37c8cf1613a20f3460d163ab7fb5ae96",
+    "Path": "internal/evals/iodecl/iodecl.go"
+  },
+  {
+    "Bytes": 4120,
+    "Digest": "sha256:aabcc1b4bf0edfe936c264be636b2e7318e072fef8aaaca83b9ccdd5f9466360",
+    "Path": "internal/evals/safefs/safefs.go"
+  }
+]

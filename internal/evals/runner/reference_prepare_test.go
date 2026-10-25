@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,6 +26,7 @@ import (
 )
 
 type referenceFake struct {
+	infoID  string
 	running map[string]bool
 	stops   int
 	waiting chan struct{}
@@ -46,6 +48,11 @@ type referenceFake struct {
 }
 
 func referenceEngine(t *testing.T, mode string) (*Docker, *referenceFake) {
+	return referenceEngineListener(t, mode, nil)
+}
+
+// The same fake handler supports TCP legacy controls and explicit Unix policy tests.
+func referenceEngineListener(t *testing.T, mode string, listener net.Listener) (*Docker, *referenceFake) {
 	t.Helper()
 	var source bytes.Buffer
 	tw := tar.NewWriter(&source)
@@ -58,12 +65,26 @@ func referenceEngine(t *testing.T, mode string) (*Docker, *referenceFake) {
 		Cmd        []string
 		OpenStdin  bool
 		HostConfig map[string]any
-	}{}, removed: map[string]bool{}, mode: mode, archive: source.Bytes(), running: map[string]bool{}, waiting: make(chan struct{})}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}{}, removed: map[string]bool{}, mode: mode, archive: source.Bytes(), running: map[string]bool{}, waiting: make(chan struct{}), infoID: "synthetic-engine"}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(path, "/version") {
+			fmt.Fprint(w, `{"Version":"synthetic-1","ApiVersion":"1.56","MinAPIVersion":"1.24"}`)
+			return
+		}
 		if strings.HasSuffix(path, "/info") {
-			fmt.Fprint(w, `{"ID":"synthetic-engine","OSType":"linux","Architecture":"aarch64","ServerVersion":"synthetic-1"}`)
+			if mode == "info_slow" {
+				select {
+				case <-time.After(600 * time.Millisecond):
+				case <-r.Context().Done():
+					return
+				}
+			}
+			f.mu.Lock()
+			id := f.infoID
+			f.mu.Unlock()
+			fmt.Fprintf(w, `{"ID":%q,"OSType":"linux","Architecture":"aarch64","ServerVersion":"synthetic-1"}`, id)
 			return
 		}
 		if strings.HasSuffix(path, "/build") {
@@ -238,8 +259,18 @@ func referenceEngine(t *testing.T, mode string) (*Docker, *referenceFake) {
 			w.WriteHeader(404)
 		}
 	}))
+	if listener != nil {
+		srv.Listener = listener
+	}
+	srv.Start()
 	t.Cleanup(srv.Close)
-	cli, err := client.New(client.WithHost("tcp://"+strings.TrimPrefix(srv.URL, "http://")), client.WithScheme("http"), client.WithAPIVersion("1.56"))
+	var opts []client.Opt
+	if listener != nil {
+		opts = []client.Opt{client.WithHost("unix://" + listener.Addr().String()), client.WithAPIVersion("1.56")}
+	} else {
+		opts = []client.Opt{client.WithHost("tcp://" + strings.TrimPrefix(srv.URL, "http://")), client.WithScheme("http"), client.WithAPIVersion("1.56")}
+	}
+	cli, err := client.New(opts...)
 	if err != nil {
 		t.Fatal(err)
 	}

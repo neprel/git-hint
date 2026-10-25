@@ -52,20 +52,23 @@ type ReferenceCaseAudit struct {
 	Complete, NetworkNone           bool
 }
 type ReferencePrepareAudit struct {
-	Inputs                                                                ReferenceInputIdentity
-	BaseImageRefs                                                         []string
-	SetupDigest, SetupState                                               string
-	Interface                                                             string
-	OracleRuns                                                            int
-	Version, Authority                                                    string
-	State, InputDigest, PolicyDigest, ScheduleDigest                      string
-	EngineRef, EngineVersion, EngineOS, EngineArchitecture                string
-	ImageID, ImageOS, ImageArchitecture, ImageVariant, BuildContextDigest string
-	FinalTAR                                                              ReferenceArtifact
-	Phases                                                                []ReferencePhaseAudit
-	Cases                                                                 []ReferenceCaseAudit
-	OracleOutputsDigest                                                   string
-	FailureCodes                                                          []string
+	// Installed policy selection is a separate domain from the original procedure PolicyDigest.
+	InstalledPolicy                                                                             ReferencePreparationPolicyRef
+	PolicyBundleDigest, PolicyCatalogueDigest, PolicyEndpointDigest, PolicySocketIdentityDigest string
+	Inputs                                                                                      ReferenceInputIdentity
+	BaseImageRefs                                                                               []string
+	SetupDigest, SetupState                                                                     string
+	Interface                                                                                   string
+	OracleRuns                                                                                  int
+	Version, Authority                                                                          string
+	State, InputDigest, PolicyDigest, ScheduleDigest                                            string
+	EngineRef, EngineVersion, EngineOS, EngineArchitecture                                      string
+	ImageID, ImageOS, ImageArchitecture, ImageVariant, BuildContextDigest                       string
+	FinalTAR                                                                                    ReferenceArtifact
+	Phases                                                                                      []ReferencePhaseAudit
+	Cases                                                                                       []ReferenceCaseAudit
+	OracleOutputsDigest                                                                         string
+	FailureCodes                                                                                []string
 }
 
 // The unexported policy is available only to a future reviewed in-package resolver.
@@ -325,19 +328,11 @@ func (d *Docker) PrepareReference(ctx context.Context, taskDir string, o Referen
 	if ctx.Err() != nil || !time.Now().Before(end) {
 		return fail("cancelled")
 	}
-	t, e := readIOTask(taskDir)
-	if e != nil || t == nil {
-		return fail("b1_input")
+	t, got, code := inspectReferencePreparationInputs(ctx, taskDir)
+	if code != "" {
+		return fail(code)
 	}
-	ref, e := tarDir(filepath.Join(taskDir, "tests", "io", "reference"), "solution")
-	if e != nil {
-		return fail("reference_input")
-	}
-	env, e := tarDir(filepath.Join(taskDir, "environment"), "")
-	if e != nil {
-		return fail("environment_input")
-	}
-	got := ReferenceInputIdentity{t.specDigest, t.inputsDigest, referenceDigest(ref), referenceDigest(env)}
+	var e error
 	if got != o.Expected || !time.Now().Before(anchor.Add(p.resolve)) || ctx.Err() != nil {
 		return fail("input_mismatch_or_late")
 	}
@@ -474,6 +469,9 @@ func (d *Docker) PrepareReference(ctx context.Context, taskDir string, o Referen
 		a.EngineOS = info.Info.OSType
 		a.EngineArchitecture = info.Info.Architecture
 		a.EngineVersion = info.Info.ServerVersion
+		if b := d.referenceBinding; b != nil && (a.EngineRef != b.EngineRef || a.EngineVersion != b.EngineVersion || a.EngineOS != b.EngineOS || a.EngineArchitecture != b.EngineArchitecture) {
+			return errReferencePrepare
+		}
 		if info.Info.ID == "" || a.EngineOS != "linux" || a.EngineArchitecture == "" || a.EngineVersion == "" {
 			return errReferencePrepare
 		}
@@ -608,4 +606,38 @@ func referenceRetree(ctx context.Context, path, expected, prefix string, w io.Wr
 		return errReferencePrepare
 	}
 	return nil
+}
+
+// InspectReferencePreparationInputs describes actual exported task bytes. It grants
+// no qualification, source, procedure, origin or execution authority.
+func InspectReferencePreparationInputs(ctx context.Context, taskDir string) (ReferenceInputIdentity, error) {
+	_, id, code := inspectReferencePreparationInputs(ctx, taskDir)
+	if code != "" {
+		return ReferenceInputIdentity{}, referencePolicyFailure(code)
+	}
+	return id, nil
+}
+
+// The one existing input identity algorithm used by the inspector and preparation.
+func inspectReferencePreparationInputs(ctx context.Context, taskDir string) (*ioTask, ReferenceInputIdentity, string) {
+	zero := ReferenceInputIdentity{}
+	if ctx == nil || ctx.Err() != nil {
+		return nil, zero, "input_context"
+	}
+	t, e := readIOTask(taskDir)
+	if e != nil || t == nil {
+		return nil, zero, "b1_input"
+	}
+	ref, e := tarDir(filepath.Join(taskDir, "tests", "io", "reference"), "solution")
+	if e != nil {
+		return nil, zero, "reference_input"
+	}
+	env, e := tarDir(filepath.Join(taskDir, "environment"), "")
+	if e != nil {
+		return nil, zero, "environment_input"
+	}
+	if ctx.Err() != nil {
+		return nil, zero, "input_context"
+	}
+	return t, ReferenceInputIdentity{t.specDigest, t.inputsDigest, referenceDigest(ref), referenceDigest(env)}, ""
 }

@@ -42,22 +42,30 @@ const DockerRunnerSemver = "0.1.0"
 // verifier container without network gets that artifact and the hidden tests and writes
 // the results. The job directory has the layout ReadJob reads.
 type Docker struct {
-	cli     *client.Client
-	Version string // engine version
-	mu      sync.Mutex
-	probes  map[string]GateProbe                // passed network probes by key (engine, policy, gate image)
-	probeFn func(ctx context.Context) GateProbe // replaces the network probe in tests (nil: ProbeGate)
+	cli              *client.Client
+	Version          string // engine version
+	mu               sync.Mutex
+	probes           map[string]GateProbe                // passed network probes by key (engine, policy, gate image)
+	probeFn          func(ctx context.Context) GateProbe // replaces the network probe in tests (nil: ProbeGate)
+	referenceBinding *referenceEngineBinding
 }
 
 // FindDocker connects to the Docker engine named by the environment (DOCKER_HOST, the
 // default socket) and checks that it answers.
 func FindDocker(ctx context.Context) (*Docker, error) {
-	cli, err := client.New(client.FromEnv)
+	return findDockerWithOptions(ctx, client.FromEnv)
+}
+
+// One client/version construction core. Policy callers supply only fixed installed opts;
+// the legacy wrapper retains the original environment-driven option unchanged.
+func findDockerWithOptions(ctx context.Context, opts ...client.Opt) (*Docker, error) {
+	cli, err := client.New(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: Docker client: %v", ErrUnavailable, err)
 	}
 	v, err := cli.ServerVersion(ctx, client.ServerVersionOptions{})
 	if err != nil {
+		_ = cli.Close()
 		return nil, fmt.Errorf("%w: the Docker engine is not running or not reachable", ErrUnavailable)
 	}
 	return &Docker{cli: cli, Version: v.Version}, nil
