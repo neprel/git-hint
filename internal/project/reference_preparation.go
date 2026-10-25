@@ -28,16 +28,30 @@ const referenceFinalCommitMax = 60 * time.Second
 
 var ErrReferencePreparation = errors.New("project_reference_preparation_unknown")
 
-//go:embed reference_preparation.go reference_preparation_records.go reference_preparation_unix.go reference_preparation_other.go
+//go:embed reference_preparation.go reference_preparation_records.go reference_preparation_unix.go reference_preparation_other.go prework_acceptance.go
 var referencePreparationSources embed.FS
 
+// This declared source family and its dependency identities are not a complete
+// transitive compiled-source closure or source-to-binary attestation.
 func referenceBridgeIdentity() string {
-	a, _ := referencePreparationSources.ReadFile("reference_preparation.go")
-	b, _ := referencePreparationSources.ReadFile("reference_preparation_records.go")
-	u, _ := referencePreparationSources.ReadFile("reference_preparation_unix.go")
-	o, _ := referencePreparationSources.ReadFile("reference_preparation_other.go")
-	d, _ := hint.Digest([]string{ReferencePreparationVersion, library.Digest(a), library.Digest(b), library.Digest(u), library.Digest(o), definitionSourceIdentity(), store.BoundedStateSourceIdentity(), qualify.QualifiedInputSourceIdentity()})
-	return d
+	return referenceBridgeIdentityFrom(referencePreparationSources)
+}
+func referenceBridgeIdentityFrom(sources fs.FS) string {
+	names := []string{"reference_preparation.go", "reference_preparation_records.go", "reference_preparation_unix.go", "reference_preparation_other.go", "prework_acceptance.go"}
+	values := []string{ReferencePreparationVersion, preworkAcceptanceVersion}
+	for _, name := range names {
+		raw, e := fs.ReadFile(sources, name)
+		if e != nil {
+			return ""
+		}
+		values = append(values, library.Digest(raw))
+	}
+	values = append(values, definitionSourceIdentity(), store.BoundedStateSourceIdentity(), qualify.QualifiedInputSourceIdentity())
+	digest, e := hint.Digest(values)
+	if e != nil {
+		return ""
+	}
+	return digest
 }
 func referenceRefused(code string) error {
 	return fmt.Errorf("%w: %s", ErrReferencePreparation, code)
@@ -77,14 +91,10 @@ func (a *ReferencePreparationAttempt) Prepared() *ReferencePreparationRef {
 	return &v
 }
 
-// The issuer occupies nonzero storage. Stored bytes and deserialization cannot
-// reconstruct this private process-local checkpoint. It is not source authority.
-type referenceAcceptanceIssuer struct{ nonzero byte }
-
-var referenceAcceptanceProcess = &referenceAcceptanceIssuer{1}
-
+// The opaque wrapper binds its exact reference domains to the shared process
+// checkpoint. Factual loading cannot mint it. Restart loses this eligibility.
 type ReferencePreparationAcceptance struct {
-	issuer                        *referenceAcceptanceIssuer
+	checkpoint                    preworkAcceptance
 	outcome, request, reservation ReferencePreparationRef
 	storeBinding, writer          string
 	policy                        runner.ReferencePreparationPolicyRef
@@ -104,7 +114,7 @@ func (a *ReferencePreparationAcceptance) UnmarshalJSON([]byte) error {
 	return referenceRefused("acceptance_not_deserializable")
 }
 func referenceAcceptanceMatches(a *ReferencePreparationAcceptance, outcome, request, reservation ReferencePreparationRef, v referenceRequest) bool {
-	return a != nil && a.issuer == referenceAcceptanceProcess && a.outcome == outcome && a.request == request && a.reservation == reservation && a.storeBinding == v.Definition.StoreBinding && a.writer == referenceBridgeIdentity() && a.policy == v.Policy.Policy
+	return a != nil && matchPreworkAcceptance(a.checkpoint, preworkReferencePreparation) && a.outcome == outcome && a.request == request && a.reservation == reservation && a.storeBinding == v.Definition.StoreBinding && a.writer == referenceBridgeIdentity() && a.policy == v.Policy.Policy
 }
 func referenceCurrent(ctx context.Context) bool {
 	if ctx == nil || ctx.Err() != nil {
@@ -257,7 +267,7 @@ func PrepareFinalReference(parent context.Context, s *store.Store, req PrepareRe
 		return attempt, referenceRefused("late_completion")
 	}
 	attempt.prepared = &ref
-	attempt.acceptance = &ReferencePreparationAcceptance{referenceAcceptanceProcess, ref, terminal.Request, attempt.reservation, v.Definition.StoreBinding, v.Writer, v.Policy.Policy}
+	attempt.acceptance = &ReferencePreparationAcceptance{mintPreworkAcceptance(preworkReferencePreparation), ref, terminal.Request, attempt.reservation, v.Definition.StoreBinding, v.Writer, v.Policy.Policy}
 	return attempt, nil
 }
 

@@ -107,7 +107,7 @@ func TestReferenceAcceptanceCannotDeserialize(t *testing.T) {
 	if referenceAcceptanceMatches(&witness, ReferencePreparationRef{}, ReferencePreparationRef{}, ReferencePreparationRef{}, referenceRequest{}) {
 		t.Fatal("zero witness accepted")
 	}
-	foreign := ReferencePreparationAcceptance{issuer: &referenceAcceptanceIssuer{1}}
+	foreign := ReferencePreparationAcceptance{checkpoint: preworkAcceptance{issuer: &preworkIssuer{1}, kind: preworkReferencePreparation}}
 	if referenceAcceptanceMatches(&foreign, ReferencePreparationRef{}, ReferencePreparationRef{}, ReferencePreparationRef{}, referenceRequest{}) {
 		t.Fatal("foreign issuer accepted")
 	}
