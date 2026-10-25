@@ -448,6 +448,11 @@ func (l *Library) DeleteIndex(name string) error {
 
 // CollectGarbage removes objects that no record or index names.
 func (l *Library) CollectGarbage() (int, error) {
+	lock, e := l.destructiveStateLock()
+	if e != nil {
+		return 0, e
+	}
+	defer lock.Unlock()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return l.collectGarbage()

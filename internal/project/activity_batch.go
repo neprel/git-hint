@@ -199,17 +199,9 @@ func readActivityBatches(s *store.Store) ([]activity.Observation, map[string]act
 		if err != nil || len(raw) > maxActivityBatchBytes {
 			return nil, nil, ErrActivityBatch
 		}
-		if !uniqueBatchJSON(raw) {
-			return nil, nil, ErrActivityBatch
-		}
-		var b activityBatch
-		dec := json.NewDecoder(bytes.NewReader(raw))
-		dec.DisallowUnknownFields()
-		if dec.Decode(&b) != nil || dec.Decode(new(any)) != io.EOF || entry.Name() != b.Source.SourceID+".json" {
-			return nil, nil, ErrActivityBatch
-		}
-		if err := validateActivityBatch(s, b); err != nil {
-			return nil, nil, fmt.Errorf("%w: invalid committed batch", ErrActivityBatch)
+		b, err := decodeActivityBatch(s, entry.Name(), raw)
+		if err != nil {
+			return nil, nil, err
 		}
 		for _, o := range b.Observations {
 			if ids[o.ObservationID] {
@@ -281,4 +273,20 @@ func uniqueBatchJSON(raw []byte) bool {
 	}
 	_, err := d.Token()
 	return err == io.EOF
+}
+
+func decodeActivityBatch(s *store.Store, name string, raw []byte) (activityBatch, error) {
+	if !uniqueBatchJSON(raw) {
+		return activityBatch{}, ErrActivityBatch
+	}
+	var b activityBatch
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&b) != nil || dec.Decode(new(any)) != io.EOF || name != b.Source.SourceID+".json" {
+		return activityBatch{}, ErrActivityBatch
+	}
+	if err := validateActivityBatch(s, b); err != nil {
+		return activityBatch{}, fmt.Errorf("%w: invalid committed batch", ErrActivityBatch)
+	}
+	return b, nil
 }

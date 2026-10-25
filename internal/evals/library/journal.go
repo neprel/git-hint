@@ -401,6 +401,14 @@ func (l *Library) Forget(names []string) (Report, error) {
 }
 
 func (l *Library) remove(match func(kind, name string, m map[string]any) bool) (Report, error) {
+	lock, e := l.destructiveStateLock()
+	if e != nil {
+		return Report{}, e
+	}
+	defer lock.Unlock()
+	if err := l.definitionRetentionProblem(); err != nil {
+		return Report{}, err
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var rep Report
@@ -446,6 +454,9 @@ func (l *Library) remove(match func(kind, name string, m map[string]any) bool) (
 
 // collectGarbage removes objects that no manifest references.
 func (l *Library) collectGarbage() (int, error) {
+	if err := l.definitionRetentionProblem(); err != nil {
+		return 0, err
+	}
 	live := map[string]bool{}
 	for _, k := range kinds {
 		names, err := l.Manifests(k)
@@ -517,6 +528,14 @@ func (l *Library) collectGarbage() (int, error) {
 // Purge deletes the whole library of the project and reports the runner artifacts that
 // it recorded and that still exist outside it (the caller removes or lists them).
 func (l *Library) Purge() (Report, error) {
+	lock, e := l.destructiveStateLock()
+	if e != nil {
+		return Report{}, e
+	}
+	defer lock.Unlock()
+	if err := l.definitionRetentionProblem(); err != nil {
+		return Report{}, err
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	ext, err := l.Inventory()

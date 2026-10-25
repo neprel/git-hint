@@ -123,6 +123,12 @@ func ReadSpoolChecked(s *store.Store) ([]activity.Observation, SpoolDamage, erro
 		batches.WriteByte('\n')
 	}
 	input = io.MultiReader(input, &batches)
+	return parseSpoolInput(input)
+}
+
+// parseSpoolInput shares the ordinary replay/conflict parser with bounded input readers.
+func parseSpoolInput(input io.Reader) ([]activity.Observation, SpoolDamage, error) {
+	var d SpoolDamage
 	var order []string
 	first := map[string]activity.Observation{}
 	body := map[string]string{}

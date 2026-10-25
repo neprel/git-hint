@@ -106,7 +106,15 @@ func resolvePlan(s *store.Store, raw []byte, planID string, now time.Time) (plan
 	if err != nil {
 		return pr, err
 	}
-	im, err := Import(raw, cur)
+	return resolvePlanForBase(s, raw, planID, cur, func() (*exportState, error) { return loadExportState(s) })
+}
+
+// resolvePlanForBase shares existing import/plan validation. The caller names the
+// basis; stored input state is not a current-worktree or capture proof. The export
+// loader stays at the original validation position to preserve legacy reason order.
+func resolvePlanForBase(s *store.Store, raw []byte, planID string, base *Current, exports func() (*exportState, error)) (planRef, error) {
+	var pr planRef
+	im, err := Import(raw, base)
 	if err != nil {
 		return pr, err
 	}
@@ -143,7 +151,7 @@ func resolvePlan(s *store.Store, raw []byte, planID string, now time.Time) (plan
 			pr.SnapshotID, pr.SnapshotDigest = str(xm["snapshot_id"]), str(xm["digest"])
 		}
 	}
-	st, err := loadExportState(s)
+	st, err := exports()
 	if err != nil {
 		return pr, err
 	}

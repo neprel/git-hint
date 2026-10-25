@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"os"
 	"sync"
@@ -55,4 +56,45 @@ func (l *Lock) Unlock() {
 	l.f.Close()
 	l.f = nil
 	inProcess.Unlock()
+}
+
+// TryLockStateContext never waits for the non-reentrant state lock. Its safety
+// inspection uses the original caller context; no nested lock or renewed budget.
+func (s *Store) TryLockStateContext(ctx context.Context) (*Lock, error) {
+	if ctx == nil {
+		return nil, ErrBoundedState
+	}
+	if e := ctx.Err(); e != nil {
+		return nil, e
+	}
+	if !inProcess.TryLock() {
+		return nil, ErrBusy
+	}
+	release := true
+	defer func() {
+		if release {
+			inProcess.Unlock()
+		}
+	}()
+	if e := s.CheckPathContext(ctx, s.Path("state", "lock")); e != nil {
+		return nil, e
+	}
+	f, e := openBoundedLock(s)
+	if e != nil {
+		return nil, e
+	}
+	if e = lockFile(f, false); e != nil {
+		f.Close()
+		if errors.Is(e, syscall.EWOULDBLOCK) {
+			return nil, ErrBusy
+		}
+		return nil, e
+	}
+	if e = ctx.Err(); e != nil {
+		_ = unlockFile(f)
+		f.Close()
+		return nil, e
+	}
+	release = false
+	return &Lock{f: f}, nil
 }
