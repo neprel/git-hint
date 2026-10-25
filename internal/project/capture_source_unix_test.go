@@ -531,3 +531,59 @@ func TestCaptureSourceActualUnlockFailureNeverMints(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestCaptureSourceFailedDefinitionDoesNotWedgeDifferentDefinition(t *testing.T) {
+	f, first := captureFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reached := false
+	ctx = captureObserved(ctx, func(phase string) {
+		if phase == "capture_a_end" {
+			reached = true
+			cancel()
+		}
+	})
+	if a, e := CaptureWorkDefinitionSource(ctx, f.s, captureReq(f, first), f.now); a != nil || !errors.Is(e, context.Canceled) || !reached {
+		t.Fatal("first genuine partial capture did not fail as intended", a, e, reached)
+	}
+	sources, e := f.s.ReadStateDirBounded(context.Background(), 8, "state", library.CaptureSourceStateDir)
+	if e != nil || len(sources) != 0 {
+		t.Fatal("expected empty audit directory", sources, e)
+	}
+	retained := map[string][]byte{}
+	for _, dir := range []string{library.CapturePolicyStateDir, library.CaptureReservationStateDir} {
+		files, e := f.s.ReadStateDirBounded(context.Background(), 8, "state", dir)
+		if e != nil || len(files) != 1 {
+			t.Fatal("failed operation records missing", dir, e)
+		}
+		path := f.s.Path("state", dir, files[0].Name())
+		raw, e := os.ReadFile(path)
+		if e != nil {
+			t.Fatal(e)
+		}
+		retained[path] = raw
+	}
+	otherRequest := f.request
+	otherRequest.Label = "synthetic-different-unit"
+	second, e := WriteWorkDefinitionInputs(context.Background(), f.s, otherRequest, f.now)
+	if e != nil {
+		t.Fatal("genuine second definition refused", e)
+	}
+	request := CaptureSourceRequest{Label: otherRequest.Label, Definition: second}
+	created, e := CaptureWorkDefinitionSource(context.Background(), f.s, request, f.now)
+	if e != nil || created == nil || created.Source() == nil || created.Acceptance() == nil {
+		t.Fatal("different definition wedged by empty source directory", e)
+	}
+	if a, e := CaptureWorkDefinitionSource(context.Background(), f.s, captureReq(f, first), f.now); a != nil || e == nil {
+		t.Fatal("same failed definition resumed")
+	}
+	for path, before := range retained {
+		after, e := os.ReadFile(path)
+		if e != nil || !bytes.Equal(before, after) {
+			t.Fatal("failed evidence changed", e)
+		}
+	}
+	if _, e := f.l.CollectGarbage(); !errors.Is(e, library.ErrDefinitionReferences) {
+		t.Fatal("retention barrier weakened", e)
+	}
+}

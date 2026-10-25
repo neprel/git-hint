@@ -322,7 +322,7 @@ func captureAbsentOperation(r *definitionStateRead, definition WorkDefinitionRef
 		if errors.Is(e, fs.ErrNotExist) {
 			continue
 		}
-		if e != nil || len(entries) == 0 {
+		if e != nil {
 			return ErrCaptureSource
 		}
 		for _, entry := range entries {
