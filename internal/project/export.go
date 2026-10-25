@@ -110,6 +110,9 @@ func buildPackage(s *store.Store, opt ExportOptions, receipt *projectionCollecto
 		}
 		latest = append(latest, l)
 	}
+	if receipt != nil {
+		receipt.freezeSnapshotPolicy(ver, pol, allowed, fields, res, latest)
+	}
 	if allowed["Snapshot"] {
 		payload := map[string]any{"snapshots": []any{}, "entities": []any{}, "relations": []any{}}
 		var repos []string

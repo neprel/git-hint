@@ -42,9 +42,10 @@ type LedgerProjection struct {
 // LocalProjectionReceipt is constructed only by the normal package builder.
 // Its rows are immutable through public accessors. It has no JSON wire form.
 type LocalProjectionReceipt struct {
-	namespace     string
-	state, reason string
-	rows          []LedgerProjection
+	namespace      string
+	state, reason  string
+	rows           []LedgerProjection
+	snapshotPolicy *snapshotProjectionPolicy
 }
 
 func (r *LocalProjectionReceipt) Namespace() string {
@@ -86,10 +87,11 @@ func BuildPackageWithReceipt(s *store.Store, opt ExportOptions) (*Package, *Loca
 }
 
 type projectionCollector struct {
-	namespace   string
-	rows        []LedgerProjection
-	failed      string
-	sawActivity bool
+	namespace      string
+	rows           []LedgerProjection
+	failed         string
+	sawActivity    bool
+	snapshotPolicy *snapshotProjectionPolicy
 }
 
 func (c *projectionCollector) capture(o activity.Observation, src activity.Source, final map[string]any) {
@@ -224,13 +226,13 @@ func (c *projectionCollector) seal(doc Doc) {
 }
 func (c *projectionCollector) finish() *LocalProjectionReceipt {
 	if c.failed != "" {
-		return &LocalProjectionReceipt{namespace: c.namespace, state: "unavailable", reason: c.failed}
+		return &LocalProjectionReceipt{namespace: c.namespace, snapshotPolicy: c.snapshotPolicy, state: "unavailable", reason: c.failed}
 	}
 	if !c.sawActivity {
-		return &LocalProjectionReceipt{namespace: c.namespace, state: "unavailable", reason: "activity_not_selected"}
+		return &LocalProjectionReceipt{namespace: c.namespace, snapshotPolicy: c.snapshotPolicy, state: "unavailable", reason: "activity_not_selected"}
 	}
 	if len(c.rows) == 0 {
-		return &LocalProjectionReceipt{namespace: c.namespace, state: "unavailable", reason: "no_ledger_occurrences"}
+		return &LocalProjectionReceipt{namespace: c.namespace, snapshotPolicy: c.snapshotPolicy, state: "unavailable", reason: "no_ledger_occurrences"}
 	}
 	state := "complete"
 	for _, r := range c.rows {
@@ -238,5 +240,5 @@ func (c *projectionCollector) finish() *LocalProjectionReceipt {
 			state = "incomplete"
 		}
 	}
-	return &LocalProjectionReceipt{namespace: c.namespace, state: state, rows: c.rows}
+	return &LocalProjectionReceipt{namespace: c.namespace, snapshotPolicy: c.snapshotPolicy, state: state, rows: c.rows}
 }
