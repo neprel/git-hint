@@ -2,17 +2,21 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"regexp"
 	"slices"
 	"time"
+	"unicode/utf8"
+
+	"github.com/neprel/git-hint/internal/hint"
 )
 
 // Backend captures (draft v0.2 ModelLedger.backend_capture): a sanitized read-only inspect of the
 // model backend before the agent's launch and after the drain, each bracketed on the counter's
-// monotonic clock. DISABLED BY DEFAULT: only a trial whose options carry a capture transport and
-// a reference function captures; no public option enables it and no production transport exists.
+// monotonic clock. Disabled by default: only an explicit capture transport and
+// reference function enable them. The controlled CLI opt-in uses the SSH transport.
 const (
 	CaptureMethod    = "runner_bracket_v1"
 	CaptureCollector = "hint-runner-capture"
@@ -79,6 +83,57 @@ type CaptureFlags struct {
 
 // errUnusableCapture is a response outside the allowlist's bounds (recorded as an error capture).
 var errUnusableCapture = errors.New("the capture response is not usable")
+
+// MaxBackendExpectationBytes bounds the explicit local metadata file, including
+// its capture transport selectors. It contains no credentials or provider settings.
+const MaxBackendExpectationBytes = 8 << 10
+
+// BackendExpectation is a complete metadata expectation and its read-only transport.
+// It proves no health, loaded weights or successful execution. RunSuite and the
+// runner still compare the actual start capture before launching the agent.
+type BackendExpectation struct {
+	Snapshot *CaptureSnapshot
+	Capture  *SSHCapture
+}
+
+// ParseBackendExpectation accepts the eleven host-capture fields plus exactly
+// capture_target and capture_container. References use the same store key and
+// DeriveID roles as RunOptions.captureOptions; raw names never enter the snapshot.
+func ParseBackendExpectation(data, key []byte) (BackendExpectation, error) {
+	refused := errors.New("backend expectation metadata is invalid or incomplete")
+	keys := append(append([]string{}, hostCaptureKeys...), "capture_target", "capture_container")
+	if len(key) == 0 || len(data) > MaxBackendExpectationBytes || !utf8.Valid(data) || !exactKeys(data, keys) {
+		return BackendExpectation{}, refused
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(data, &fields) != nil {
+		return BackendExpectation{}, refused
+	}
+	var target, container string
+	if json.Unmarshal(fields["capture_target"], &target) != nil || json.Unmarshal(fields["capture_container"], &container) != nil {
+		return BackendExpectation{}, refused
+	}
+	transport, err := NewSSHCapture(target, container)
+	if err != nil {
+		return BackendExpectation{}, refused
+	}
+	delete(fields, "capture_target")
+	delete(fields, "capture_container")
+	// The existing host parser consumes its compact one-line representation.
+	host, err := json.Marshal(fields)
+	if err != nil {
+		return BackendExpectation{}, refused
+	}
+	raw, err := parseHostCapture(host)
+	if err != nil {
+		return BackendExpectation{}, refused
+	}
+	snapshot, err := sanitize(raw, func(kind, value string) string { return hint.DeriveID(key, kind, value) })
+	if err != nil || !completeExpectedBackend(snapshot) {
+		return BackendExpectation{}, refused
+	}
+	return BackendExpectation{Snapshot: snapshot, Capture: transport}, nil
+}
 
 // sanitize maps a raw inspect to the snapshot with references from ref, or refuses it.
 func sanitize(r rawCapture, ref func(kind, raw string) string) (*CaptureSnapshot, error) {

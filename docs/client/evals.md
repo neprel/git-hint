@@ -149,6 +149,58 @@ the trial limit; inside the container the agent can reach only that proxy. `eval
 shows raw counts: every failed or timed-out attempt and its resources count, unknown
 usage stays unknown. Statistical comparisons are not computed locally.
 
+### Controlled launch with backend capture
+
+```sh
+git hint eval run --backend-expect backend.json --study-launch single-root-v1 \
+  --ripgrep-binary ./rg --opencode-tgz ./opencode.tgz EVAL --agent opencode --attempts 1
+```
+
+These options select the existing single-root OpenCode launch, offline binaries,
+prelaunch tree capture and normal backend captures. They require one eval and one
+attempt. Variants (`--with`, `--plan`, `--work-unit`, `--context-policy`) cannot use
+this option. The eval policy still controls execution, LAN model access, request,
+time and retry limits. The normal suite records every attempt and its available usage.
+
+`backend.json` is one closed JSON object, at most 8 KiB. It contains the eleven raw
+metadata fields produced by the backend capture, plus two SSH transport selectors:
+
+```json
+{
+  "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "host": "backend-host",
+  "container": "actual-container-id",
+  "started_at": "2026-01-02T03:04:05Z",
+  "restart_count": 0,
+  "prompt_tokens_details": true,
+  "prefix_caching": false,
+  "max_model_len": 65536,
+  "served_model": "local-model",
+  "reasoning_parser": "qwen3",
+  "tool_call_parser": "qwen3_coder",
+  "capture_target": "backend.example.invalid",
+  "capture_container": "model-container"
+}
+```
+
+Replace the example values with actual backend metadata. Keep this local file
+private. Do not put credentials, provider configuration or extra fields in it.
+HINT derives the references with the project's existing key and capture roles.
+Missing fields, duplicates, unsupported parser names and invalid types refuse.
+An observed `false` stays `false`; it is not a missing fact. The normal start capture
+must equal the complete expectation before agent launch. This equality does not
+attest to health, loaded weights or later stability. A changed end capture or an
+incomplete request can still leave canonical usage unknown.
+
+The controlled command anchors a 900-second total context at entry. It cancels
+work at 600 seconds, reserving 300 seconds for the runner's existing bounded
+teardown and proxy close. Interrupts cancel work. Late or interrupted completion
+refuses; stored attempts remain. Filesystem/SDK calls use cooperative cancellation,
+not an OS process watchdog. After starting the counting proxy, HINT removes the
+model-key environment variable before later children. SSH inherits only its
+HOME, PATH and SSH_AUTH_SOCK allowlist. No new options preserves the ordinary
+`eval run` behavior. Earlier trials remain stored.
+
 ## Result reports
 
 ```sh

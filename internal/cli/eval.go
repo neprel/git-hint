@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/neprel/git-hint/internal/api"
 	"github.com/neprel/git-hint/internal/evals"
@@ -48,6 +49,9 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
                                      checks your edited file and stores a new version
   git hint eval run [ID...] [--agent opencode|oracle|nop] [--attempts N] [--arm ARM]
                                      freeze a suite of validated evals and run bounded trials
+  git hint eval run ID --backend-expect FILE --study-launch single-root-v1
+                     --ripgrep-binary FILE --opencode-tgz FILE --agent opencode --attempts 1
+                                     controlled launch and backend metadata capture (uses SSH)
   git hint eval run ID... --arm context_only --with FILE...
   git hint eval run ID... --arm refactor --with WORKTREE
                                      the same tasks with added context files, or on your
@@ -321,7 +325,7 @@ func state(p *evals.Policy) string {
 }
 
 // valueFlags take a separate value token (`-o FILE`).
-var valueFlags = map[string]bool{"-received": true, "--received": true, "-work-unit": true, "--work-unit": true, "-plan": true, "--plan": true, "-from": true, "--from": true, "-family": true, "--family": true, "-outcome": true, "--outcome": true, "-with": true, "--with": true, "-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
+var valueFlags = map[string]bool{"-backend-expect": true, "--backend-expect": true, "-study-launch": true, "--study-launch": true, "-ripgrep-binary": true, "--ripgrep-binary": true, "-opencode-tgz": true, "--opencode-tgz": true, "-received": true, "--received": true, "-work-unit": true, "--work-unit": true, "-plan": true, "--plan": true, "-from": true, "--from": true, "-family": true, "--family": true, "-outcome": true, "--outcome": true, "-with": true, "--with": true, "-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
 
 // flagsFirst moves flag tokens (with their values) before positional ones, so
 // `eval show ID --text` and `eval pack ID -o FILE` work.
@@ -557,6 +561,7 @@ func evalWorker(e *Env, _ []string) int {
 }
 
 func evalRun(e *Env, args []string) int {
+	entered := time.Now()
 	args = flagsFirst(args)
 	fs := flags(e, "eval run", "runs agents in containers (policy evals.run); a live agent uses only the local model of the policy; sends nothing to a HINT server")
 	agent := fs.String("agent", "opencode", "agent: opencode (local model of the policy), oracle or nop (checks without a model)")
@@ -569,8 +574,20 @@ func evalRun(e *Env, args []string) int {
 	planID := fs.String("plan", "", "refactor: bind the variant to this plan (needs --work-unit; the --with work tree must be the captured after state)")
 	opencodeTgz := fs.String("opencode-tgz", "", "container runner, opencode: a local copy of the pinned OpenCode archive (offline; checked against the pin)")
 	workUnit := fs.String("work-unit", "", "refactor with --plan: the work unit whose closed successful attempt made the change")
+	controlled := controlledEvalRunFlags(fs)
 	if fs.Parse(args) != nil {
 		return 2
+	}
+	ctx := context.Background()
+	var total context.Context
+	if controlled.selected(fs) {
+		var cancel context.CancelFunc
+		ctx, total, cancel = controlledEvalContext(entered)
+		defer cancel()
+	}
+	o := pipeline.SuiteOptions{Evals: fs.Args(), Agent: *agent, Attempts: *attempts, Arm: *arm, OpenCodeTgz: *opencodeTgz}
+	if err := controlled.prepare(ctx, e.Dir, o, len(with) != 0 || *planID != "" || *workUnit != "" || *ctxPolicy != ""); err != nil {
+		return fail(e, err)
 	}
 	// binding flags are checked before any policy, runner or model step (C7BE-9)
 	if *planID != "" || *workUnit != "" {
@@ -596,7 +613,17 @@ func evalRun(e *Env, args []string) int {
 	if err := pipeline.CheckRunner(p); err != nil {
 		return fail(e, err)
 	}
-	ctx := context.Background()
+	if controlled.enabled {
+		if err := controlled.apply(&o, s.Key()); err != nil {
+			return fail(e, err)
+		}
+		if err := p.Check(evals.OpModel, ""); err != nil {
+			return fail(e, err)
+		}
+		if ctx.Err() != nil {
+			return fail(e, ctx.Err())
+		}
+	}
 	evalsToRun := fs.Args()
 	if len(with) > 0 {
 		refs, ready, err := prepareVariants(e, s, *arm, fs.Args(), with, *planID, *workUnit)
@@ -612,8 +639,18 @@ func evalRun(e *Env, args []string) int {
 	if err != nil {
 		return fail(e, err)
 	}
-	defer closeRunner()
-	o := pipeline.SuiteOptions{Evals: evalsToRun, Agent: *agent, Attempts: *attempts, Arm: *arm, OpenCodeTgz: *opencodeTgz}
+	defer func() {
+		if closeRunner != nil {
+			closeRunner()
+		}
+	}()
+	o.Evals = evalsToRun
+	var live *runner.Live
+	defer func() {
+		if live != nil {
+			_ = live.Close()
+		}
+	}()
 	if *agent == "opencode" {
 		if err := p.Check(evals.OpModel, ""); err != nil {
 			return fail(e, err)
@@ -622,15 +659,40 @@ func evalRun(e *Env, args []string) int {
 		if err != nil {
 			return fail(e, err)
 		}
-		defer lv.Close()
+		live = lv
+		if controlled.enabled {
+			// Match the existing controlled StartLive handoff: later children get no key.
+			if err := os.Unsetenv(p.Model.KeyEnv); err != nil {
+				return fail(e, errors.New("the model key environment could not be removed"))
+			}
+			if _, present := os.LookupEnv(p.Model.KeyEnv); present {
+				return fail(e, errors.New("the model key environment could not be removed"))
+			}
+		}
 		o.Live = lv
 	}
 	rep, err := pipeline.RunSuite(ctx, s, h, ident.Version, o, e.Now())
 	if err != nil {
 		return fail(e, err)
 	}
+	if controlled.enabled {
+		err := live.Close()
+		live = nil
+		closeRunner()
+		closeRunner = nil
+		if err != nil {
+			return fail(e, errors.New("the controlled model proxy did not close cleanly"))
+		}
+		if total.Err() != nil || ctx.Err() != nil {
+			return fail(e, errors.New("the controlled eval run exceeded its original deadline or was interrupted; recorded attempts remain stored"))
+		}
+	}
 	if *asJSON {
-		return writeJSON(e, rep)
+		code := writeJSON(e, rep)
+		if controlled.enabled && (total.Err() != nil || ctx.Err() != nil) {
+			return 1
+		}
+		return code
 	}
 	fmt.Fprintf(e.Stdout, "Suite %s: %d trials, outcomes %v", rep.Suite, rep.Trials, rep.Outcomes)
 	if rep.Requests != nil {
@@ -642,6 +704,9 @@ func evalRun(e *Env, args []string) int {
 	fmt.Fprintln(e.Stdout)
 	for _, sk := range rep.Skipped {
 		fmt.Fprintf(e.Stdout, "  not in the suite: %s\n", sk)
+	}
+	if controlled.enabled && (total.Err() != nil || ctx.Err() != nil) {
+		return 1
 	}
 	return 0
 }
