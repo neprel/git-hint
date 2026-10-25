@@ -60,7 +60,7 @@ func init() {
 		{"changes", "reads local state; no network; --declare-plan writes a local declaration", "Show the changes between the last two snapshots; declare a completed change as the application of a plan.", cmdChanges},
 		{"observe", "reads local state; no network", "Show how agent activity is collected.", cmdObserve},
 		{"export", "reads local state; writes files; no network", "Build, validate and write an export package (file mode).", cmdExport},
-		{"recommend", "reads local state; SENDS the package to the configured server", "Send the approved package and fetch the recommendations.", cmdRecommend},
+		{"recommend", "reads local state; SENDS the package to the configured server", "Send the approved package and fetch recommendations or an explicit economic assessment. --received reads a saved economic sidecar locally.", cmdRecommend},
 		{"plan", "reads local state and work trees; writes a local Markdown plan; no network", "Validate a recommendation and render the local plan.", cmdPlan},
 		{"cache", "removes .hint/cache/ only; no network", "`cache clean`: delete rebuildable data. Mapping, keys and state stay.", cmdCache},
 		{"doctor", "reads local state and tools; no network", "Check Git, the store, the key, schemas, adapters and optional indexers.", cmdDoctor},
@@ -504,8 +504,40 @@ func cmdRecommend(e *Env, args []string) int {
 	horizon := fs.String("forecast-horizon", "", "request a conditional forecast over N future tasks (1-100000)")
 	threshold := fs.String("forecast-threshold", "", "configured decision threshold in (0, 1] (needs --forecast-horizon; default 0.9)")
 	cost := fs.String("assumed-cost", "", "assumed one-time cost LO:HI in tokens; shown as a scenario, never a recommendation (needs --forecast-horizon)")
+	economicHorizon := fs.String("economic-horizon", "", "explicit economic horizon in accepted completions (1-1000000; needs --economic-threshold)")
+	economicThreshold := fs.String("economic-threshold", "", "explicit economic decision threshold in (0,1], up to six fraction digits")
+	received := fs.String("received", "", "render a saved economic JSON sidecar; no store or network")
+	namespace := fs.String("project-namespace", "", "exact expected namespace for --received only")
 	if fs.Parse(args) != nil {
 		return 2
+	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	economic := set["economic-horizon"] || set["economic-threshold"]
+	if (economic || set["received"] || set["project-namespace"]) && fs.NArg() != 0 {
+		return 2
+	}
+	var economicPolicy api.EconomicPolicy
+	if economic {
+		if !set["economic-horizon"] || !set["economic-threshold"] || set["forecast-horizon"] || set["forecast-threshold"] || set["assumed-cost"] {
+			fmt.Fprintln(e.Stderr, "git hint recommend: economic mode requires both economic flags and cannot use forecast or assumed-cost flags")
+			return 2
+		}
+		var err error
+		economicPolicy, err = api.NewEconomicPolicy(*economicHorizon, *economicThreshold)
+		if err != nil {
+			fmt.Fprintln(e.Stderr, "git hint recommend:", err)
+			return 2
+		}
+	}
+	if set["received"] {
+		if !economic || *received == "" || !set["project-namespace"] || !hexID.MatchString(*namespace) || set["yes"] || set["retry"] || set["server"] || set["all"] {
+			return fail(e, errors.New("--received requires economic flags and --project-namespace; upload flags are not permitted"))
+		}
+		return economicReceived(e, *received, *namespace, economicPolicy)
+	}
+	if set["project-namespace"] {
+		return fail(e, errors.New("--project-namespace requires --received"))
 	}
 	policy, err := forecastPolicy(fs, *horizon, *threshold, *cost)
 	if err != nil {
@@ -584,6 +616,14 @@ func cmdRecommend(e *Env, args []string) int {
 		}
 	}
 	fmt.Fprintf(e.Stdout, "Sent %d documents to %s.\n", n, c.Origin())
+	if economic {
+		assessment, err := c.EconomicRecommendations(ctx, s.Cfg.ProjectNamespace, economicPolicy)
+		if err != nil {
+			return fail(e, fmt.Errorf("fetch economic assessment: %w", err))
+		}
+		renderEconomic(e, assessment)
+		return 0
+	}
 	raw, err := c.RecommendationsWith(ctx, s.Cfg.ProjectNamespace, policy)
 	if err != nil {
 		return fail(e, fmt.Errorf("fetch recommendations: %w", err))

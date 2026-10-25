@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -116,6 +117,13 @@ func (c *Client) doMedia(ctx context.Context, method, path string, body []byte, 
 	if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 		// the server is unavailable or overloaded: retryable, like a transport failure
 		return resp.StatusCode, nil, fmt.Errorf("%w: server status %d", ErrNetwork, resp.StatusCode)
+	}
+	if answerPrefix == "application/json" && len(b) > 0 {
+		values := resp.Header.Values("Content-Type")
+		mt, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		if len(values) != 1 || err != nil || mt != "application/json" {
+			return resp.StatusCode, nil, errors.New("the server did not return a JSON economic sidecar")
+		}
 	}
 	if len(b) > 0 && !strings.HasPrefix(resp.Header.Get("Content-Type"), answerPrefix) {
 		return resp.StatusCode, nil, fmt.Errorf("server answered %d with content type %q, not a HINT document", resp.StatusCode, resp.Header.Get("Content-Type"))
