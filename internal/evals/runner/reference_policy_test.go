@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -142,4 +143,62 @@ func TestReferencePolicySourceSetRejectsUnlistedAndMissingPlatformHelper(t *test
 	if e = referencePolicySourceSet(fixture, sources); e == nil {
 		t.Fatal("inactive platform source omitted")
 	}
+}
+
+// Literal independent bundle shape: a change in either platform's rg helper must
+// rotate the same declared bundle, even when that helper is not compiled here.
+func TestReferencePolicyRipgrepSourcesBindBundle(t *testing.T) {
+	bundle, sources, _, e := referenceBundleIdentity()
+	if e != nil {
+		t.Fatal(e)
+	}
+	deps, e := referencePolicySources.ReadFile("reference_policy_dependencies.json")
+	if e != nil {
+		t.Fatal(e)
+	}
+	digest := func(raw []byte, pins []ReferencePolicySource) string {
+		return referenceJSON(struct {
+			Domain, Go, OS, Arch, Dependencies string
+			Sources                            []ReferencePolicySource
+		}{"hint-reference-code-bundle-v1", runtime.Version(), runtime.GOOS, runtime.GOARCH, referenceDigest(raw), pins})
+	}
+	if digest(deps, sources) != bundle {
+		t.Fatal("literal bundle oracle differs")
+	}
+	for _, name := range []string{"ripgrep.go", "ripgrep_unix.go", "ripgrep_other.go"} {
+		t.Run(name, func(t *testing.T) {
+			found := -1
+			for i, pin := range sources {
+				if pin.Path == name {
+					found = i
+					break
+				}
+			}
+			if found < 0 {
+				t.Fatal("required rg source missing")
+			}
+			raw, e := referencePolicySources.ReadFile(name)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if sources[found].Digest != referenceDigest(raw) || sources[found].Bytes != int64(len(raw)) {
+				t.Fatal("rg source byte pin differs")
+			}
+			changed := append([]ReferencePolicySource{}, sources...)
+			raw = append(append([]byte{}, raw...), []byte("\n// synthetic identity mutation\n")...)
+			changed[found].Digest, changed[found].Bytes = referenceDigest(raw), int64(len(raw))
+			if digest(deps, changed) == bundle {
+				t.Fatal("rg byte mutation did not rotate bundle")
+			}
+			removed := append([]ReferencePolicySource{}, sources[:found]...)
+			removed = append(removed, sources[found+1:]...)
+			if digest(deps, removed) == bundle {
+				t.Fatal("rg source omission did not rotate bundle")
+			}
+		})
+	}
+	if digest(append(append([]byte{}, deps...), ' '), sources) == bundle {
+		t.Fatal("dependency byte mutation did not rotate bundle")
+	}
+	t.Logf("declared source bundle %s", bundle)
 }
