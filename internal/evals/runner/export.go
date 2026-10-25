@@ -45,10 +45,12 @@ var DefaultSettings = Settings{AgentSeconds: 1800, VerifierSeconds: 600, BuildSe
 
 // Task is an exported task directory with the digests of its inputs.
 type Task struct {
-	Dir    string
-	Name   string
-	Inputs map[string]string // part -> digest of the source object
-	Canary string
+	frozen          *FrozenIOInputs
+	frozenPublished bool
+	Dir             string
+	Name            string
+	Inputs          map[string]string // part -> digest of the source object
+	Canary          string
 }
 
 // Export writes the task directory of one eval version into dir (empty or absent).
@@ -69,6 +71,13 @@ func ExportBounded(parent context.Context, l *library.Library, rec map[string]an
 	task, e := exportTask(l, rec, dir, s, b)
 	if e != nil || ctx.Err() != nil {
 		return nil, errors.New("bounded_export_refused")
+	}
+	if task.frozen != nil {
+		task.frozen.sources = cloneStringMap(task.Inputs)
+		task.frozenPublished = true
+		if ctx.Err() != nil {
+			return nil, errors.New("bounded_export_refused")
+		}
 	}
 	return task, nil
 }
@@ -163,7 +172,8 @@ func exportTask(l *library.Library, rec map[string]any, dir string, s Settings, 
 	if err := w("instruction.md", []byte("<!-- canary "+t.Canary+" -->\n"+string(instr)), 0o644); err != nil {
 		return nil, err
 	}
-	if err := w("task.toml", []byte(taskTOML(t.Name, version, evalID, s)), 0o644); err != nil {
+	taskConfig := []byte(taskTOML(t.Name, version, evalID, s))
+	if err := w("task.toml", taskConfig, 0o644); err != nil {
 		return nil, err
 	}
 	if err := untar(base, filepath.Join(dir, "environment", "repo")); err != nil {
@@ -221,6 +231,9 @@ func exportTask(l *library.Library, rec map[string]any, dir string, s Settings, 
 			iot, err := readIOTask(dir)
 			if err != nil {
 				return nil, err
+			}
+			if budget != nil {
+				t.frozen = &FrozenIOInputs{task: cloneIOTask(iot), limits: parseLimits(taskConfig), image: image, configDigest: referenceDigest(taskConfig)}
 			}
 			want := iodecl.Tests(iot.spec.Cases)
 			cs, _ := rec["verifier"].(map[string]any)["checks"].([]any)

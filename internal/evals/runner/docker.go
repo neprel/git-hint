@@ -102,6 +102,10 @@ func readLimits(taskDir string) (taskLimits, error) {
 	if err != nil {
 		return taskLimits{}, err
 	}
+	return parseLimits(b), nil
+}
+
+func parseLimits(b []byte) taskLimits {
 	s := string(b)
 	l := taskLimits{agent: time.Hour, verifier: time.Hour, cpus: 2, memoryMB: 4096, lan: strings.Contains(s, `network_mode = "allowlist"`)}
 	for _, m := range tomlTimeout.FindAllStringSubmatch(s, -1) {
@@ -118,7 +122,7 @@ func readLimits(taskDir string) (taskLimits, error) {
 	if m := tomlMemory.FindStringSubmatch(s); m != nil {
 		l.memoryMB, _ = strconv.ParseInt(m[1], 10, 64)
 	}
-	return l, nil
+	return l
 }
 
 // Run executes the attempts of one job on a task directory and reads its trials.

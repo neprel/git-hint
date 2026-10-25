@@ -144,7 +144,7 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 	}
 	prov["reference_tree"] = rd
 	limit := time.Duration(t.spec.CaseSeconds) * time.Second
-	return compareFrozenIO(ctx, t, dir, prov, false, func(oracle bool, id string, repetition int) (caseRun, error) {
+	return compareFrozenIO(ctx, t, dir, prov, false, "", func(oracle bool, id string, repetition int) (caseRun, error) {
 		tree := candidate
 		if oracle {
 			tree = reference
@@ -155,7 +155,7 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 
 // compareFrozenIO is the sole B1 reference/candidate comparison and output recipe.
 // Its executor is private runner plumbing, never a public caller-supplied source.
-func compareFrozenIO(ctx context.Context, t *ioTask, dir string, prov map[string]any, strict bool,
+func compareFrozenIO(ctx context.Context, t *ioTask, dir string, prov map[string]any, strict bool, expectedReference string,
 	run func(oracle bool, id string, repetition int) (caseRun, error)) (float64, map[string]any, error) {
 	deadline := func() error {
 		if ctx.Err() != nil {
@@ -178,6 +178,9 @@ func compareFrozenIO(ctx context.Context, t *ioTask, dir string, prov map[string
 		return 0, prov, err
 	}
 	prov["oracle_outputs"] = outputs
+	if expectedReference != "" && outputs != expectedReference {
+		return 0, prov, errIOVerdict{"retained reference transcript mismatch"}
+	}
 	var lines []string
 	pass := true
 	ch := sha256.New() // the captured candidate results, sealed on the host

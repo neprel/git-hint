@@ -18,7 +18,7 @@ func TestFrozenIOSourceIdentityGuards(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, name := range []string{"bounded_phase.go", "frozen_io.go"} {
+	for _, name := range []string{"bounded_phase.go", "frozen_io.go", "frozen_inputs.go", "frozen_bridge.go"} {
 		for _, mutation := range []string{"bytes", "omission"} {
 			fixture := fstest.MapFS{}
 			for _, source := range sources {
@@ -74,7 +74,7 @@ func frozenFixture(t *testing.T) (*ioTask, taskLimits, frozenIORequest, *frozenV
 		}
 		return frozenIOArtifact{p, referenceDigest(b), fakeImage}
 	}
-	req := frozenIORequest{artifact(), artifact(), t.TempDir()}
+	req := frozenIORequest{reference: artifact(), candidate: artifact(), output: t.TempDir()}
 	// Distinct actual bytes prove that the shared core never substitutes the
 	// reference artifact for the actual artifact, even when finite outputs agree.
 	req.candidate.path = filepath.Join(t.TempDir(), "actual.tar")
@@ -247,7 +247,7 @@ func TestFrozenIOUnusableCandidateIsUnknownButLegacyFails(t *testing.T) {
 				if e := os.Mkdir(filepath.Join(dir, "verifier"), 0700); e != nil {
 					t.Fatal(e)
 				}
-				reward, _, e := compareFrozenIO(context.Background(), iot, dir, map[string]any{}, strict, func(oracle bool, _ string, _ int) (caseRun, error) {
+				reward, _, e := compareFrozenIO(context.Background(), iot, dir, map[string]any{}, strict, "", func(oracle bool, _ string, _ int) (caseRun, error) {
 					r := caseRun{out: []byte("same"), networkNone: true}
 					if !oracle {
 						switch kind {

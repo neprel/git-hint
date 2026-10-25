@@ -22,6 +22,8 @@ type frozenIOArtifact struct{ path, digest, image string }
 type frozenIORequest struct {
 	reference, candidate frozenIOArtifact
 	output               string
+	expectedReference    string
+	observations         *[]frozenCaseObservation
 }
 type frozenIOAudit struct {
 	State, Authority, ReferenceDigest, CandidateDigest, ScheduleDigest string
@@ -32,7 +34,10 @@ type frozenIOAudit struct {
 // and this private testable execution policy establish no origin or result trust.
 // The already parsed declaration and output directory belong to the runner.
 func (d *Docker) verifyFrozenIO(parent context.Context, t *ioTask, lim taskLimits, req frozenIORequest, p *frozenVerificationPolicy) (float64, map[string]any, frozenIOAudit, error) {
-	anchor := time.Now()
+	return d.verifyFrozenIOAt(parent, t, lim, req, p, time.Now())
+}
+
+func (d *Docker) verifyFrozenIOAt(parent context.Context, t *ioTask, lim taskLimits, req frozenIORequest, p *frozenVerificationPolicy, anchor time.Time) (float64, map[string]any, frozenIOAudit, error) {
 	a := frozenIOAudit{State: "unknown", Authority: "unknown"}
 	refuse := func() (float64, map[string]any, frozenIOAudit, error) {
 		return 0, nil, a, errIOVerdict{"frozen verification unavailable or incomplete"}
@@ -89,7 +94,7 @@ func (d *Docker) verifyFrozenIO(parent context.Context, t *ioTask, lim taskLimit
 	a.ScheduleDigest = referenceJSON(schedule)
 	index := 0
 	prov := map[string]any{"interface": IOInterface, "spec": t.specDigest, "inputs": t.inputsDigest, "oracle_runs": OracleRuns, "verdict_scope": "equivalence_to_reference_on_declared_cases", "reference_tree": req.reference.digest}
-	reward, prov, e := compareFrozenIO(ctx, t, req.output, prov, true, func(oracle bool, id string, repetition int) (r caseRun, er error) {
+	reward, prov, e := compareFrozenIO(ctx, t, req.output, prov, true, req.expectedReference, func(oracle bool, id string, repetition int) (r caseRun, er error) {
 		if index >= len(schedule) {
 			return r, errReferencePrepare
 		}
@@ -99,6 +104,7 @@ func (d *Docker) verifyFrozenIO(parent context.Context, t *ioTask, lim taskLimit
 		}
 		window := schedule[index]
 		index++
+		captured := false
 		audit, er := runBoundedPhase(ctx, cleanup, anchor, window, duration, cleanupDuration, archiveCap, role, func(c context.Context, x *referencePhase) error {
 			x.artifactDigest = f.digest
 			var e error
@@ -106,6 +112,7 @@ func (d *Docker) verifyFrozenIO(parent context.Context, t *ioTask, lim taskLimit
 			if e != nil {
 				return e
 			}
+			captured = true
 			x.audit.NetworkNone = r.networkNone
 			x.audit.StreamsJoined = true
 			if !r.usable() || !r.networkNone {
@@ -121,6 +128,13 @@ func (d *Docker) verifyFrozenIO(parent context.Context, t *ioTask, lim taskLimit
 		})
 		if audit != nil {
 			a.Phases = append(a.Phases, *audit)
+		}
+		if req.observations != nil {
+			v := frozenCaseObservation{identity: FrozenIOCaseIdentity{ID: id, Role: role, Repetition: repetition, InputDigest: referenceDigest(t.inputs[id]), OutputDigest: referenceDigest(r.out), OutputBytes: len(r.out), Status: r.status, Complete: captured && r.usable()}, output: append([]byte(nil), r.out...)}
+			if audit != nil {
+				v.identity.Phase = *audit
+			}
+			*req.observations = append(*req.observations, v)
 		}
 		return r, er
 	})

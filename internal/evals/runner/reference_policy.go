@@ -22,7 +22,7 @@ const ReferencePreparationPolicyVersion = "hint-reference-prepare-policy-v1"
 
 var ErrReferencePreparationPolicy = errors.New("reference_preparation_policy_refused")
 
-//go:embed bounded_phase.go frozen_io.go agentrun.go capture.go capture_ssh.go docker.go export.go gate.go io.go launch_recipe.go ledger.go live.go live_docker.go opencode.go prelaunch.go provenance.go reference_policy.go reference_policy_catalogue.go reference_policy_other.go reference_policy_unix.go reference_prepare.go run.go study_inspection.go tree_archive.go trust.go reference_policy_dependencies.json
+//go:embed frozen_inputs.go frozen_bridge.go bounded_phase.go frozen_io.go agentrun.go capture.go capture_ssh.go docker.go export.go gate.go io.go launch_recipe.go ledger.go live.go live_docker.go opencode.go prelaunch.go provenance.go reference_policy.go reference_policy_catalogue.go reference_policy_other.go reference_policy_unix.go reference_prepare.go run.go study_inspection.go tree_archive.go trust.go reference_policy_dependencies.json
 var referencePolicySources embed.FS
 
 type ReferencePreparationPolicyRef struct{ PolicyID, PolicyDigest string }
@@ -61,13 +61,26 @@ type referenceSocketPin struct {
 	Device, Inode                              uint64
 	Mode, UID, GID                             uint32
 }
+
+const preparationPurpose = "reference_preparation"
+const frozenPurpose = "frozen_b1_verification"
+
+func entryPurpose(p referencePolicyEntry) string {
+	if p.Purpose == "" {
+		return preparationPurpose
+	}
+	return p.Purpose
+}
+
 type referencePolicyEntry struct {
+	Purpose, Image                                                     string
 	ID, BundleDigest, Endpoint                                         string
 	Socket                                                             referenceSocketPin
 	EngineRef, EngineVersion, EngineOS, EngineArchitecture, APIVersion string
 	Procedure                                                          referencePreparationPolicy
 }
 type referenceEngineBinding struct {
+	Purpose                                                            string
 	EngineRef, EngineVersion, EngineOS, EngineArchitecture, APIVersion string
 	Policy                                                             ReferencePreparationPolicyRef
 	BundleDigest, EndpointDigest, SocketDigest                         string
@@ -90,12 +103,16 @@ func referenceEntryDigest(p referencePolicyEntry) string {
 	// The caller's exact policy digest covers catalogue source too. The installed entry
 	// stores no policy digest, so code/data identities have no self-hash cycle.
 	catalogue, _ := referencePolicySources.ReadFile("reference_policy_catalogue.go")
-	return referenceJSON(struct {
+	base := referenceJSON(struct {
 		Domain, ID, Bundle, CatalogueSource, Endpoint string
 		Socket                                        referenceSocketPin
 		Engine, Version, OS, Architecture, API        string
 		Bounds                                        ReferencePolicyBounds
 	}{ReferencePreparationPolicyVersion, p.ID, p.BundleDigest, referenceDigest(catalogue), p.Endpoint, p.Socket, p.EngineRef, p.EngineVersion, p.EngineOS, p.EngineArchitecture, p.APIVersion, referenceBounds(p.Procedure)})
+	if entryPurpose(p) == frozenPurpose {
+		return referenceJSON(struct{ Purpose, Image, Binding string }{frozenPurpose, p.Image, base})
+	}
+	return base
 }
 
 // SourceBundle covers embedded runner Go sources and the exact declared source/module
@@ -135,6 +152,9 @@ func referenceBundleIdentity() (string, []ReferencePolicySource, []ReferencePoli
 	return id, sources, dependencies, nil
 }
 func resolveReferenceEntry(ref ReferencePreparationPolicyRef) (referencePolicyEntry, ReferencePreparationPolicyInfo, error) {
+	return resolvePurposeEntry(ref, preparationPurpose)
+}
+func resolvePurposeEntry(ref ReferencePreparationPolicyRef, purpose string) (referencePolicyEntry, ReferencePreparationPolicyInfo, error) {
 	var zero referencePolicyEntry
 	var info ReferencePreparationPolicyInfo
 	if !referencePolicyID.MatchString(ref.PolicyID) || !referencePolicySHA.MatchString(ref.PolicyDigest) {
@@ -146,7 +166,7 @@ func resolveReferenceEntry(ref ReferencePreparationPolicyRef) (referencePolicyEn
 	}
 	found := false
 	for _, entry := range referencePreparationPolicies {
-		if entry.ID == ref.PolicyID {
+		if entry.ID == ref.PolicyID && entryPurpose(entry) == purpose {
 			if found {
 				return zero, info, referencePolicyFailure("catalogue_conflict")
 			}
@@ -165,7 +185,10 @@ func resolveReferenceEntry(ref ReferencePreparationPolicyRef) (referencePolicyEn
 		return referencePolicyEntry{}, info, referencePolicyFailure("policy_identity_mismatch")
 	}
 	b := referenceBounds(zero.Procedure)
-	if b.Operation <= 0 || b.Operation > 1800*time.Second || b.Resolve <= 0 || b.Resolve > 30*time.Second || b.Commit <= 0 || b.Commit > 30*time.Second || b.Build <= 0 || b.Build > 600*time.Second || b.Apply <= 0 || b.Apply > 300*time.Second || b.Overhead < 0 || b.Overhead > 10*time.Second || b.Cleanup <= 0 || b.Cleanup > 30*time.Second || b.ArchiveBytes <= 0 || b.ArchiveBytes > 96<<20 || b.TotalBytes < b.ArchiveBytes || b.TotalBytes > 256<<20 {
+	if b.Operation <= 0 || b.Operation > 1800*time.Second || b.Resolve <= 0 || b.Resolve > 30*time.Second || b.Commit <= 0 || b.Commit > 30*time.Second || ((purpose == preparationPurpose) && (b.Build <= 0 || b.Build > 600*time.Second || b.Apply <= 0 || b.Apply > 300*time.Second)) || b.Overhead < 0 || b.Overhead > 10*time.Second || b.Cleanup <= 0 || b.Cleanup > 30*time.Second || b.ArchiveBytes <= 0 || b.ArchiveBytes > 96<<20 || b.TotalBytes < b.ArchiveBytes || b.TotalBytes > 256<<20 {
+		return referencePolicyEntry{}, info, referencePolicyFailure("policy_bounds")
+	}
+	if purpose == frozenPurpose && (b.Resolve != 30*time.Second || b.Commit != 30*time.Second || b.Build != 0 || b.Apply != 0 || b.Overhead != 10*time.Second || b.Cleanup != 30*time.Second || b.ArchiveBytes != 96<<20 || b.TotalBytes != 256<<20 || !referencePolicySHA.MatchString(zero.Image)) {
 		return referencePolicyEntry{}, info, referencePolicyFailure("policy_bounds")
 	}
 	if !filepath.IsAbs(zero.Endpoint) || filepath.Clean(zero.Endpoint) != zero.Endpoint || !referencePolicySHA.MatchString(zero.EngineRef) || zero.EngineVersion == "" || zero.EngineOS != "linux" || (zero.EngineArchitecture != "aarch64" && zero.EngineArchitecture != "arm64" && zero.EngineArchitecture != "x86_64" && zero.EngineArchitecture != "amd64") || zero.APIVersion != "1.56" {
@@ -176,6 +199,10 @@ func resolveReferenceEntry(ref ReferencePreparationPolicyRef) (referencePolicyEn
 		Source  string
 		Entries []string
 	}{referenceDigest(catalogue), referenceCatalogueDigests()}), EndpointDigest: referenceDigest([]byte(zero.Endpoint)), SocketIdentityDigest: referenceJSON(zero.Socket), EngineRef: zero.EngineRef, EngineVersion: zero.EngineVersion, EngineOS: zero.EngineOS, EngineArchitecture: zero.EngineArchitecture, APIVersion: zero.APIVersion, Bounds: b, Sources: append([]ReferencePolicySource{}, sources...), Dependencies: append([]ReferencePolicySource{}, deps...)}
+	if purpose == frozenPurpose {
+		info.Version = "hint-frozen-verify-policy-v1"
+		info.Rules.BuildNetwork = "no_build"
+	}
 	return zero, info, nil
 }
 func referenceCatalogueDigests() []string {
@@ -242,6 +269,11 @@ func OpenReferencePreparationEngine(parent context.Context, ref ReferencePrepara
 	if e = referenceCheckContext(ctx); e != nil {
 		return nil, e
 	}
+	return openPinnedProcedureEngine(ctx, entry, info)
+}
+
+func openPinnedProcedureEngine(ctx context.Context, entry referencePolicyEntry, info ReferencePreparationPolicyInfo) (*Docker, error) {
+	var e error
 	if e = referenceCheckSocket(ctx, entry); e != nil {
 		return nil, e
 	}
@@ -345,5 +377,5 @@ func (d *Docker) PrepareReferenceForPolicy(parent context.Context, taskDir strin
 // binary correspondence remains a separate deployment assumption, not this lookup.
 
 func referenceBindingFor(e referencePolicyEntry, info ReferencePreparationPolicyInfo) *referenceEngineBinding {
-	return &referenceEngineBinding{Policy: info.Policy, BundleDigest: info.BundleDigest, EndpointDigest: info.EndpointDigest, SocketDigest: info.SocketIdentityDigest, EngineRef: e.EngineRef, EngineVersion: e.EngineVersion, EngineOS: e.EngineOS, EngineArchitecture: e.EngineArchitecture, APIVersion: e.APIVersion}
+	return &referenceEngineBinding{Purpose: entryPurpose(e), Policy: info.Policy, BundleDigest: info.BundleDigest, EndpointDigest: info.EndpointDigest, SocketDigest: info.SocketIdentityDigest, EngineRef: e.EngineRef, EngineVersion: e.EngineVersion, EngineOS: e.EngineOS, EngineArchitecture: e.EngineArchitecture, APIVersion: e.APIVersion}
 }
