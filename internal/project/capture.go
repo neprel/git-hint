@@ -68,7 +68,8 @@ func captureAfter(ctx context.Context, s *store.Store, r store.Repo, snap *snaps
 	if err != nil {
 		return "", TreeProvenance{}, err
 	}
-	if derived.Record.SnapshotID != snap.Record.SnapshotID {
+	// The state key, not the snapshot ID: a successor ID also binds its predecessor.
+	if derived.StateKey != snap.StateKey {
 		return "", TreeProvenance{}, errors.New("the captured work tree is not the after snapshot (collect first, and declare before further edits)")
 	}
 	t2, err := trees.FromWorktree(ctx, l, root, trees.Limits{})

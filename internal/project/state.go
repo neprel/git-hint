@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"slices"
 	"sort"
 
 	"github.com/neprel/git-hint/internal/activity"
@@ -53,12 +54,50 @@ func LoadSnapshot(s *store.Store, repoID, snapID string) (*snapshot.Local, error
 	return &l, nil
 }
 
-func saveSnapshot(s *store.Store, l *snapshot.Local) error {
-	repo := l.Record.RepoID
-	if err := s.WriteJSON(l, "state", "snapshots", repo, l.Record.SnapshotID+".json"); err != nil {
-		return err
+// ErrSnapshotConflict reports a stored snapshot with the same ID but other build inputs.
+var ErrSnapshotConflict = errors.New("a different snapshot is already stored under this snapshot ID")
+
+// saveSnapshot stores a new snapshot and then moves the latest pointer to it. A stored
+// snapshot is never overwritten. The same bytes are idempotent. A stored record with the
+// same ID, repository, state key and parents is the same revision built earlier (for
+// example before a crash ahead of the latest pointer); it is returned unchanged. Any other
+// record under the ID refuses before the latest pointer changes.
+func saveSnapshot(s *store.Store, l *snapshot.Local) (*snapshot.Local, error) {
+	repo, id := l.Record.RepoID, l.Record.SnapshotID
+	b, err := json.MarshalIndent(l, "", "  ")
+	if err != nil {
+		return nil, err
 	}
-	return s.WriteJSON(latestRef{l.Record.SnapshotID}, "state", "snapshots", repo, "latest.json")
+	b = append(b, '\n')
+	stored, err := os.ReadFile(s.Path("state", "snapshots", repo, id+".json"))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if err := s.WriteState(b, "state", "snapshots", repo, id+".json"); err != nil {
+			return nil, err
+		}
+	case err != nil:
+		return nil, err
+	case !bytes.Equal(stored, b):
+		old, err := LoadSnapshot(s, repo, id)
+		if err != nil || !sameRevision(old, l) {
+			return nil, ErrSnapshotConflict
+		}
+		l = old
+	}
+	if err := s.WriteJSON(latestRef{id}, "state", "snapshots", repo, "latest.json"); err != nil {
+		return nil, err
+	}
+	return l, nil
+}
+
+// sameRevision reports whether a stored record is a valid earlier build of the same inputs.
+func sameRevision(old, cur *snapshot.Local) bool {
+	if old.Record.SnapshotID != cur.Record.SnapshotID || old.Record.RepoID != cur.Record.RepoID || old.StateKey != cur.StateKey ||
+		!slices.Equal(old.Record.ParentSnapshotIDs, cur.Record.ParentSnapshotIDs) {
+		return false
+	}
+	d, err := snapshot.Digest(old.Record, old.Entities, old.Relations)
+	return err == nil && d == old.Record.Digest
 }
 
 // AppendObservation adds one observation to the spool.

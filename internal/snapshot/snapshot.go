@@ -91,6 +91,20 @@ func ReadGitState(root string) GitState {
 	return g
 }
 
+// SuccessorIDVersion versions the identity recipe of a changed snapshot with a predecessor.
+const SuccessorIDVersion = "successor-v1"
+
+// ID returns the snapshot ID of a state. A first snapshot keeps the original recipe
+// (repository and state key). A changed snapshot with a predecessor also binds that
+// predecessor, so a return to an earlier state is a new immutable revision with its own
+// parent link, never the earlier record's identity.
+func ID(key []byte, repoID, stateKey string, prev *Local) string {
+	if prev == nil {
+		return hint.DeriveID(key, "snapshot", repoID, stateKey)
+	}
+	return hint.DeriveID(key, "snapshot", repoID, stateKey, SuccessorIDVersion, prev.Record.SnapshotID)
+}
+
 // Build makes a snapshot from a scan. When the state did not change since prev, it
 // returns prev unchanged (same snapshot ID and digest), so that a recommendation made for
 // that snapshot still matches.
@@ -102,7 +116,7 @@ func Build(prev *Local, res *scan.Result, repoID string, key []byte, g GitState,
 	if prev != nil && prev.StateKey == stateKey {
 		return prev, false, nil
 	}
-	snapID := hint.DeriveID(key, "snapshot", repoID, stateKey)
+	snapID := ID(key, repoID, stateKey, prev)
 	l := &Local{StateKey: stateKey, Index: map[string]IndexEntry{}, Ambiguous: res.Ambiguous, Stats: res.Stats}
 	// snapshot-local IDs for collided symbols, in a deterministic order
 	ordinal := 0

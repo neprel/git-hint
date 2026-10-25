@@ -80,11 +80,13 @@ func Collect(s *store.Store, opt CollectOptions) ([]RepoResult, error) {
 		if err != nil {
 			return nil, err
 		}
-		rr := RepoResult{Name: r.Name, RepoID: repoID, Snapshot: cur, Changed: changed, Scan: res.Stats}
 		if changed {
-			if err := saveSnapshot(s, cur); err != nil {
+			if cur, err = saveSnapshot(s, cur); err != nil {
 				return nil, err
 			}
+		}
+		rr := RepoResult{Name: r.Name, RepoID: repoID, Snapshot: cur, Changed: changed, Scan: res.Stats}
+		if changed {
 			if prev != nil {
 				n, err := recordMutations(s, prev, cur, at, opt.TaskID)
 				if err != nil {

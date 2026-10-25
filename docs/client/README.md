@@ -60,7 +60,7 @@ Repository names are local. Exported documents name repositories only by opaque 
 | Check the state of the store and the adapters | `git hint status`, `git hint doctor` |
 | Free disk space | `git hint cache clean` (keeps keys, mapping and state) |
 
-`collect` reads and hashes every file, and parses only files whose content changed since the last scan. Size and modification time never decide alone, so an edit that keeps both is still found. A full scan (`--full`) gives the same snapshot. An unchanged tree keeps the same snapshot ID and digest, so a recommendation for it stays valid.
+`collect` reads and hashes every file, and parses only files whose content changed since the last scan. Size and modification time never decide alone, so an edit that keeps both is still found. A full scan (`--full`) gives the same snapshot. An unchanged tree keeps the same snapshot ID and digest, so a recommendation for it stays valid. A changed tree gets a new snapshot whose ID also binds its parent snapshot, so a return to an earlier state is a new revision; stored snapshots are never overwritten, and a different stored record under the same ID stops `collect` before the latest snapshot changes.
 
 `collect` also records each file that changed since the last snapshot as a file change observation. A file change is linked to an agent tool call only when exactly one edit of that file by the agent happened in that time window. Otherwise the change stays unassigned.
 
