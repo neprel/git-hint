@@ -51,6 +51,14 @@ type IOInputIdentity struct {
 type ResolvedQualifiedIO struct {
 	identity IOInputIdentity
 	objects  map[string][]byte
+	cases    []IOResolvedCase
+}
+
+// IOResolvedCase describes the declaration already parsed by the sole resolver.
+type IOResolvedCase struct{ ID, InputDigest string }
+
+func (h *ResolvedQualifiedIO) Cases() []IOResolvedCase {
+	return append([]IOResolvedCase(nil), h.cases...)
 }
 
 func (h *ResolvedQualifiedIO) Identity() IOInputIdentity {
@@ -285,7 +293,11 @@ func ResolveQualifiedIO(parent context.Context, l *library.Library, request Reso
 	}
 	r.objects[request.ManifestDigest] = append([]byte(nil), raw...)
 	r.objects[request.PreviousManifestDigest] = append([]byte(nil), prior...)
-	return &ResolvedQualifiedIO{identity: identity, objects: r.objects}, nil
+	cases := make([]IOResolvedCase, len(decl.Spec.Cases))
+	for i, id := range decl.Spec.Cases {
+		cases[i] = IOResolvedCase{id, library.Digest(decl.Inputs[id])}
+	}
+	return &ResolvedQualifiedIO{identity: identity, objects: r.objects, cases: cases}, nil
 }
 func toAny(ss []string) []any {
 	v := make([]any, len(ss))

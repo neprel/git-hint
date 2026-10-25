@@ -421,9 +421,34 @@ func retreeFrom(r io.Reader, prefix string, w io.Writer) error {
 
 // referenceExpectations is the one B1 oracle agreement and output-digest recipe.
 // Preparation and ordinary ioPhase use the same case order and OracleRuns.
+// IOTranscriptCase contains one already-established output in declared order.
+// IOTranscriptDigest is framing only; it does not run or verify a program.
+type IOTranscriptCase struct {
+	ID     string
+	Status int64
+	Output []byte
+}
+
+func IOTranscriptDigest(cases []IOTranscriptCase) (string, error) {
+	if len(cases) < 1 || len(cases) > maxIOCases {
+		return "", errors.New("io_transcript_count")
+	}
+	h := sha256.New()
+	seen := map[string]bool{}
+	for _, c := range cases {
+		if c.ID == "" || seen[c.ID] || len(c.Output) > maxIOBytes {
+			return "", errors.New("io_transcript_case")
+		}
+		seen[c.ID] = true
+		fmt.Fprintf(h, "%s\x00%d\x00%d\x00", c.ID, c.Status, len(c.Output))
+		h.Write(c.Output)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
+}
+
 func referenceExpectations(t *ioTask, run func(string, int) (caseRun, error)) (map[string]caseRun, string, bool, error) {
 	expected := map[string]caseRun{}
-	oh := sha256.New()
+	transcript := []IOTranscriptCase{}
 	allNone := true
 	for _, id := range t.spec.Cases {
 		var first caseRun
@@ -443,10 +468,10 @@ func referenceExpectations(t *ioTask, run func(string, int) (caseRun, error)) (m
 			first = r
 		}
 		expected[id] = first
-		fmt.Fprintf(oh, "%s\x00%d\x00%d\x00", id, first.status, len(first.out))
-		oh.Write(first.out)
+		transcript = append(transcript, IOTranscriptCase{id, first.status, first.out})
 	}
-	return expected, "sha256:" + hex.EncodeToString(oh.Sum(nil)), allNone, nil
+	digest, e := IOTranscriptDigest(transcript)
+	return expected, digest, allNone, e
 }
 
 // Only ioPhase's own overall deadline has legacy timeout classification. A per-case

@@ -435,44 +435,48 @@ func LoadWorkDefinitionInputs(parent context.Context, s *store.Store, ref WorkDe
 	return loadWorkDefinition(ctx, s, ref)
 }
 func loadWorkDefinition(ctx context.Context, s *store.Store, ref WorkDefinitionRef) (*WorkDefinitionInputs, error) {
+	h, _, e := loadWorkDefinitionResolved(ctx, s, ref)
+	return h, e
+}
+func loadWorkDefinitionResolved(ctx context.Context, s *store.Store, ref WorkDefinitionRef) (*WorkDefinitionInputs, *qualify.ResolvedQualifiedIO, error) {
 	if !batchID.MatchString(ref.RecordRef) || !digestPattern.MatchString(ref.RecordDigest) {
-		return nil, definitionProblem(ctx, "reference_invalid")
+		return nil, nil, definitionProblem(ctx, "reference_invalid")
 	}
 	raw, e := s.ReadStateBounded(ctx, WorkDefinitionRecordMax, "state", library.WorkDefinitionStateDir, ref.RecordRef+".json")
 	if e != nil || library.Digest(raw) != ref.RecordDigest {
-		return nil, definitionProblem(ctx, "record_unavailable_or_changed")
+		return nil, nil, definitionProblem(ctx, "record_unavailable_or_changed")
 	}
 	var v WorkDefinitionIdentity
 	if definitionDecode(raw, &v) != nil {
-		return nil, definitionProblem(ctx, "record_invalid")
+		return nil, nil, definitionProblem(ctx, "record_invalid")
 	}
 	canonical, e := hint.Canonical(v)
 	if e != nil || !bytes.Equal(canonical, raw) {
-		return nil, definitionProblem(ctx, "record_invalid")
+		return nil, nil, definitionProblem(ctx, "record_invalid")
 	}
 	storeBinding, e := definitionStoreBinding(ctx, s)
 	if e != nil {
-		return nil, definitionProblem(ctx, "store_binding_refused")
+		return nil, nil, definitionProblem(ctx, "store_binding_refused")
 	}
 	dg, e := definitionBinding(v)
 	if e != nil || dg != v.DefinitionBindingDigest || v.Kind != WorkDefinitionInputsVersion || v.Basis != "stored_input_consistency_only" || v.ResolutionState != "resolved_inputs" || v.Namespace != s.Cfg.ProjectNamespace || v.StoreBinding != storeBinding || v.RecordRef != ref.RecordRef || hint.EvalRef(s.Key(), WorkDefinitionInputsVersion, v.UnitRef) != ref.RecordRef || !batchID.MatchString(v.UnitRef) || !batchID.MatchString(v.FamilyRef) || !definitionConfigurationValid(v.DeclaredConfiguration) || v.DeclaredConfiguration.Digest() != v.DeclaredConfigurationDigest || v.WriterSourceIdentity != definitionSourceIdentity() || v.ResolverSourceIdentity != qualify.QualifiedInputSourceIdentity() || v.BoundedReaderIdentity != store.BoundedStateSourceIdentity() {
-		return nil, definitionProblem(ctx, "record_binding_refused")
+		return nil, nil, definitionProblem(ctx, "record_binding_refused")
 	}
 	if len(v.SnapshotInputs) == 0 || len(v.SnapshotInputs) > 16 || len(v.SnapshotInputs) != len(s.Cfg.Repos) || len(v.ObservedAbsentDefaults) > 6 {
-		return nil, definitionProblem(ctx, "record_shape_refused")
+		return nil, nil, definitionProblem(ctx, "record_shape_refused")
 	}
 	allowedAbsent := map[string]bool{"work_directory": true, "membership_directory": true, "activity_sources": true, "activity_spool": true, "activity_batches": true, "controlled_run_index": true}
 	previous := ""
 	for _, name := range v.ObservedAbsentDefaults {
 		if !allowedAbsent[name] || name <= previous {
-			return nil, definitionProblem(ctx, "record_shape_refused")
+			return nil, nil, definitionProblem(ctx, "record_shape_refused")
 		}
 		previous = name
 	}
 	l := library.Open(s, 0)
 	q, why := qualify.ResolveQualifiedIO(ctx, l, v.QualifiedInputRequest)
 	if why != nil || !reflect.DeepEqual(q.Identity(), v.QualifiedInputIdentity) || !reflect.DeepEqual(definitionQualifiedObjects(q), v.QualifiedObjects) {
-		return nil, definitionProblem(ctx, "qualified_inputs_refused")
+		return nil, nil, definitionProblem(ctx, "qualified_inputs_refused")
 	}
 	objects := map[string][]byte{}
 	var frozenReadBytes int64
@@ -497,27 +501,27 @@ func loadWorkDefinition(ctx context.Context, s *store.Store, ref WorkDefinitionR
 		return e
 	}
 	if read(v.RawSetObject, MaxDocumentBytes) != nil || read(v.ExportStateObject, definitionMetadataMax) != nil {
-		return nil, definitionProblem(ctx, "frozen_input_unavailable")
+		return nil, nil, definitionProblem(ctx, "frozen_input_unavailable")
 	}
 	for _, in := range v.SnapshotInputs {
 		if read(in.SnapshotObject, definitionMetadataMax) != nil || read(in.LatestRefObject, definitionMetadataMax) != nil {
-			return nil, definitionProblem(ctx, "frozen_input_unavailable")
+			return nil, nil, definitionProblem(ctx, "frozen_input_unavailable")
 		}
 	}
 	at, e := time.Parse(time.RFC3339Nano, v.InputValidatedAt)
 	if e != nil || at.IsZero() {
-		return nil, definitionProblem(ctx, "record_invalid")
+		return nil, nil, definitionProblem(ctx, "record_invalid")
 	}
 	base, st, e := definitionBase(s, at, objects[v.ExportStateObject], v.SnapshotInputs, objects)
 	if e != nil {
-		return nil, definitionProblem(ctx, "frozen_base_invalid")
+		return nil, nil, definitionProblem(ctx, "frozen_base_invalid")
 	}
 	pr, e := resolvePlanForBase(s, objects[v.RawSetObject], v.PlanBinding.PlanID, base, func() (*exportState, error) { return st, nil })
 	if e != nil || definitionPlan(pr) != v.PlanBinding {
-		return nil, definitionProblem(ctx, "frozen_plan_binding_refused")
+		return nil, nil, definitionProblem(ctx, "frozen_plan_binding_refused")
 	}
 	if ctx.Err() != nil {
-		return nil, definitionProblem(ctx, "deadline")
+		return nil, nil, definitionProblem(ctx, "deadline")
 	}
-	return &WorkDefinitionInputs{identity: v}, nil
+	return &WorkDefinitionInputs{identity: v}, q, nil
 }

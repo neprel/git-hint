@@ -258,3 +258,20 @@ func TestResolveKnownTreeMetadataCapAtFirstRead(t *testing.T) {
 		t.Fatalf("known metadata was not refused during first read: %v", ref)
 	}
 }
+
+func TestResolvedQualifiedCasesAlreadyParsedAndCopied(t *testing.T) {
+	f := resolveFixture(t, nil)
+	h, why := ResolveQualifiedIO(context.Background(), f.l, f.req)
+	if why != nil {
+		t.Fatal(why)
+	}
+	cases := h.Cases()
+	if len(cases) != 1 || cases[0].ID != "lower" || cases[0].InputDigest != library.Digest([]byte("hello\n")) {
+		t.Fatal(cases)
+	}
+	cases[0].ID = "changed"
+	cases[0].InputDigest = "changed"
+	if h.Cases()[0].ID != "lower" || h.Cases()[0].InputDigest != library.Digest([]byte("hello\n")) {
+		t.Fatal("mutable case accessor")
+	}
+}

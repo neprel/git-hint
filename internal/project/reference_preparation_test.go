@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/runner"
@@ -15,7 +16,7 @@ import (
 func TestReferenceProjectDefaultDisabledBeforeState(t *testing.T) {
 	f := definitionFixtureNew(t)
 	ref := writeDefinition(t, f)
-	a, e := PrepareFinalReference(context.Background(), f.s, PrepareReferenceRequest{ref, f.request.Label, "attempt-one", runner.ReferencePreparationPolicyRef{PolicyID: "missing.policy", PolicyDigest: "sha256:" + strings.Repeat("a", 64)}}, f.now)
+	a, e := PrepareFinalReference(context.Background(), f.s, PrepareReferenceRequest{ref, f.request.Label, "attempt-one", runner.ReferencePreparationPolicyRef{PolicyID: "missing.policy", PolicyDigest: "sha256:" + strings.Repeat("a", 64)}, nil}, f.now)
 	if e == nil || a != nil {
 		t.Fatal(a, e)
 	}
@@ -92,5 +93,22 @@ func TestReferenceImmutableCommitAndCanceledWrite(t *testing.T) {
 	}
 	if _, e = os.Lstat(f.s.Path(append(base, "outcome.json")...)); !errors.Is(e, os.ErrNotExist) {
 		t.Fatal("provisional outcome", e)
+	}
+}
+
+func TestReferenceAcceptanceCannotDeserialize(t *testing.T) {
+	var witness ReferencePreparationAcceptance
+	if _, e := json.Marshal(witness); e == nil {
+		t.Fatal("serializable witness")
+	}
+	if e := json.Unmarshal([]byte(`{}`), &witness); e == nil {
+		t.Fatal("deserializable witness")
+	}
+	if referenceAcceptanceMatches(&witness, ReferencePreparationRef{}, ReferencePreparationRef{}, ReferencePreparationRef{}, referenceRequest{}) {
+		t.Fatal("zero witness accepted")
+	}
+	foreign := ReferencePreparationAcceptance{issuer: &referenceAcceptanceIssuer{1}}
+	if referenceAcceptanceMatches(&foreign, ReferencePreparationRef{}, ReferencePreparationRef{}, ReferencePreparationRef{}, referenceRequest{}) {
+		t.Fatal("foreign issuer accepted")
 	}
 }

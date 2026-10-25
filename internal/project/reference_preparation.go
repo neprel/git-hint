@@ -24,6 +24,7 @@ import (
 const ReferencePreparationVersion = "project-reference-preparation-v1"
 const referenceMetadataMax int64 = 1 << 20
 const referenceOutputMax int64 = 256 << 20
+const referenceFinalCommitMax = 60 * time.Second
 
 var ErrReferencePreparation = errors.New("project_reference_preparation_unknown")
 
@@ -47,10 +48,12 @@ type PrepareReferenceRequest struct {
 	Definition         WorkDefinitionRef
 	Label, OperationID string
 	Policy             runner.ReferencePreparationPolicyRef
+	Replay             *ReferencePreparationAcceptance
 }
 type ReferencePreparationAttempt struct {
 	reservation, outcome ReferencePreparationRef
 	prepared             *ReferencePreparationRef
+	acceptance           *ReferencePreparationAcceptance
 }
 
 func (a *ReferencePreparationAttempt) Reservation() ReferencePreparationRef {
@@ -72,6 +75,43 @@ func (a *ReferencePreparationAttempt) Prepared() *ReferencePreparationRef {
 	}
 	v := *a.prepared
 	return &v
+}
+
+// The issuer occupies nonzero storage. Stored bytes and deserialization cannot
+// reconstruct this private process-local checkpoint. It is not source authority.
+type referenceAcceptanceIssuer struct{ nonzero byte }
+
+var referenceAcceptanceProcess = &referenceAcceptanceIssuer{1}
+
+type ReferencePreparationAcceptance struct {
+	issuer                        *referenceAcceptanceIssuer
+	outcome, request, reservation ReferencePreparationRef
+	storeBinding, writer          string
+	policy                        runner.ReferencePreparationPolicyRef
+}
+
+func (a *ReferencePreparationAttempt) Acceptance() *ReferencePreparationAcceptance {
+	if a == nil || a.acceptance == nil {
+		return nil
+	}
+	v := *a.acceptance
+	return &v
+}
+func (a ReferencePreparationAcceptance) MarshalJSON() ([]byte, error) {
+	return nil, referenceRefused("acceptance_not_serializable")
+}
+func (a *ReferencePreparationAcceptance) UnmarshalJSON([]byte) error {
+	return referenceRefused("acceptance_not_deserializable")
+}
+func referenceAcceptanceMatches(a *ReferencePreparationAcceptance, outcome, request, reservation ReferencePreparationRef, v referenceRequest) bool {
+	return a != nil && a.issuer == referenceAcceptanceProcess && a.outcome == outcome && a.request == request && a.reservation == reservation && a.storeBinding == v.Definition.StoreBinding && a.writer == referenceBridgeIdentity() && a.policy == v.Policy.Policy
+}
+func referenceCurrent(ctx context.Context) bool {
+	if ctx == nil || ctx.Err() != nil {
+		return false
+	}
+	d, ok := ctx.Deadline()
+	return !ok || time.Now().Before(d)
 }
 
 type PreparedFinalReference struct {
@@ -115,8 +155,18 @@ func PrepareFinalReference(parent context.Context, s *store.Store, req PrepareRe
 	}
 	prepared, attempt, task, base, e := reserveReference(initial, s, req, info, now, anchor, end.Add(-60*time.Second))
 	lock.Unlock()
-	if e != nil || prepared != nil {
+	if e != nil {
 		return attempt, e
+	}
+	if prepared != nil {
+		if !referenceCurrent(initial) {
+			return attempt, referenceRefused("late_replay")
+		}
+		ref := attempt.outcome
+		attempt.prepared = &ref
+		copy := *req.Replay
+		attempt.acceptance = &copy
+		return attempt, nil
 	}
 	runctx, rc := context.WithDeadline(ctx, end.Add(-60*time.Second))
 	var d *runner.Docker
@@ -134,20 +184,28 @@ func PrepareFinalReference(parent context.Context, s *store.Store, req PrepareRe
 	rc()
 	// Cleanup and terminal failure persistence use only the original endpoint. Caller
 	// cancellation never becomes success; cancellation-independent context adds no grace.
-	commit, cc := context.WithDeadline(context.WithoutCancel(ctx), minReferenceTime(time.Now().Add(60*time.Second), end))
+	finalEnd := minReferenceTime(time.Now().Add(referenceFinalCommitMax), end)
+	final, fc := context.WithDeadline(ctx, finalEnd)
+	defer fc()
+	commit, cc := context.WithDeadline(context.WithoutCancel(ctx), finalEnd)
 	defer cc()
 	lock, e = s.TryLockStateContext(commit)
 	if e != nil {
 		return attempt, referenceRefused("terminal_lock_refused")
 	}
-	defer lock.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			lock.Unlock()
+		}
+	}()
 	v, e := readReferenceRequest(commit, s, base)
 	if e != nil {
 		return attempt, e
 	}
 	success := de == nil && ctx.Err() == nil && time.Now().Before(end) && audit.State == "prepared_reference_observed" && audit.Authority == "unknown" && audit.Inputs == v.Inputs && audit.InstalledPolicy == req.Policy && audit.PolicyBundleDigest == v.Policy.BundleDigest && audit.PolicyCatalogueDigest == v.Policy.CatalogueDigest && audit.PolicyEndpointDigest == v.Policy.EndpointDigest && audit.PolicySocketIdentityDigest == v.Policy.SocketIdentityDigest
-	h, he := loadWorkDefinition(commit, s, req.Definition)
-	if he != nil || !reflect.DeepEqual(h.identity, v.Definition) {
+	h, q, he := loadWorkDefinitionResolved(commit, s, req.Definition)
+	if he != nil || !reflect.DeepEqual(h.identity, v.Definition) || !reflect.DeepEqual(q.Cases(), v.Cases) {
 		success = false
 	}
 	if _, he = definitionHistory(&definitionStateRead{ctx: commit, s: s}, req.Label, v.Definition.UnitRef); he != nil {
@@ -162,12 +220,15 @@ func PrepareFinalReference(parent context.Context, s *store.Store, req PrepareRe
 		success = false
 	}
 	if success {
-		files, e = ingestReferenceOutputs(commit, s, base, audit)
+		files, e = ingestReferenceOutputs(final, s, base, audit)
+		if e == nil {
+			e = reconcileReferenceTranscript(final, s, files, audit, v.Cases)
+		}
 		if e != nil {
 			success = false
 		}
 	}
-	terminal := referenceTerminal{Version: ReferencePreparationVersion, Authority: "unknown", State: "unknown", Request: referenceRecordRef(base, "request", referenceEncoded(base, "request", v)), Reservation: attempt.reservation, Audit: audit, Artifacts: files, Writer: referenceBridgeIdentity(), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	terminal := referenceTerminal{Eligibility: "requires_process_local_acceptance_witness", Version: ReferencePreparationVersion, Authority: "unknown", State: "unknown", Request: referenceRecordRef(base, "request", referenceEncoded(base, "request", v)), Reservation: attempt.reservation, Audit: audit, Artifacts: files, Writer: referenceBridgeIdentity(), FinishedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if success {
 		terminal.State = "prepared_reference_observed"
 	}
@@ -176,7 +237,7 @@ func PrepareFinalReference(parent context.Context, s *store.Store, req PrepareRe
 	}
 	writeCtx := commit
 	if success {
-		writeCtx = ctx
+		writeCtx = final
 	}
 	ref, e := writeReferenceRecord(writeCtx, s, base, "outcome", terminal)
 	if e != nil {
@@ -190,10 +251,13 @@ func PrepareFinalReference(parent context.Context, s *store.Store, req PrepareRe
 	if _, e = loadPreparedReference(writeCtx, s, ref); e != nil {
 		return attempt, e
 	}
-	if ctx.Err() != nil || !time.Now().Before(end) {
+	lock.Unlock()
+	locked = false
+	if !referenceCurrent(final) {
 		return attempt, referenceRefused("late_completion")
 	}
 	attempt.prepared = &ref
+	attempt.acceptance = &ReferencePreparationAcceptance{referenceAcceptanceProcess, ref, terminal.Request, attempt.reservation, v.Definition.StoreBinding, v.Writer, v.Policy.Policy}
 	return attempt, nil
 }
 
@@ -223,7 +287,7 @@ func reserveReference(ctx context.Context, s *store.Store, req PrepareReferenceR
 	fail := func(code string) (*PreparedFinalReference, *ReferencePreparationAttempt, string, []string, error) {
 		return nil, nil, "", nil, referenceRefused(code)
 	}
-	h, e := loadWorkDefinition(ctx, s, req.Definition)
+	h, q, e := loadWorkDefinitionResolved(ctx, s, req.Definition)
 	if e != nil {
 		return fail("definition_unavailable")
 	}
@@ -285,10 +349,18 @@ func reserveReference(ctx context.Context, s *store.Store, req PrepareReferenceR
 		if er != nil {
 			return nil, a, "", base, referenceRefused("terminal_unknown")
 		}
-		a.prepared = &ref
+		if !referenceAcceptanceMatches(req.Replay, ref, loaded.identity.Request, a.reservation, old) {
+			return nil, a, "", base, referenceRefused("replay_acceptance_witness_required")
+		}
+		if !referenceCurrent(ctx) {
+			return nil, a, "", base, referenceRefused("late_replay")
+		}
 		return loaded, a, "", base, nil
 	} else if !errors.Is(er, fs.ErrNotExist) {
 		return fail("operation_unreadable")
+	}
+	if req.Replay != nil {
+		return fail("witness_without_exact_outcome")
 	}
 	// Refuse any partial allocation instead of resuming it.
 	if _, er := s.ReadStateDirBounded(ctx, 1, base...); er == nil || !errors.Is(er, fs.ErrNotExist) {
@@ -298,8 +370,7 @@ func reserveReference(ctx context.Context, s *store.Store, req PrepareReferenceR
 		return fail("policy_window_refused")
 	}
 	l := library.Open(s, 0)
-	q, qe := qualify.ResolveQualifiedIO(ctx, l, v.QualifiedInputRequest)
-	if qe != nil || !reflect.DeepEqual(q.Identity(), v.QualifiedInputIdentity) {
+	if !reflect.DeepEqual(q.Identity(), v.QualifiedInputIdentity) {
 		return fail("qualified_inputs")
 	}
 	raw, e := l.ResolveBoundedRead(ctx, "eval", v.QualifiedInputIdentity.EvalName, qualify.ResolveMetadataMax)
@@ -335,7 +406,7 @@ func reserveReference(ctx context.Context, s *store.Store, req PrepareReferenceR
 	if e != nil || inputs.SpecDigest != v.QualifiedInputIdentity.SpecDigest || inputs.InputsDigest != v.QualifiedInputIdentity.InputsDigest {
 		return fail("derived_input_binding")
 	}
-	request := referenceRequest{ReadBoundary: referenceReadBoundary(), Version: ReferencePreparationVersion, Authority: "unknown", Writer: referenceBridgeIdentity(), DefinitionRef: req.Definition, Definition: v, Policy: info, Inputs: inputs, ExportInputs: task.Inputs, CreatedAt: now.UTC().Format(time.RFC3339Nano), StartedAt: anchor.UTC().Format(time.RFC3339Nano)}
+	request := referenceRequest{Cases: q.Cases(), ReadBoundary: referenceReadBoundary(), Version: ReferencePreparationVersion, Authority: "unknown", Writer: referenceBridgeIdentity(), DefinitionRef: req.Definition, Definition: v, Policy: info, Inputs: inputs, ExportInputs: task.Inputs, CreatedAt: now.UTC().Format(time.RFC3339Nano), StartedAt: anchor.UTC().Format(time.RFC3339Nano)}
 	if referencePolicyWindow(info, workEnd) != nil {
 		return fail("policy_window_refused")
 	}

@@ -28,9 +28,10 @@ import (
 var referenceFixture = flag.String("reference-fixture", "", "owned synthetic test-build selector only")
 
 type referenceSelector struct {
-	Policy       runner.ReferencePreparationPolicyRef
-	CatalogueSHA string
-	ModeFile     string
+	Policy                 runner.ReferencePreparationPolicyRef
+	CatalogueSHA           string
+	ModeFile               string
+	FaultFile, FaultMarker string
 }
 
 func TestProjectReferenceOverlayChild(t *testing.T) {
@@ -55,7 +56,7 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 	t.Run("real-persistence-replay-load", func(t *testing.T) {
 		f := definitionFixtureNew(t)
 		ref := writeDefinition(t, f)
-		req := PrepareReferenceRequest{ref, f.request.Label, "one", sel.Policy}
+		req := PrepareReferenceRequest{ref, f.request.Label, "one", sel.Policy, nil}
 		a, e := PrepareFinalReference(context.Background(), f.s, req, f.now)
 		if e != nil {
 			t.Fatalf("prepare: %+v %v", a, e)
@@ -68,7 +69,7 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 			t.Fatal(e)
 		}
 		id := h.Identity()
-		if id.Authority != "unknown" || id.DefinitionRef != ref || id.Audit.FinalTAR.Digest == id.Definition.QualifiedInputIdentity.ReferencePatchArchive {
+		if id.Eligibility != "requires_process_local_acceptance_witness" || id.Authority != "unknown" || id.DefinitionRef != ref || id.Audit.FinalTAR.Digest == id.Definition.QualifiedInputIdentity.ReferencePatchArchive {
 			t.Fatal("domain conflation", id)
 		}
 		bytes, ok := h.Object(id.Audit.FinalTAR.Digest)
@@ -85,6 +86,30 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 			t.Fatal("mutable identity")
 		}
 		before, _ := os.ReadFile(f.s.Path("state", library.ReferencePreparationStateDir, h.identity.Definition.UnitRef, strings.Split(a.Prepared().RecordRef, ".")[1], "outcome.json"))
+		if a.Acceptance() == nil {
+			t.Fatal("no checkpoint witness")
+		}
+		if _, e := json.Marshal(a.Acceptance()); e == nil {
+			t.Fatal("serialized witness")
+		}
+		if bare, e := PrepareFinalReference(context.Background(), f.s, req, f.now); e == nil || bare.Prepared() != nil {
+			t.Fatal("bare replay upgraded", bare, e)
+		}
+		zeroReq := req
+		zeroReq.Replay = &ReferencePreparationAcceptance{}
+		if rejected, e := PrepareFinalReference(context.Background(), f.s, zeroReq, f.now); e == nil || rejected.Prepared() != nil {
+			t.Fatal("zero witness replay", e)
+		}
+		altered := a.Acceptance()
+		altered.outcome.RecordDigest = "sha256:" + strings.Repeat("d", 64)
+		zeroReq.Replay = altered
+		if rejected, e := PrepareFinalReference(context.Background(), f.s, zeroReq, f.now); e == nil || rejected.Prepared() != nil {
+			t.Fatal("wrong outcome witness", e)
+		}
+		if a.Acceptance().outcome.RecordDigest == altered.outcome.RecordDigest {
+			t.Fatal("mutable witness accessor")
+		}
+		req.Replay = a.Acceptance()
 		replay, e := PrepareFinalReference(context.Background(), f.s, req, f.now.Add(time.Hour))
 		if e != nil || *replay.Prepared() != *a.Prepared() {
 			t.Fatal("replay", e)
@@ -149,6 +174,38 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 				}
 			})
 		}
+		outcomePath := f.s.Path(append(base, "outcome.json")...)
+		originalOutcome, e := os.ReadFile(outcomePath)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, kind := range []string{"aggregate", "input-hash", "slot-order", "output-digest"} {
+			t.Run("factual-transcript-"+kind, func(t *testing.T) {
+				var terminal referenceTerminal
+				if decodeReferenceRecord(originalOutcome, base, "outcome", &terminal) != nil {
+					t.Fatal("terminal fixture")
+				}
+				switch kind {
+				case "aggregate":
+					terminal.Audit.OracleOutputsDigest = "sha256:" + strings.Repeat("a", 64)
+				case "input-hash":
+					terminal.Audit.Cases[0].InputDigest = "sha256:" + strings.Repeat("b", 64)
+					terminal.Audit.Cases[1].InputDigest = terminal.Audit.Cases[0].InputDigest
+				case "slot-order":
+					terminal.Audit.Cases[0], terminal.Audit.Cases[1] = terminal.Audit.Cases[1], terminal.Audit.Cases[0]
+				case "output-digest":
+					terminal.Audit.Cases[0].OutputDigest = "sha256:" + strings.Repeat("c", 64)
+				}
+				forged := referenceEncoded(base, "outcome", terminal)
+				if e = os.WriteFile(outcomePath, forged, 0600); e != nil {
+					t.Fatal(e)
+				}
+				defer os.WriteFile(outcomePath, originalOutcome, 0600)
+				if _, e = LoadPreparedFinalReference(context.Background(), f.s, referenceRecordRef(base, "outcome", forged)); e == nil {
+					t.Fatal("contradictory retained transcript loaded", kind)
+				}
+			})
+		}
 		// Factual load checks content-addressed bytes, independent of scratch output.
 		if _, e = LoadPreparedFinalReference(context.Background(), f.s, *a.Prepared()); e != nil {
 			t.Fatal("factual load used scratch", e)
@@ -165,6 +222,53 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 		}
 
 	})
+	t.Run("actual-coordinator-late-link-never-upgrades", func(t *testing.T) {
+		for _, mode := range []string{"late-link", "late-poison", "final-window"} {
+			t.Run(mode, func(t *testing.T) {
+				f := definitionFixtureNew(t)
+				ref := writeDefinition(t, f)
+				req := PrepareReferenceRequest{Definition: ref, Label: f.request.Label, OperationID: mode, Policy: sel.Policy}
+				if e := os.WriteFile(sel.FaultFile, []byte(mode), 0600); e != nil {
+					t.Fatal(e)
+				}
+				defer func() { _ = os.WriteFile(sel.FaultFile, nil, 0600); _ = os.Remove(sel.FaultMarker) }()
+				a, e := PrepareFinalReference(context.Background(), f.s, req, f.now)
+				if e == nil || a == nil || a.Prepared() != nil || a.Acceptance() != nil {
+					t.Fatal("late write returned eligibility", a, e)
+				}
+				parts := strings.Split(a.Reservation().RecordRef, ".")
+				base := []string{"state", library.ReferencePreparationStateDir, parts[0], parts[1]}
+				raw, e := f.s.ReadStateBounded(context.Background(), referenceMetadataMax, append(base, "outcome.json")...)
+				if e != nil {
+					t.Fatal("test never reached durable coordinator outcome", e)
+				}
+				var terminal referenceTerminal
+				if decodeReferenceRecord(raw, base, "outcome", &terminal) != nil || terminal.State != "prepared_reference_observed" {
+					t.Fatal("not a durable ambiguous positive")
+				}
+				if mode == "late-poison" {
+					if e = f.s.WriteStateImmutableContext(context.Background(), []byte("poison"), 64, append(base, "failure-marker.json")...); e == nil {
+						t.Fatal("poison unavailable control did not activate")
+					}
+				}
+				if mode == "final-window" {
+					marker, e := os.ReadFile(sel.FaultMarker)
+					if e != nil || string(marker) != "final-end-observed" {
+						t.Fatal("success writer bypassed short final endpoint", string(marker), e)
+					}
+				}
+				loaded, e := LoadPreparedFinalReference(context.Background(), f.s, referenceRecordRef(base, "outcome", raw))
+				if e != nil || loaded.Identity().Eligibility != "requires_process_local_acceptance_witness" {
+					t.Fatal("factual evidence shape", e)
+				}
+				b, e := PrepareFinalReference(context.Background(), f.s, req, f.now)
+				if e == nil || b == nil || b.Prepared() != nil || b.Acceptance() != nil {
+					t.Fatal("durable late positive upgraded on real replay", b, e)
+				}
+				t.Log("actual coordinator wrote positive bytes, returned error, and refused public replay without a witness", mode)
+			})
+		}
+	})
 	t.Run("failed-operation-retained", func(t *testing.T) {
 		for _, mode := range []string{"exit", "remove_fail"} {
 			t.Run(mode, func(t *testing.T) {
@@ -174,7 +278,7 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 				defer os.WriteFile(sel.ModeFile, nil, 0600)
 				f := definitionFixtureNew(t)
 				ref := writeDefinition(t, f)
-				req := PrepareReferenceRequest{ref, f.request.Label, "failed", sel.Policy}
+				req := PrepareReferenceRequest{ref, f.request.Label, "failed", sel.Policy, nil}
 				a, e := PrepareFinalReference(context.Background(), f.s, req, f.now)
 				if e == nil || a == nil || a.Prepared() != nil || a.Outcome() == nil {
 					t.Fatal("failure lost/returned Prepared", a, e)
@@ -194,7 +298,7 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 		ref := writeDefinition(t, f)
 		ctx, c := context.WithTimeout(context.Background(), 95*time.Second)
 		defer c()
-		a, e := PrepareFinalReference(ctx, f.s, PrepareReferenceRequest{ref, f.request.Label, "too-small", sel.Policy}, f.now)
+		a, e := PrepareFinalReference(ctx, f.s, PrepareReferenceRequest{ref, f.request.Label, "too-small", sel.Policy, nil}, f.now)
 		if e == nil || a != nil || !strings.Contains(e.Error(), "policy_window_refused") {
 			t.Fatal(a, e)
 		}
@@ -210,7 +314,7 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 		if e := os.MkdirAll(f.s.Path("state", library.ReferencePreparationStateDir, u, op), 0700); e != nil {
 			t.Fatal(e)
 		}
-		if a, e := PrepareFinalReference(context.Background(), f.s, PrepareReferenceRequest{ref, f.request.Label, "one", sel.Policy}, f.now); e == nil || a != nil {
+		if a, e := PrepareFinalReference(context.Background(), f.s, PrepareReferenceRequest{ref, f.request.Label, "one", sel.Policy, nil}, f.now); e == nil || a != nil {
 			t.Fatal("resumed orphan", a, e)
 		}
 	})
@@ -220,7 +324,7 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 		u := hint.EvalRef(f.s.Key(), "work-unit", f.request.Label)
 		op := hint.EvalRef(f.s.Key(), "other", "pending")
 		_ = os.MkdirAll(f.s.Path("state", library.ReferencePreparationStateDir, u, op), 0700)
-		if _, e := PrepareFinalReference(context.Background(), f.s, PrepareReferenceRequest{ref, f.request.Label, "one", sel.Policy}, f.now); e == nil {
+		if _, e := PrepareFinalReference(context.Background(), f.s, PrepareReferenceRequest{ref, f.request.Label, "one", sel.Policy, nil}, f.now); e == nil {
 			t.Fatal("ignored pending")
 		}
 	})
@@ -232,6 +336,25 @@ func TestProjectReferencePublicPolicyUnixPersistence(t *testing.T) {
 	if *referenceFixture != "" {
 		t.Skip("parent only")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME"), "GOENV=off", "GOFLAGS=", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOWORK=off"}
+	for _, name := range []string{"GOCACHE", "GOMODCACHE", "GOPATH"} {
+		if v := os.Getenv(name); v != "" {
+			env = append(env, name+"="+v)
+		}
+	}
+	query := exec.CommandContext(ctx, "go", "env", "-json", "GOCACHE", "GOMODCACHE")
+	query.Env = env
+	cacheRaw, e := query.Output()
+	if e != nil {
+		t.Fatal("offline cache query", e)
+	}
+	var caches map[string]string
+	if json.Unmarshal(cacheRaw, &caches) != nil || !filepath.IsAbs(caches["GOCACHE"]) || !filepath.IsAbs(caches["GOMODCACHE"]) {
+		t.Fatal("invalid configured cache paths")
+	}
+
 	scratch, e := os.MkdirTemp("/tmp", "hint-project-reference-")
 	if e != nil {
 		t.Fatal(e)
@@ -259,6 +382,11 @@ func TestProjectReferencePublicPolicyUnixPersistence(t *testing.T) {
 	pinRaw, _ := json.Marshal(pin)
 	selector := filepath.Join(scratch, "selector.json")
 	modeFile := filepath.Join(scratch, "mode")
+	faultFile := filepath.Join(scratch, "fault-mode")
+	faultMarker := filepath.Join(scratch, "fault-marker")
+	if e = os.WriteFile(faultFile, nil, 0600); e != nil {
+		t.Fatal(e)
+	}
 	if e = os.WriteFile(modeFile, nil, 0600); e != nil {
 		t.Fatal(e)
 	}
@@ -285,10 +413,10 @@ func init(){
  referencePreparationPolicies=[]referencePolicyEntry{entry}
  raw,_:=referencePolicySources.ReadFile("reference_policy_catalogue.go")
  result,_:=json.Marshal(struct{Policy ReferencePreparationPolicyRef;CatalogueSHA string
-ModeFile string}{ReferencePreparationPolicyRef{entry.ID,referenceEntryDigest(entry)},referenceDigest(raw),%q})
+ModeFile,FaultFile,FaultMarker string}{ReferencePreparationPolicyRef{entry.ID,referenceEntryDigest(entry)},referenceDigest(raw),%q,%q,%q})
  file,e:=os.OpenFile(%q,os.O_WRONLY|os.O_CREATE|os.O_EXCL,0600);if e!=nil{panic("fixture exclusive selector")};if _,e=file.Write(result);e!=nil{panic("fixture selector")};if e=file.Close();e!=nil{panic("fixture selector close")}
 }
-`, string(pinRaw), socket, socket, modeFile, selector)
+`, string(pinRaw), socket, socket, modeFile, faultFile, faultMarker, selector)
 	root, e := filepath.Abs(filepath.Join("..", ".."))
 	if e != nil {
 		t.Fatal(e)
@@ -297,7 +425,54 @@ ModeFile string}{ReferencePreparationPolicyRef{entry.ID,referenceEntryDigest(ent
 	if e = os.WriteFile(replacement, []byte(catalogue), 0600); e != nil {
 		t.Fatal(e)
 	}
-	overlayRaw, _ := json.Marshal(map[string]any{"Replace": map[string]string{filepath.Join(root, "internal/evals/runner/reference_policy_catalogue.go"): replacement}})
+	// Test-build faults run inside the ACTUAL shared writer after its durable
+	// link/fsync/identity checks. No production callback or store source edit exists.
+	storePath := filepath.Join(root, "internal/store/bounded_unix.go")
+	storeRaw, e := os.ReadFile(storePath)
+	if e != nil {
+		t.Fatal(e)
+	}
+	writer := string(storeRaw)
+	head := fmt.Sprintf(`
+ modeRaw,_:=os.ReadFile(%q)
+ if string(modeRaw)=="late-poison"{if _,e:=os.Stat(%q);e==nil{return ErrBoundedState}}
+ `, faultFile, faultMarker)
+	signature := "func writeBoundedState(ctx context.Context, root string, parts []string, data []byte) error {"
+	if strings.Count(writer, signature) != 1 {
+		t.Fatal("writer fixture anchor changed")
+	}
+	writer = strings.Replace(writer, signature, signature+head, 1)
+	fault := fmt.Sprintf(`
+ if parts[len(parts)-1]=="outcome.json" && strings.Contains(strings.Join(parts,"/"),"reference-preparations/") {
+ modeRaw,_:=os.ReadFile(%q);mode:=string(modeRaw)
+ if mode=="late-poison"{if e:=os.WriteFile(%q,[]byte("poison-unavailable"),0600);e!=nil{return e}}
+ if mode=="final-window"{deadline,ok:=ctx.Deadline();if !ok||time.Until(deadline)>5*time.Second{_ = os.WriteFile(%q,[]byte("wrong-long-window"),0600);return context.DeadlineExceeded};_ = os.WriteFile(%q,[]byte("final-end-observed"),0600);<-ctx.Done();return ctx.Err()}
+ if mode=="late-link"||mode=="late-poison"{return context.DeadlineExceeded}
+ }
+ `, faultFile, faultMarker, faultMarker, faultMarker)
+	if strings.Count(writer, "return ctx.Err()\n}") != 1 {
+		t.Fatal("post-link fixture anchor changed")
+	}
+	writer = strings.Replace(writer, "return ctx.Err()\n}", fault+"return ctx.Err()\n}", 1)
+	writer = strings.Replace(writer, "\"strings\"", "\"strings\"\n\"time\"", 1)
+	storeReplacement := filepath.Join(scratch, "bounded_unix.go")
+	if e = os.WriteFile(storeReplacement, []byte(writer), 0600); e != nil {
+		t.Fatal(e)
+	}
+	projectPath := filepath.Join(root, "internal/project/reference_preparation.go")
+	projectRaw, e := os.ReadFile(projectPath)
+	if e != nil {
+		t.Fatal(e)
+	}
+	timing := strings.Replace(string(projectRaw), "const referenceFinalCommitMax = 60 * time.Second", "const referenceFinalCommitMax = 3 * time.Second", 1)
+	if timing == string(projectRaw) {
+		t.Fatal("private final cap fixture anchor changed")
+	}
+	projectReplacement := filepath.Join(scratch, "reference_preparation.go")
+	if e = os.WriteFile(projectReplacement, []byte(timing), 0600); e != nil {
+		t.Fatal(e)
+	}
+	overlayRaw, _ := json.Marshal(map[string]any{"Replace": map[string]string{filepath.Join(root, "internal/evals/runner/reference_policy_catalogue.go"): replacement, storePath: storeReplacement, projectPath: projectReplacement}})
 	overlay := filepath.Join(scratch, "overlay.json")
 	if e = os.WriteFile(overlay, overlayRaw, 0600); e != nil {
 		t.Fatal(e)
@@ -306,15 +481,10 @@ ModeFile string}{ReferencePreparationPolicyRef{entry.ID,referenceEntryDigest(ent
 	if e != nil {
 		t.Fatal(e)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "test", "-mod=readonly", "-race", "-count=1", "-overlay", overlay, "./internal/project", "-run", "^TestProjectReferenceOverlayChild$", "-args", "-reference-fixture", selector)
+	cmd := exec.CommandContext(ctx, "go", "test", "-mod=readonly", "-race", "-count=1", "-overlay", overlay, "./internal/project", "-run", "^TestProjectReferenceOverlayChild$", "-v", "-args", "-reference-fixture", selector)
 	cmd.Dir = root
-	cache, e := os.UserCacheDir()
-	if e != nil {
-		t.Fatal(e)
-	}
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + scratch, "TMPDIR=" + os.TempDir(), "GOCACHE=" + filepath.Join(cache, "go-build"), "GOMODCACHE=" + filepath.Join(os.Getenv("HOME"), "go", "pkg", "mod"), "GOENV=off", "GOFLAGS=", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOWORK=off"}
+
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + scratch, "TMPDIR=" + os.TempDir(), "GOCACHE=" + caches["GOCACHE"], "GOMODCACHE=" + caches["GOMODCACHE"], "GOENV=off", "GOFLAGS=", "GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOWORK=off"}
 	out, e := cmd.CombinedOutput()
 	if e != nil {
 		t.Fatalf("synthetic child %v\n%s", e, out)
@@ -335,8 +505,9 @@ ModeFile string}{ReferencePreparationPolicyRef{entry.ID,referenceEntryDigest(ent
 	}
 	fake.Mu.Lock()
 	defer fake.Mu.Unlock()
-	if fake.Builds != 3 || fake.Creates != 5 {
+	if fake.Builds != 6 || fake.Creates != 14 {
 		t.Fatal("replay/reservations dispatched", fake.Builds, fake.Creates)
 	}
+	t.Logf("child_output=%q store_overlay=%q project_overlay=%q", string(out), writer, timing)
 	t.Logf("frozen overlay catalogue=%s bytes=%d source=%q overlay=%q; child public API -> owned Unix fake -> real persistence/reload PASS", expected, len(catalogue), catalogue, string(overlayRaw))
 }

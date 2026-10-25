@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/evals/qualify"
 	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/hint"
 	"github.com/neprel/git-hint/internal/store"
@@ -26,6 +27,7 @@ func referenceReadBoundary() ReferencePreparationReadBoundary {
 }
 
 type referenceRequest struct {
+	Cases                      []qualify.IOResolvedCase
 	ReadBoundary               ReferencePreparationReadBoundary
 	Version, Authority, Writer string
 	DefinitionRef              WorkDefinitionRef
@@ -46,6 +48,7 @@ type ReferenceRetainedArtifact struct {
 	Bytes                int64
 }
 type referenceTerminal struct {
+	Eligibility                       string
 	Version, Authority, State, Writer string
 	Request, Reservation              ReferencePreparationRef
 	Audit                             runner.ReferencePrepareAudit
@@ -54,6 +57,8 @@ type referenceTerminal struct {
 	FailureCodes                      []string
 }
 type PreparedReferenceIdentity struct {
+	Eligibility                       string
+	Cases                             []qualify.IOResolvedCase
 	ReadBoundary                      ReferencePreparationReadBoundary
 	Version, Authority, State, Writer string
 	Ref, Request, Reservation         ReferencePreparationRef
@@ -253,7 +258,7 @@ func loadPreparedReference(ctx context.Context, s *store.Store, ref ReferencePre
 	}
 	raw, e := s.ReadStateBounded(ctx, referenceMetadataMax, append(base, "outcome.json")...)
 	var t referenceTerminal
-	if e != nil || library.Digest(raw) != ref.RecordDigest || decodeReferenceRecord(raw, base, "outcome", &t) != nil || t.State != "prepared_reference_observed" || t.Authority != "unknown" || t.Version != ReferencePreparationVersion || t.Writer != referenceBridgeIdentity() || len(t.FailureCodes) != 0 {
+	if e != nil || library.Digest(raw) != ref.RecordDigest || decodeReferenceRecord(raw, base, "outcome", &t) != nil || t.State != "prepared_reference_observed" || t.Eligibility != "requires_process_local_acceptance_witness" || t.Authority != "unknown" || t.Version != ReferencePreparationVersion || t.Writer != referenceBridgeIdentity() || len(t.FailureCodes) != 0 {
 		return nil, referenceRefused("terminal_invalid")
 	}
 	v, e := readReferenceRequest(ctx, s, base)
@@ -269,8 +274,8 @@ func loadPreparedReference(ctx context.Context, s *store.Store, ref ReferencePre
 	if e != nil || t.Reservation != referenceRecordRef(base, "reservation", rraw) || decodeReferenceRecord(rraw, base, "reservation", &r) != nil || r.Request != t.Request || r.Version != ReferencePreparationVersion || r.Authority != "unknown" || r.State != "reserved" || r.Writer != referenceBridgeIdentity() || r.HistorySource != definitionSourceIdentity() {
 		return nil, referenceRefused("reservation_binding")
 	}
-	def, e := loadWorkDefinition(ctx, s, v.DefinitionRef)
-	if e != nil || !reflect.DeepEqual(def.Identity(), v.Definition) {
+	def, q, e := loadWorkDefinitionResolved(ctx, s, v.DefinitionRef)
+	if e != nil || !reflect.DeepEqual(def.Identity(), v.Definition) || !reflect.DeepEqual(q.Cases(), v.Cases) {
 		return nil, referenceRefused("definition_binding")
 	}
 	pi, e := runner.ResolveReferencePreparationPolicy(v.Policy.Policy)
@@ -357,5 +362,60 @@ func loadPreparedReference(ctx context.Context, s *store.Store, ref ReferencePre
 	if !found {
 		return nil, referenceRefused("tar_object")
 	}
-	return &PreparedFinalReference{PreparedReferenceIdentity{referenceReadBoundary(), ReferencePreparationVersion, "unknown", t.State, t.Writer, ref, t.Request, t.Reservation, v.DefinitionRef, v.Definition, pi, v.Inputs, a, t.Artifacts}, objects}, nil
+	if e := reconcileReferenceTranscript(ctx, s, t.Artifacts, a, v.Cases); e != nil {
+		return nil, e
+	}
+	if !referenceCurrent(ctx) {
+		return nil, referenceRefused("late_load")
+	}
+	return &PreparedFinalReference{PreparedReferenceIdentity{"requires_process_local_acceptance_witness", v.Cases, referenceReadBoundary(), ReferencePreparationVersion, "unknown", t.State, t.Writer, ref, t.Request, t.Reservation, v.DefinitionRef, v.Definition, pi, v.Inputs, a, t.Artifacts}, objects}, nil
+}
+
+// Reconcile actual retained bytes, not a caller's digest assertion. Framing belongs
+// to the sole pure runner helper; qualified cases come from its already-parsed handle.
+func reconcileReferenceTranscript(ctx context.Context, s *store.Store, artifacts []ReferenceRetainedArtifact, a runner.ReferencePrepareAudit, cases []qualify.IOResolvedCase) error {
+	if len(cases) < 1 || len(cases) > 64 || len(a.Cases) != 2*len(cases) {
+		return referenceRefused("transcript_count")
+	}
+	byFile := map[string]ReferenceRetainedArtifact{}
+	for _, v := range artifacts {
+		if _, ok := byFile[v.File]; ok {
+			return referenceRefused("transcript_duplicate")
+		}
+		byFile[v.File] = v
+	}
+	frames := make([]runner.IOTranscriptCase, 0, len(cases))
+	l := library.Open(s, 0)
+	for i, c := range cases {
+		var first []byte
+		for k := 0; k < 2; k++ {
+			r := a.Cases[i*2+k]
+			if r.CaseIndex != i || r.Repetition != k || r.InputDigest != c.InputDigest || r.Status != 0 || !r.Complete || !r.NetworkNone {
+				return referenceRefused("transcript_input_or_order")
+			}
+			name := fmt.Sprintf("case-outputs/%d-%d.stdout", i, k)
+			v, ok := byFile[name]
+			if !ok || v.Digest != r.OutputDigest || v.Bytes != int64(r.Size) || v.Bytes < 0 || v.Bytes > 1<<20 {
+				return referenceRefused("transcript_output")
+			}
+			b, e := l.ResolveBoundedRead(ctx, "object", v.Digest, max(v.Bytes, 1))
+			if e != nil || int64(len(b)) != v.Bytes || library.Digest(b) != r.OutputDigest {
+				return referenceRefused("transcript_bytes")
+			}
+			if k == 0 {
+				first = b
+			} else if !reflect.DeepEqual(first, b) {
+				return referenceRefused("transcript_disagreement")
+			}
+		}
+		frames = append(frames, runner.IOTranscriptCase{ID: c.ID, Status: 0, Output: first})
+	}
+	digest, e := runner.IOTranscriptDigest(frames)
+	if e != nil || digest != a.OracleOutputsDigest {
+		return referenceRefused("transcript_aggregate")
+	}
+	if !referenceCurrent(ctx) {
+		return referenceRefused("late_transcript")
+	}
+	return nil
 }
