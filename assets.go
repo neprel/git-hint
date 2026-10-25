@@ -14,6 +14,11 @@ var SchemasV01 embed.FS
 //go:embed schemas/v0.2/*.schema.json
 var SchemasV02 embed.FS
 
+// SchemasV03 holds the closed private-identity projection schemas.
+//
+//go:embed schemas/v0.3/*.schema.json
+var SchemasV03 embed.FS
+
 // SchemasEvalsV1 holds the schemas of the local eval library (schemas/evals-v1/*.schema.json).
 // These records stay on the user's machine; they are not part of the HINT wire standard.
 //

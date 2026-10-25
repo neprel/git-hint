@@ -53,37 +53,8 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 		if u.UnitRef == unit {
 			return nil, ErrWorkDefinition
 		}
-		scope, e := hint.Digest(plainOf(u.Scope))
-		if e != nil {
+		if e := validateProjectJournal(&u); e != nil {
 			return nil, e
-		}
-		var previous any
-		for i, rev := range u.Revisions {
-			n, ok := rev["revision"].(float64)
-			if !ok || n != float64(i+1) || rev["unit_ref"] != u.UnitRef || rev["origin"] != "project" || rev["scope_digest"] != scope || rev["predecessor"] != previous {
-				return nil, ErrWorkDefinition
-			}
-			body := map[string]any{}
-			for k, v := range rev {
-				if k != "revision_digest" {
-					body[k] = v
-				}
-			}
-			dg, e := hint.Digest(body)
-			if e != nil || rev["revision_digest"] != dg {
-				return nil, ErrWorkDefinition
-			}
-			sd, e := hint.Digest(rev["scope"])
-			if e != nil || sd != scope {
-				return nil, ErrWorkDefinition
-			}
-			previous = dg
-			if i > 0 && u.Revisions[i-1]["state"] == "closed" {
-				return nil, ErrWorkDefinition
-			}
-		}
-		if u.Revisions[len(u.Revisions)-1]["state"] != u.State {
-			return nil, ErrWorkDefinition
 		}
 		for _, a := range u.Attempts {
 			if !batchID.MatchString(a.Ref) {
@@ -394,4 +365,45 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 		return nil, r.ctx.Err()
 	}
 	return absent, nil
+}
+
+// validateProjectJournal is the shared pure received body-chain check. Identity/file/history
+// policy stays with each caller. It does not require the last revision to be closed.
+func validateProjectJournal(u *WorkUnit) error {
+	if u == nil || u.Scope == nil || len(u.Revisions) == 0 {
+		return ErrWorkDefinition
+	}
+	scope, e := hint.Digest(plainOf(u.Scope))
+	if e != nil {
+		return e
+	}
+	var previous any
+	for i, rev := range u.Revisions {
+		n, ok := rev["revision"].(float64)
+		if !ok || n != float64(i+1) || rev["unit_ref"] != u.UnitRef || rev["origin"] != "project" || rev["scope_digest"] != scope || rev["predecessor"] != previous {
+			return ErrWorkDefinition
+		}
+		body := map[string]any{}
+		for k, v := range rev {
+			if k != "revision_digest" {
+				body[k] = v
+			}
+		}
+		dg, e := hint.Digest(body)
+		if e != nil || rev["revision_digest"] != dg {
+			return ErrWorkDefinition
+		}
+		sd, e := hint.Digest(rev["scope"])
+		if e != nil || sd != scope {
+			return ErrWorkDefinition
+		}
+		previous = dg
+		if i > 0 && u.Revisions[i-1]["state"] == "closed" {
+			return ErrWorkDefinition
+		}
+	}
+	if u.Revisions[len(u.Revisions)-1]["state"] != u.State {
+		return ErrWorkDefinition
+	}
+	return nil
 }

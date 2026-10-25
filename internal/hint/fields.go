@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"sort"
+	"strings"
 
 	githint "github.com/neprel/git-hint"
 )
@@ -21,9 +22,12 @@ var recordDefs = map[string][2]string{
 func RecordFields() (map[string][]string, error) { return RecordFieldsFor("0.1") }
 
 // RecordFieldsFor returns the top-level fields of every record type of a supported
-// major.minor version ("0.1" or "0.2").
+// schema family ("0.1", "0.2", "0.3") or a patch version in that family.
 func RecordFieldsFor(v string) (map[string][]string, error) {
-	fsys := map[string]fs.FS{"0.1": githint.SchemasV01, "0.2": githint.SchemasV02}[v]
+	if parts := strings.Split(v, "."); len(parts) == 3 {
+		v = parts[0] + "." + parts[1]
+	}
+	fsys := map[string]fs.FS{"0.1": githint.SchemasV01, "0.2": githint.SchemasV02, "0.3": githint.SchemasV03}[v]
 	if fsys == nil {
 		return nil, fs.ErrNotExist
 	}

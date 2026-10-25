@@ -93,9 +93,13 @@ func OrchestratorUnavailable() []string { return append([]string{}, orchestrator
 // administrative scope: the exact adapter version, the single membership capability, the
 // behavior, usage and closure fields unavailable, no usage normalization.
 func SourceOrchestratorProblem(src map[string]any) bool {
+	return sourceOrchestratorProblemVersion(src, OrchestratorAdapterVersion)
+}
+
+func sourceOrchestratorProblemVersion(src map[string]any, adapterVersion string) bool {
 	a, _ := src["adapter"].(map[string]any)
 	caps := strs(src["capabilities"])
-	if str(a["version"]) != OrchestratorAdapterVersion || len(caps) != 1 || caps[0] != "membership" {
+	if str(a["version"]) != adapterVersion || len(caps) != 1 || caps[0] != "membership" {
 		return true
 	}
 	for _, u := range orchestratorUnavailable {
@@ -606,7 +610,11 @@ func (c *checker) activity(payload map[string]any) {
 		}
 		if str(a["name"]) == OrchestratorAdapter {
 			orchestrator[str(m["source_id"])] = true
-			if SourceOrchestratorProblem(m) {
+			want := OrchestratorAdapterVersion
+			if strings.HasPrefix(str(c.doc["hint_version"]), "0.3.") {
+				want = "0.2.0"
+			}
+			if sourceOrchestratorProblemVersion(m, want) {
 				c.add(CodeSourceOrchestrator, "sources[%d]", i)
 			}
 		}
@@ -626,9 +634,12 @@ func (c *checker) activity(payload map[string]any) {
 	calls := map[string]bool{}    // source, session, call ref, op
 	kinds := map[string]string{}  // source, session, call ref -> request kind
 	norms := map[string]string{}  // source -> usage normalization
+	privateLedgerSources := map[string]bool{}
 	for _, s := range list(c.doc["sources"]) {
 		m, _ := s.(map[string]any)
 		norms[str(m["source_id"])] = str(m["usage_normalization"])
+		a, _ := m["adapter"].(map[string]any)
+		privateLedgerSources[str(m["source_id"])] = str(a["name"]) == "hint-model-ledger" && str(a["version"]) == "0.3.0"
 	}
 	ledgers := map[string]string{}                                         // ledger ref (+ revision) -> canonical body, binding and seal time
 	revisions, revisionAt := map[string]map[string]any{}, map[string]int{} // ledger ref + revision -> record
@@ -636,7 +647,7 @@ func (c *checker) activity(payload map[string]any) {
 		m, _ := o.(map[string]any)
 		c.modelCall(m, i, closed, calls, kinds)
 		if l, ok := m["model_ledger"].(map[string]any); ok {
-			if ledgerProblem(m, l, norms, ledgers) {
+			if ledgerProblem(m, l, norms, ledgers) || (strings.HasPrefix(str(c.doc["hint_version"]), "0.3.") && !privateLedgerSources[str(m["source_id"])]) {
 				c.add(CodeLedger, "payload.observations[%d].model_ledger", i)
 			}
 			ref := str(l["ledger_ref"]) + "\x00" + fmt.Sprint(num(l["revision"]))

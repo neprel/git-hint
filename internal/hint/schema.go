@@ -18,8 +18,7 @@ import (
 const SchemaBase = "urn:hint:schema:v0.1:"
 
 // Versions are the supported specification versions (major.minor) and their schema sets.
-// v0.2 is v0.1 plus the optional context measurement of an observation; identifiers and
-// digests are the same.
+// v0.3 replaces private ledger/membership commitments with project-keyed references.
 var Versions = version.Supported
 
 // Schemas holds the compiled document schema of each supported version.
@@ -35,7 +34,7 @@ var (
 func LoadSchemas() (*Schemas, error) {
 	once.Do(func() {
 		compiled = &Schemas{envelope: map[string]*jsonschema.Schema{}}
-		for v, src := range map[string]fs.FS{"0.1": githint.SchemasV01, "0.2": githint.SchemasV02} {
+		for v, src := range map[string]fs.FS{"0.1": githint.SchemasV01, "0.2": githint.SchemasV02, "0.3": githint.SchemasV03} {
 			s, err := compile(src, "schemas/v"+v, "urn:hint:schema:v"+v+":")
 			if err != nil {
 				errLoad = err

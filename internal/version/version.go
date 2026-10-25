@@ -29,6 +29,9 @@ const SpecVersion = "0.1.0"
 // holds at least one of DraftFields. The draft is not stable and can change before a release.
 const DraftVersion = "0.2.0"
 
+// ActivityPrivacyVersion writes keyed model-ledger and membership evidence.
+const ActivityPrivacyVersion = "0.3.0"
+
 // DraftFields are the draft v0.2 parts whose presence makes an exported package v0.2.
 var DraftFields = []string{"observation context measurement", "declared task family", "source configuration",
 	"model call (MODEL_CALL, request_kind, correlation.call_ref)", "collector closure (collection)", "usage normalization",
@@ -38,7 +41,7 @@ var DraftFields = []string{"observation context measurement", "declared task fam
 var standardVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|dev)(\.(0|[1-9][0-9]*))?)?$`)
 
 // Supported lists the HINT major.minor versions that the client reads.
-var Supported = []string{"0.1", "0.2"}
+var Supported = []string{"0.1", "0.2", "0.3"}
 
 // Build describes the running binary.
 type Build struct {

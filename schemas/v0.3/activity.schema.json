@@ -1,0 +1,2544 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:schema:v0.3:activity",
+  "title": "HINT v0.3 activity records",
+  "$defs": {
+    "Target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "scope_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start_line": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "end_line": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "start_line",
+            "end_line"
+          ]
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "entity_id"
+          ]
+        },
+        {
+          "required": [
+            "scope_id"
+          ],
+          "not": {
+            "required": [
+              "range"
+            ]
+          }
+        }
+      ]
+    },
+    "Observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observation_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "class": {
+          "const": "observation"
+        },
+        "op": {
+          "type": "string",
+          "enum": [
+            "SESSION",
+            "TURN",
+            "TOOL",
+            "READ",
+            "SEARCH",
+            "DISCOVER",
+            "EDIT_INTENT",
+            "FILE_MUTATION",
+            "EXECUTE",
+            "TEST",
+            "BUILD",
+            "VALIDATION",
+            "COMPACTION",
+            "USAGE",
+            "DELEGATE",
+            "REQUEST",
+            "RESPONSE",
+            "WAIT",
+            "ERROR",
+            "UNKNOWN",
+            "MODEL_CALL",
+            "MEMBERSHIP"
+          ]
+        },
+        "ops_secondary": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "SESSION",
+              "TURN",
+              "TOOL",
+              "READ",
+              "SEARCH",
+              "DISCOVER",
+              "EDIT_INTENT",
+              "FILE_MUTATION",
+              "EXECUTE",
+              "TEST",
+              "BUILD",
+              "VALIDATION",
+              "COMPACTION",
+              "USAGE",
+              "DELEGATE",
+              "REQUEST",
+              "RESPONSE",
+              "WAIT",
+              "ERROR",
+              "UNKNOWN"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "otlp",
+            "native_hook",
+            "plugin",
+            "log",
+            "shell_parser",
+            "watcher",
+            "orchestrator",
+            "transport"
+          ]
+        },
+        "source_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "precision": {
+          "enum": [
+            "exact",
+            "derived",
+            "inferred",
+            "estimated",
+            "unknown"
+          ]
+        },
+        "time": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "end": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "clock": {
+              "type": "string",
+              "enum": [
+                "agent",
+                "collector",
+                "server",
+                "unknown"
+              ]
+            },
+            "clock_domain": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            }
+          },
+          "required": [
+            "start",
+            "end",
+            "clock"
+          ]
+        },
+        "correlation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "task_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "session_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "turn_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "tool_call_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "trace_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/TraceId"
+            },
+            "span_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/SpanId"
+            },
+            "parent_span_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/SpanId"
+            },
+            "parent_observation_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "task_family_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId",
+              "description": "The task family that the run declared explicitly (HINT_TASK_FAMILY); a declaration, not a classification. The same derivation as the eval report task_family_ref."
+            },
+            "call_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId",
+              "description": "The opaque identity of one model call, shared by its MODEL_CALL record and its terminal USAGE record; set only when the source gives an exact call identity (draft v0.2, C7B-E)."
+            },
+            "run_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId",
+              "description": "The opaque reference of the one agent run that produced the record (the eval-report trial reference of the run); every record of the run carries it, and a model ledger binds to it (draft v0.2)."
+            }
+          },
+          "dependentRequired": {
+            "task_family_id": [
+              "task_id"
+            ]
+          }
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Target"
+          }
+        },
+        "outcome": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "success",
+                "failure",
+                "denied",
+                "cancelled",
+                "unknown"
+              ]
+            },
+            "exit_code": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "status"
+          ]
+        },
+        "size": {
+          "allOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "enum": [
+                    "bytes",
+                    "tokens"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "usage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "input_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            },
+            "output_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            },
+            "cache_read_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            },
+            "cache_write_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            },
+            "reasoning_tokens": {
+              "allOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+                },
+                {
+                  "properties": {
+                    "unit": {
+                      "const": "tokens"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "input_tokens",
+            "output_tokens"
+          ]
+        },
+        "command_class": {
+          "type": "string",
+          "enum": [
+            "READ",
+            "WRITE",
+            "SEARCH",
+            "LIST",
+            "TEST",
+            "BUILD",
+            "VCS",
+            "PACKAGE",
+            "NETWORK",
+            "MIXED",
+            "UNKNOWN"
+          ]
+        },
+        "mutation_attribution": {
+          "type": "string",
+          "enum": [
+            "none",
+            "inferred",
+            "exact"
+          ]
+        },
+        "content_delivery": {
+          "type": "string",
+          "enum": [
+            "full",
+            "partial",
+            "unknown"
+          ]
+        },
+        "coordination": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "sender": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "recipient": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "owning_repo": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "request_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "wait_evidence": {
+              "type": "string",
+              "enum": [
+                "blocking_wait_observed",
+                "reply_only",
+                "none"
+              ]
+            },
+            "conflict_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true
+            },
+            "concurrent_scope": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true
+            }
+          }
+        },
+        "missing": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/FieldName"
+          },
+          "uniqueItems": true
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "source_event_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "captured_at": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+            },
+            "valid_from": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+            },
+            "valid_to": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+            },
+            "transformations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "step": {
+                    "type": "string",
+                    "enum": [
+                      "normalize",
+                      "redact",
+                      "coarsen",
+                      "aggregate",
+                      "time_correction"
+                    ]
+                  },
+                  "tool": {
+                    "type": "string",
+                    "enum": [
+                      "hint-cli",
+                      "hint-server",
+                      "other"
+                    ]
+                  },
+                  "version": {
+                    "$ref": "urn:hint:schema:v0.3:common#/$defs/SemVer"
+                  }
+                },
+                "required": [
+                  "step",
+                  "tool",
+                  "version"
+                ]
+              }
+            }
+          },
+          "required": [
+            "captured_at"
+          ]
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "A measurement of context that HINT delivered to the agent (v0.2). One tool call can have one record per stage and action; counters are derived from these records.",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "deliver",
+                "expand",
+                "retrieve_original"
+              ]
+            },
+            "stage": {
+              "type": "string",
+              "enum": [
+                "raw_tool_output",
+                "delivered_context"
+              ],
+              "description": "Two stages of one call are two measurements of the same call, not two calls."
+            },
+            "artifact_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId",
+              "description": "The immutable context artifact: snapshot, index and the actual input."
+            },
+            "ref_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId",
+              "description": "The expandable reference that was used or returned."
+            },
+            "snapshot_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "policy_state": {
+              "type": "string",
+              "enum": [
+                "enabled",
+                "disabled",
+                "not_applicable",
+                "unknown"
+              ]
+            },
+            "policy_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId",
+              "description": "Project reference of the full context policy identity (id, version, digest)."
+            },
+            "freshness": {
+              "type": "string",
+              "enum": [
+                "current",
+                "stale",
+                "unknown"
+              ]
+            },
+            "result": {
+              "type": "string",
+              "enum": [
+                "delivered",
+                "refused_stale",
+                "missing",
+                "error"
+              ]
+            },
+            "bytes": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "UTF-8 bytes of the payload actually returned, before the transport envelope; null when unknown."
+            },
+            "omitted": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Details left out by the budget; null when unknown."
+            },
+            "tokens": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "An estimate, never observed model usage.",
+              "properties": {
+                "value": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "estimator": {
+                  "type": "string",
+                  "enum": [
+                    "bytes-div-4",
+                    "utf8-chars-div-4"
+                  ],
+                  "description": "A HINT token estimator; the list grows with the schema version."
+                },
+                "estimator_version": {
+                  "type": "string",
+                  "pattern": "^[0-9]{1,4}(\\.[0-9]{1,4}){0,2}$"
+                },
+                "label": {
+                  "const": "estimate"
+                }
+              },
+              "required": [
+                "value",
+                "estimator",
+                "estimator_version",
+                "label"
+              ]
+            },
+            "repeat_of": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId",
+              "description": "The artifact of an earlier retrieval of the exact same target and snapshot; never set by time."
+            }
+          },
+          "required": [
+            "action",
+            "stage",
+            "policy_state",
+            "result",
+            "bytes"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "policy_state": {
+                    "const": "enabled"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "policy_ref"
+                ]
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "policy_ref"
+                  ]
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "result": {
+                    "const": "refused_stale"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "freshness": {
+                    "const": "stale"
+                  }
+                },
+                "required": [
+                  "freshness"
+                ]
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "result": {
+                    "const": "delivered"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "artifact_id",
+                  "snapshot_id"
+                ]
+              }
+            }
+          ]
+        },
+        "request_kind": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "title",
+            "compaction",
+            "generate"
+          ],
+          "description": "The kind of a model call on its MODEL_CALL record and on its terminal USAGE record (draft v0.2, C7B-E)."
+        },
+        "collection": {
+          "$ref": "#/$defs/Collection"
+        },
+        "model_ledger": {
+          "$ref": "#/$defs/ModelLedger"
+        },
+        "membership": {
+          "$ref": "#/$defs/ExecutionMembership"
+        }
+      },
+      "required": [
+        "observation_id",
+        "class",
+        "op",
+        "source",
+        "source_id",
+        "precision",
+        "time",
+        "outcome",
+        "missing",
+        "provenance"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "watcher"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "const": "FILE_MUTATION"
+              },
+              "mutation_attribution": {
+                "enum": [
+                  "none",
+                  "inferred"
+                ]
+              }
+            },
+            "required": [
+              "mutation_attribution"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "FILE_MUTATION"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "mutation_attribution"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source": {
+                "const": "shell_parser"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          },
+          "then": {
+            "properties": {
+              "precision": {
+                "enum": [
+                  "inferred",
+                  "unknown"
+                ]
+              },
+              "content_delivery": {
+                "enum": [
+                  "partial",
+                  "unknown"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "READ"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "content_delivery"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "USAGE"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "usage"
+            ]
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "op": {
+                  "const": "USAGE"
+                }
+              },
+              "required": [
+                "op"
+              ]
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "usage"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "EXECUTE"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "command_class"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "DELEGATE",
+                  "REQUEST",
+                  "RESPONSE",
+                  "WAIT"
+                ]
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "coordination"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "WAIT"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "coordination": {
+                "properties": {
+                  "wait_evidence": {
+                    "const": "blocking_wait_observed"
+                  }
+                },
+                "required": [
+                  "wait_evidence"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "request_kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "MODEL_CALL",
+                  "USAGE"
+                ]
+              }
+            },
+            "required": [
+              "op"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "MODEL_CALL"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "request_kind"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "coordination"
+                  ]
+                },
+                {
+                  "required": [
+                    "targets"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "correlation": {
+                "required": [
+                  "call_ref"
+                ]
+              }
+            },
+            "required": [
+              "correlation"
+            ]
+          },
+          "then": {
+            "required": [
+              "request_kind"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "collection"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "const": "SESSION"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "context"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "DISCOVER",
+                  "READ"
+                ]
+              },
+              "correlation": {
+                "required": [
+                  "tool_call_id"
+                ]
+              }
+            },
+            "required": [
+              "correlation"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "model_ledger"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "const": "USAGE"
+              },
+              "correlation": {
+                "required": [
+                  "run_ref",
+                  "task_id",
+                  "task_family_id"
+                ]
+              }
+            },
+            "required": [
+              "op",
+              "correlation",
+              "usage"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "MEMBERSHIP"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "properties": {
+              "source": {
+                "const": "orchestrator"
+              }
+            },
+            "required": [
+              "membership",
+              "source"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "membership"
+            ]
+          },
+          "then": {
+            "properties": {
+              "op": {
+                "const": "MEMBERSHIP"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metric_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "class": {
+          "type": "string",
+          "enum": [
+            "derived",
+            "estimate"
+          ]
+        },
+        "metric": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Metric"
+        },
+        "unit": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Unit"
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "task",
+                "session",
+                "turn",
+                "repository"
+              ]
+            },
+            "id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        "value": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true
+        },
+        "definition_version": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/SemVer"
+        }
+      },
+      "required": [
+        "metric_id",
+        "class",
+        "metric",
+        "unit",
+        "scope",
+        "value",
+        "inputs",
+        "definition_version"
+      ],
+      "allOf": [
+        {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/MetricUnit"
+        },
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "derived"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "properties": {
+                  "precision": {
+                    "enum": [
+                      "exact",
+                      "derived"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "class": {
+                "const": "estimate"
+              }
+            },
+            "required": [
+              "class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "properties": {
+                  "precision": {
+                    "const": "estimated"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "A value computed locally from observations. It is not an observation, a forecast or an effect."
+    },
+    "ActivityPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Observation"
+          }
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Metric"
+          }
+        }
+      },
+      "required": [
+        "observations"
+      ]
+    },
+    "Collection": {
+      "description": "The collector's closure of one session (source_id + correlation.session_id, and collection_ref when one source covers several segments), only on the closing SESSION record. It proves only this collector's observed scope under its source capabilities (draft v0.2, C7B-E).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "collection_ref": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": [
+            "attached_at_start",
+            "attached_mid_session",
+            "unknown"
+          ]
+        },
+        "closure": {
+          "type": "string",
+          "enum": [
+            "flushed",
+            "interrupted",
+            "unknown"
+          ],
+          "description": "flushed: the subscription was stopped and drained, in-flight calls were resolved or counted in open_calls, and the collector acknowledged all preceding data."
+        },
+        "events_dropped": {
+          "allOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "count"
+                }
+              }
+            }
+          ]
+        },
+        "errors": {
+          "allOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "count"
+                }
+              }
+            }
+          ]
+        },
+        "open_calls": {
+          "allOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Quantity"
+            },
+            {
+              "properties": {
+                "unit": {
+                  "const": "count"
+                }
+              }
+            }
+          ]
+        },
+        "closed_at": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "lifecycle",
+        "closure",
+        "events_dropped",
+        "errors",
+        "open_calls",
+        "closed_at"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "closure": {
+                "const": "flushed"
+              }
+            },
+            "required": [
+              "closure"
+            ]
+          },
+          "then": {
+            "properties": {
+              "closed_at": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ModelLedger": {
+      "description": "The sealed account of one agent run's model traffic at one revision (draft v0.2), on that run's USAGE record. It certifies the bounded model-traffic scope only (never absent tool events or behavioral coverage). Components are provider usage as reported, labeled by the source's usage normalization; they are never canonical model tokens. model_check requested_model_observed means every request named the selected model, not that those weights were served.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ledger_ref": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "incomplete"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "bypass_not_enforced",
+              "scope_not_isolated",
+              "late_requests",
+              "teardown_incomplete",
+              "no_requests",
+              "rejected_limit",
+              "usage_partial",
+              "missing_usage",
+              "usage_conflict",
+              "unreadable",
+              "truncated",
+              "error",
+              "cancelled",
+              "unknown",
+              "model_mismatch",
+              "model_unverified",
+              "model_not_observed",
+              "entries_over_limit"
+            ]
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "admitted": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "late": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "rejected_limit": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "complete": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "usage_partial": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "missing_usage": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "usage_conflict": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unreadable": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "truncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "error": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cancelled": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unknown": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "admitted",
+            "late",
+            "rejected_limit",
+            "complete",
+            "usage_partial",
+            "missing_usage",
+            "usage_conflict",
+            "unreadable",
+            "truncated",
+            "error",
+            "cancelled",
+            "unknown"
+          ]
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prompt": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completion": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cached": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reasoning": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "prompt",
+            "completion",
+            "cached",
+            "reasoning"
+          ]
+        },
+        "component_coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prompt": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "completion": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cached": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "reasoning": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "prompt",
+            "completion",
+            "cached",
+            "reasoning"
+          ]
+        },
+        "model_check": {
+          "type": "string",
+          "enum": [
+            "requested_model_observed",
+            "mismatch",
+            "unverified",
+            "not_observed"
+          ]
+        },
+        "bypass": {
+          "type": "string",
+          "enum": [
+            "enforced",
+            "observed_no_bypass",
+            "unverified"
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "isolated_container",
+            "restricted"
+          ]
+        },
+        "sealed_at": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+        },
+        "binding": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "run_ref": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "task_id": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "task_family_id": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "configuration_digest": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+                },
+                "unit_ref": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "attempt_ref": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                }
+              },
+              "required": [
+                "run_ref",
+                "task_id",
+                "task_family_id",
+                "configuration_digest",
+                "unit_ref",
+                "attempt_ref"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "run_ref": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "task_id": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "task_family_id": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "configuration_digest": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+                },
+                "unit_ref": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "attempt_ref": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "origin": {
+                  "const": "project"
+                },
+                "execution_ref": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                }
+              },
+              "required": [
+                "run_ref",
+                "task_id",
+                "task_family_id",
+                "configuration_digest",
+                "unit_ref",
+                "attempt_ref",
+                "origin",
+                "execution_ref"
+              ],
+              "description": "A project-origin binding (draft v0.2): attempt_ref is the actual work attempt; execution_ref names the one HINT-orchestrated execution of this ledger, listed in the unit's sealed membership epoch."
+            }
+          ]
+        },
+        "entries": {
+          "description": "Optional per-entry evidence (draft v0.2): one item per admitted request in admission order, frozen at the first seal. Absent on aggregate-only ledgers.",
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/LedgerEntry"
+          }
+        },
+        "anchor_utc": {
+          "description": "Wall clock observed once at ledger creation; entry times are monotonic offsets from it.",
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+        },
+        "sealed_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Monotonic offset of the admission revocation (the instant sealed_at was observed)."
+        },
+        "finalized_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "description": "Monotonic offset when the drain ended and the entries froze."
+        },
+        "clock_step_ms": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991,
+          "description": "Observed minus derived: (sealed_at - anchor_utc) - sealed_ms. Non-zero after a wall-clock step; derived UTC times are never claimed to equal observed ones."
+        },
+        "agent_run": {
+          "description": "Optional launch/exit enclosure of the run's agent container (draft v0.2); absent on older ledgers (lifecycle unknown).",
+          "$ref": "#/$defs/LedgerAgentRun"
+        },
+        "backend_capture": {
+          "description": "Optional backend start/end captures (draft v0.2); absent on older ledgers (capture window unknown).",
+          "$ref": "#/$defs/LedgerBackendCapture"
+        }
+      },
+      "required": [
+        "ledger_ref",
+        "revision",
+        "state",
+        "reasons",
+        "counts",
+        "components",
+        "component_coverage",
+        "model_check",
+        "bypass",
+        "scope",
+        "sealed_at",
+        "binding"
+      ],
+      "dependentRequired": {
+        "entries": [
+          "anchor_utc",
+          "sealed_ms",
+          "finalized_ms",
+          "clock_step_ms"
+        ],
+        "anchor_utc": [
+          "entries"
+        ],
+        "sealed_ms": [
+          "entries"
+        ],
+        "finalized_ms": [
+          "entries"
+        ],
+        "clock_step_ms": [
+          "entries"
+        ]
+      }
+    },
+    "LedgerEntry": {
+      "description": "One admitted model request of a sealed ledger (draft v0.2): numbers, enums and an opaque ID only; never request or response content, headers, exact status codes, credentials or an inferred purpose. termination says how the proxy handler ended, independent of usage completeness; no value means a successful model completion. Times are monotonic milliseconds since the ledger's anchor_utc.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ordinal": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "entry_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "usage_partial",
+            "missing_usage",
+            "usage_conflict",
+            "unreadable",
+            "truncated",
+            "error",
+            "cancelled",
+            "unknown"
+          ]
+        },
+        "termination": {
+          "type": "string",
+          "enum": [
+            "response_ended",
+            "error_status",
+            "proxy_error",
+            "context_lost",
+            "no_response",
+            "handler_abort",
+            "seal_timeout"
+          ]
+        },
+        "response_started": {
+          "type": "boolean"
+        },
+        "stream_done": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status_class": {
+          "type": "string",
+          "enum": [
+            "2xx",
+            "3xx",
+            "4xx",
+            "5xx",
+            "none"
+          ]
+        },
+        "model_check": {
+          "type": "string",
+          "enum": [
+            "requested_model_observed",
+            "mismatch",
+            "unverified"
+          ]
+        },
+        "admitted_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "finished_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prompt": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "completion": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cached": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reasoning": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "prompt",
+            "completion",
+            "cached",
+            "reasoning"
+          ]
+        }
+      },
+      "required": [
+        "ordinal",
+        "entry_id",
+        "state",
+        "termination",
+        "response_started",
+        "stream_done",
+        "status_class",
+        "model_check",
+        "admitted_ms",
+        "finished_ms",
+        "components"
+      ]
+    },
+    "LedgerAgentRun": {
+      "description": "The runner-observed launch/exit enclosure of the agent container of the ledger's run (draft v0.2): enclosure_start_ms is sampled before the container start call, enclosure_end_ms when the wait (or a stop and a confirming wait) completed, as monotonic offsets from anchor_utc. It encloses the process run as the runner observed it; it is not the true process start or end. Offsets exist only when the ledger has entries. engine_started_at and engine_finished_at are the engine's own reports (another clock), descriptive only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "exited",
+            "exited_nonzero",
+            "stopped_after_timeout",
+            "stopped_after_cancel",
+            "stopped_after_wait_error",
+            "stop_unconfirmed",
+            "start_unconfirmed",
+            "refused_before_launch"
+          ]
+        },
+        "exit_code": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enclosure_start_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enclosure_end_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "execution_provenance_ref": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "engine_started_at": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "engine_finished_at": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "outcome",
+        "exit_code",
+        "enclosure_start_ms",
+        "enclosure_end_ms",
+        "execution_provenance_ref",
+        "engine_started_at",
+        "engine_finished_at"
+      ]
+    },
+    "LedgerCaptureSnapshot": {
+      "description": "Minimized backend capture: image_ref, host/container and served-model identities are project-keyed references. Raw engine image IDs stay local.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image_ref": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "host_ref": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "container_ref": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "started_at": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "restart_count": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prompt_tokens_details": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "prefix_caching": {
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "max_model_len": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reasoning_parser": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "deepseek_r1",
+                    "qwen3",
+                    "granite",
+                    "glm45",
+                    "gpt_oss",
+                    "mistral",
+                    "hunyuan_a13b",
+                    "step3",
+                    "seed_oss",
+                    "other"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tool_call_parser": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "hermes",
+                    "mistral",
+                    "llama3_json",
+                    "llama4_json",
+                    "pythonic",
+                    "granite",
+                    "internlm",
+                    "jamba",
+                    "xlam",
+                    "qwen3_coder",
+                    "qwen3_xml",
+                    "deepseek_v3",
+                    "deepseek_v31",
+                    "kimi_k2",
+                    "glm45",
+                    "openai",
+                    "minimax",
+                    "hunyuan_a13b",
+                    "seed_oss",
+                    "other"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "served_model_ref": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "prompt_tokens_details",
+            "prefix_caching",
+            "max_model_len",
+            "reasoning_parser",
+            "tool_call_parser",
+            "served_model_ref"
+          ]
+        }
+      },
+      "required": [
+        "image_ref",
+        "host_ref",
+        "container_ref",
+        "started_at",
+        "restart_count",
+        "flags"
+      ]
+    },
+    "LedgerCapture": {
+      "description": "One backend capture as a causal bracket on the runner process's monotonic clock (offsets from anchor_utc, floored to milliseconds): send_ms is read before the request is sent, recv_ms after the complete filtered response was received. Equal values are valid (no zero round trip is implied); the capture instant lies in [send_ms, recv_ms + 1) ms. The bracket states claimed observations; it does not prove that or when the remote inspect happened. complete: send, recv and snapshot; timeout or error: send only; not_attempted: none; offsets only when the ledger has entries.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "timeout",
+            "error",
+            "not_attempted"
+          ]
+        },
+        "send_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recv_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/LedgerCaptureSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "send_ms",
+        "recv_ms",
+        "snapshot"
+      ]
+    },
+    "LedgerBackendCapture": {
+      "description": "The model backend's start and end captures of the ledger's run (draft v0.2), bracketed on the runner's monotonic clock: the start capture before the agent's launch enclosure, the end capture after the drain (finalized_ms). Frozen across revisions.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "runner_bracket_v1"
+          ]
+        },
+        "collector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "enum": [
+                "hint-runner-capture"
+              ]
+            },
+            "version": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/SemVer"
+            }
+          },
+          "required": [
+            "name",
+            "version"
+          ]
+        },
+        "start": {
+          "$ref": "#/$defs/LedgerCapture"
+        },
+        "end": {
+          "$ref": "#/$defs/LedgerCapture"
+        }
+      },
+      "required": [
+        "method",
+        "collector",
+        "start",
+        "end"
+      ]
+    },
+    "MembershipEvent": {
+      "description": "One event of a membership epoch's complete hash chain (prev_digest: the canonical digest of the previous event; null only at seq 1). Claims only: no runtime trust follows from these fields.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "epoch_open"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "epoch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "original_scope_digest": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+            },
+            "enrollment_start_revision_digest": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+            },
+            "membership_policy_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "coverage": {
+              "const": "hint_orchestrated_executions"
+            },
+            "predecessor_epoch_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "epoch",
+            "original_scope_digest",
+            "enrollment_start_revision_digest",
+            "membership_policy_ref",
+            "coverage",
+            "predecessor_epoch_digest"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "enroll"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "execution_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "run_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "attempt_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "task_id": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "planned_configuration_digest": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "execution_ref",
+            "run_ref",
+            "attempt_ref",
+            "task_id",
+            "planned_configuration_digest"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "launch"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "execution_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "launch_configuration_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "execution_provenance_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "installed_target": {
+              "enum": [
+                "linux-x64",
+                "linux-arm64",
+                "linux-x64-musl",
+                "linux-arm64-musl",
+                "darwin-x64",
+                "darwin-arm64"
+              ]
+            },
+            "model_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "gate_policy_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "source_configuration_digest": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+            },
+            "prestart_checks": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "target_matches": {
+                  "type": "boolean"
+                },
+                "model_matches": {
+                  "type": "boolean"
+                },
+                "policy_matches": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "target_matches",
+                "model_matches",
+                "policy_matches"
+              ]
+            },
+            "launch_audit_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "execution_ref",
+            "launch_configuration_ref",
+            "execution_provenance_ref",
+            "installed_target",
+            "model_ref",
+            "gate_policy_ref",
+            "source_configuration_digest",
+            "prestart_checks",
+            "launch_audit_ref"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "finish"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "execution_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "finish_state": {
+              "enum": [
+                "refused_before_launch",
+                "start_unconfirmed",
+                "exited",
+                "exited_nonzero",
+                "stopped_after_timeout",
+                "stopped_after_cancel",
+                "stopped_after_wait_error",
+                "stop_unconfirmed"
+              ]
+            },
+            "finish_audit_ref": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+            },
+            "ledger_ref": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "execution_ref",
+            "finish_state",
+            "finish_audit_ref",
+            "ledger_ref"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "kind": {
+              "const": "epoch_seal"
+            },
+            "prev_digest": {
+              "oneOf": [
+                {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "frozen_open_revision_digest": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+            },
+            "executions": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1024
+            }
+          },
+          "required": [
+            "seq",
+            "kind",
+            "prev_digest",
+            "frozen_open_revision_digest",
+            "executions"
+          ]
+        }
+      ]
+    },
+    "ExecutionMembership": {
+      "description": "An administrative membership epoch of one project work unit (draft v0.2): the complete ordered enrollment of the HINT-orchestrated executions of the epoch, sealed. It covers only HINT-orchestrated executions, grants no session, outcome, usage or closure authority, and its fields are claims checked for consistency only.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit_ref": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "events": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/MembershipEvent"
+          }
+        },
+        "head_digest": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+        }
+      },
+      "required": [
+        "unit_ref",
+        "events",
+        "head_digest"
+      ]
+    }
+  }
+}

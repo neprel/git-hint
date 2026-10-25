@@ -256,6 +256,13 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 		if err != nil {
 			return nil, err
 		}
+		var private *activityPrivacy
+		if ver == version.ActivityPrivacyVersion {
+			private, err = newActivityPrivacy(s, obs, srcs, now)
+			if err != nil {
+				return nil, errActivityPrivacy
+			}
+		}
 		var list []any
 		used := map[string]bool{}
 		for _, o := range obs {
@@ -265,7 +272,13 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 			if _, ok := srcs[o.SourceID]; !ok {
 				return nil, fmt.Errorf("observation source %s is not registered; the spool is inconsistent", o.SourceID)
 			}
-			m, err := tf.observation(o)
+			var m map[string]any
+			var err error
+			if private != nil && private.observations[o.ObservationID] != nil {
+				m, err = tf.observationMap(private.observations[o.ObservationID])
+			} else {
+				m, err = tf.observation(o)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -278,7 +291,13 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 			var sources []any
 			ids := keys(used)
 			for _, id := range ids {
-				sources = append(sources, sourceFor(srcs[id], p.Version))
+				src := srcs[id]
+				if private != nil {
+					if projected, ok := private.sources[id]; ok {
+						src = projected
+					}
+				}
+				sources = append(sources, sourceFor(src, p.Version))
 			}
 			p.Report.Records["Observation"] += len(list)
 			var repos []string
@@ -372,19 +391,20 @@ func Validate(raw []byte, policy map[string]any) error {
 	return nil
 }
 
-// packageVersion is the HINT version of an export package: v0.2 when an observation to export
-// holds a context measurement or misses one ("context"), else v0.1 (hint-data v0.2).
+// packageVersion selects v0.3 for model-ledger/membership privacy projection, v0.2
+// for other draft fields, and v0.1 for ordinary legacy packages.
 func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 	if s.Cfg.Policy.Profile == "aggregate" {
 		return version.SpecVersion, nil
 	}
+	needDraft := false
 	for _, r := range s.Cfg.Repos { // a declared plan application is a draft v0.2 field
 		d, err := Declarations(s, s.RepoID(r))
 		if err != nil {
 			return "", err
 		}
 		if len(d) > 0 {
-			return version.DraftVersion, nil
+			needDraft = true
 		}
 	}
 	obs, damage, err := ReadSpoolChecked(s)
@@ -394,7 +414,7 @@ func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 	if damage.Any() { // an invalidating closure (draft v0.2 collection) may be published (C7BE-21)
 		for _, o := range append(slices.Clone(obs), damage.Withheld...) {
 			if o.Collection != nil {
-				return version.DraftVersion, nil
+				needDraft = true
 			}
 		}
 	}
@@ -416,13 +436,19 @@ func packageVersion(s *store.Store, opt ExportOptions) (string, error) {
 		if done[o.ObservationID] {
 			continue
 		}
+		if o.ModelLedger != nil || o.Membership != nil {
+			return version.ActivityPrivacyVersion, nil
+		}
 		// v0.2 fields: a context measurement, a declared task family, a source configuration,
 		// a model call (MODEL_CALL, request kind, call identity, collector closure, normalization)
 		if o.Context != nil || slices.Contains(o.Missing, "context") || o.Correlation["task_family_id"] != "" || srcs[o.SourceID].Configuration != nil ||
 			o.Op == "MODEL_CALL" || o.RequestKind != "" || o.Collection != nil || o.Correlation["call_ref"] != "" || srcs[o.SourceID].UsageNormalization != "" ||
 			o.ModelLedger != nil || o.Correlation["run_ref"] != "" {
-			return version.DraftVersion, nil
+			needDraft = true
 		}
+	}
+	if needDraft {
+		return version.DraftVersion, nil
 	}
 	return version.SpecVersion, nil
 }
@@ -443,7 +469,7 @@ func policyPayload(s *store.Store, ver string) (map[string]any, error) {
 	default:
 		return nil, fmt.Errorf("unknown profile %q", cp.Profile)
 	}
-	all, err := hint.RecordFieldsFor(ver[:strings.LastIndexByte(ver, '.')])
+	all, err := hint.RecordFieldsFor(ver)
 	if err != nil {
 		return nil, err
 	}
@@ -584,6 +610,11 @@ func (t *transform) observation(o activity.Observation) (map[string]any, error) 
 	if err != nil {
 		return nil, err
 	}
+	return t.observationMap(m)
+}
+
+// observationMap shares the normal field/profile transformation with privacy-projected values.
+func (t *transform) observationMap(m map[string]any) (map[string]any, error) {
 	tm := m["time"].(map[string]any)
 	for _, k := range []string{"start", "end"} {
 		if v, ok := tm[k].(string); ok {

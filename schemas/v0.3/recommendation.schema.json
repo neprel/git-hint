@@ -1,0 +1,1864 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:hint:schema:v0.3:recommendation",
+  "title": "HINT v0.3 recommendation and effect records",
+  "$defs": {
+    "Prediction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "class": {
+          "const": "forecast"
+        },
+        "metric": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Metric"
+        },
+        "unit": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Unit"
+        },
+        "interval": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Interval"
+        },
+        "point": {
+          "type": "number"
+        },
+        "probability_improvement": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Probability"
+        },
+        "per": {
+          "type": "string",
+          "enum": [
+            "task",
+            "total_over_horizon"
+          ]
+        }
+      },
+      "required": [
+        "class",
+        "metric",
+        "unit",
+        "interval",
+        "per"
+      ],
+      "allOf": [
+        {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/MetricUnit"
+        }
+      ]
+    },
+    "Simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "NONE",
+            "L1",
+            "L2",
+            "L3"
+          ]
+        },
+        "task_distribution_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "agent_configuration_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "model_version": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/SemVer"
+        },
+        "calibration_status": {
+          "type": "string",
+          "enum": [
+            "uncalibrated",
+            "backtested",
+            "holdout_validated"
+          ]
+        },
+        "out_of_distribution": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "level"
+      ],
+      "description": "L4 is not a simulation level; empirical results are Effect records."
+    },
+    "Step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "step_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "SPLIT",
+            "MERGE",
+            "MOVE",
+            "EXTRACT",
+            "INTRODUCE_INTERFACE",
+            "ISOLATE_STATE",
+            "REMOVE_CANDIDATE",
+            "REASSIGN_OWNER",
+            "ADD_CONTEXT",
+            "RUN_CHECKS"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "destination": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "uniqueItems": true
+        },
+        "requires_approval": {
+          "type": "boolean"
+        },
+        "support": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "unsupported",
+            "ambiguous"
+          ]
+        }
+      },
+      "required": [
+        "step_id",
+        "action",
+        "targets",
+        "depends_on",
+        "requires_approval",
+        "support"
+      ],
+      "description": "A declarative step. It names entities and an action; it never carries a command or code."
+    },
+    "Plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "plan_schema": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/SpecVersion"
+        },
+        "project_namespace": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "repo_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "repo_id": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+              },
+              "snapshot_id": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+              },
+              "digest": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/Digest"
+              }
+            },
+            "required": [
+              "repo_id",
+              "snapshot_id",
+              "digest"
+            ]
+          },
+          "minItems": 1
+        },
+        "intervention_class": {
+          "type": "string",
+          "enum": [
+            "NO_CHANGE",
+            "CONTEXT_ONLY",
+            "REFACTOR_CODE",
+            "REPARTITION",
+            "REASSIGN_OWNER",
+            "COLLECT_MORE_EVIDENCE"
+          ]
+        },
+        "transformation": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "SPLIT",
+                "MERGE",
+                "MOVE",
+                "EXTRACT",
+                "INTRODUCE_INTERFACE",
+                "ISOLATE_STATE",
+                "REMOVE_CANDIDATE"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "recommend",
+            "refuse_uncertain",
+            "refuse_negative",
+            "collect_more_evidence"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true
+        },
+        "preconditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "check": {
+                "type": "string",
+                "enum": [
+                  "snapshot_matches",
+                  "entities_resolve",
+                  "worktree_clean",
+                  "tests_pass",
+                  "owner_approval",
+                  "constraint_holds"
+                ]
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "check"
+            ]
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "co_change",
+                  "boundary_crossings",
+                  "context_size",
+                  "navigation_repeats",
+                  "change_spread",
+                  "rework",
+                  "coordination_wait",
+                  "ownership_split",
+                  "weak_evidence",
+                  "low_adoption"
+                ]
+              },
+              "observation_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "uniqueItems": true
+              },
+              "metric_ids": {
+                "type": "array",
+                "items": {
+                  "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "code"
+            ]
+          }
+        },
+        "predictions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Prediction"
+          }
+        },
+        "simulation": {
+          "$ref": "#/$defs/Simulation"
+        },
+        "refactoring_cost_estimate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "unit": {
+              "type": "string",
+              "enum": [
+                "tokens",
+                "seconds"
+              ]
+            },
+            "interval": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/NonNegativeInterval"
+            }
+          },
+          "required": [
+            "unit",
+            "interval"
+          ]
+        },
+        "break_even_horizon": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "unit": {
+              "const": "tasks"
+            },
+            "interval": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/NonNegativeInterval"
+            },
+            "unbounded": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "unit",
+            "unbounded"
+          ]
+        },
+        "risk_constraints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "behavior",
+                  "api",
+                  "test",
+                  "security",
+                  "performance"
+                ]
+              },
+              "requirement": {
+                "type": "string",
+                "enum": [
+                  "tests_unchanged_pass",
+                  "public_api_unchanged",
+                  "no_new_dependency",
+                  "no_permission_change",
+                  "latency_not_worse",
+                  "build_passes",
+                  "constraint_record_holds"
+                ]
+              },
+              "constraint_id": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+              },
+              "deterministic": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "requirement",
+              "deterministic"
+            ]
+          }
+        },
+        "required_approvals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "code_owner",
+              "security_reviewer"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "authorization_basis": {
+          "type": "string",
+          "enum": [
+            "deterministic",
+            "probabilistic"
+          ]
+        },
+        "created_at": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+        },
+        "expires_at": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Timestamp"
+        },
+        "forecast_basis": {
+          "$ref": "#/$defs/ForecastBasis"
+        }
+      },
+      "required": [
+        "plan_id",
+        "plan_schema",
+        "project_namespace",
+        "repo_ids",
+        "snapshots",
+        "intervention_class",
+        "transformation",
+        "decision",
+        "targets",
+        "preconditions",
+        "steps",
+        "reasons",
+        "risk_constraints",
+        "required_approvals",
+        "created_at",
+        "expires_at"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "intervention_class": {
+                "enum": [
+                  "REFACTOR_CODE",
+                  "REPARTITION"
+                ]
+              }
+            },
+            "required": [
+              "intervention_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transformation": {
+                "type": "string",
+                "enum": [
+                  "SPLIT",
+                  "MERGE",
+                  "MOVE",
+                  "EXTRACT",
+                  "INTRODUCE_INTERFACE",
+                  "ISOLATE_STATE",
+                  "REMOVE_CANDIDATE"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "intervention_class": {
+                "enum": [
+                  "NO_CHANGE",
+                  "CONTEXT_ONLY",
+                  "REASSIGN_OWNER",
+                  "COLLECT_MORE_EVIDENCE"
+                ]
+              }
+            },
+            "required": [
+              "intervention_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transformation": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "transformation": {
+                    "const": "REMOVE_CANDIDATE"
+                  }
+                },
+                "required": [
+                  "transformation"
+                ]
+              },
+              {
+                "properties": {
+                  "steps": {
+                    "contains": {
+                      "properties": {
+                        "action": {
+                          "const": "REMOVE_CANDIDATE"
+                        }
+                      },
+                      "required": [
+                        "action"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "steps"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "authorization_basis"
+            ],
+            "properties": {
+              "authorization_basis": {
+                "const": "deterministic"
+              },
+              "required_approvals": {
+                "contains": {
+                  "const": "owner"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "decision": {
+                  "const": "recommend"
+                }
+              },
+              "required": [
+                "decision"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "steps": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "RecommendationPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plans": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Plan"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "description": "Effort findings in heuristic priority order (v0.2)."
+        },
+        "abstentions": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "$ref": "#/$defs/Abstention"
+          }
+        },
+        "context_feedback": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/ContextFeedback"
+          }
+        },
+        "project_comparisons": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/ProjectComparison"
+          }
+        }
+      },
+      "required": [
+        "plans"
+      ]
+    },
+    "TaskSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "task_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "task_ids"
+      ]
+    },
+    "Effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effect_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "class": {
+          "const": "confirmed_effect"
+        },
+        "evidence_level": {
+          "const": "L4"
+        },
+        "plan_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "metric": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Metric"
+        },
+        "unit": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Unit"
+        },
+        "control": {
+          "$ref": "#/$defs/TaskSet"
+        },
+        "treatment": {
+          "$ref": "#/$defs/TaskSet"
+        },
+        "pairs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "estimate": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Interval"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "paired_difference_bootstrap",
+            "paired_t",
+            "sign_test"
+          ]
+        },
+        "constraints_checked": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "tests_unchanged_pass",
+              "public_api_unchanged",
+              "no_new_dependency",
+              "no_permission_change",
+              "latency_not_worse",
+              "build_passes",
+              "constraint_record_holds"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "agent_configuration_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        }
+      },
+      "required": [
+        "effect_id",
+        "class",
+        "evidence_level",
+        "plan_id",
+        "metric",
+        "unit",
+        "control",
+        "treatment",
+        "pairs",
+        "estimate",
+        "method",
+        "agent_configuration_id"
+      ],
+      "allOf": [
+        {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/MetricUnit"
+        }
+      ],
+      "description": "An effect measured on comparable real tasks before and after a change (L4). Never a forecast."
+    },
+    "EffectPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Effect"
+          }
+        }
+      },
+      "required": [
+        "effects"
+      ]
+    },
+    "Finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "An evidence-backed effort finding (v0.2): observed quantities, scope, references, coverage, cause hypotheses and a checkable next step. Causes are hypotheses; the array order is a heuristic priority, not a calibrated ranking.",
+      "properties": {
+        "finding_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "problem": {
+          "type": "string",
+          "enum": [
+            "repeated_navigation",
+            "repeated_delivery",
+            "large_low_selectivity_read",
+            "recovery_after_lost_context",
+            "repeated_validation",
+            "coordination_wait"
+          ]
+        },
+        "evidence_state": {
+          "type": "string",
+          "enum": [
+            "supported",
+            "limited"
+          ],
+          "description": "limited: the facts hold, but coverage or the number of tasks is too low to separate the causes."
+        },
+        "quantities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "metric": {
+                "type": "string",
+                "enum": [
+                  "repeats_without_observed_edit",
+                  "repeats_after_edit",
+                  "navigation_ops",
+                  "repeated_deliveries",
+                  "large_reads",
+                  "large_read_bytes",
+                  "read_bytes",
+                  "rereads_after_compaction",
+                  "reread_bytes",
+                  "compactions",
+                  "failing_cycles",
+                  "diagnostic_failures",
+                  "repeated_passes",
+                  "validation_runs",
+                  "blocking_waits",
+                  "wait_seconds",
+                  "tasks"
+                ]
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "operations",
+                  "bytes",
+                  "seconds",
+                  "tasks",
+                  "cycles"
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "observed",
+                  "unknown"
+                ]
+              },
+              "coverage": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "description": "[known, total] of the counted operations."
+              }
+            },
+            "required": [
+              "metric",
+              "unit",
+              "value",
+              "state",
+              "coverage"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "const": "unknown"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "value": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "task_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true,
+              "maxItems": 50
+            },
+            "task_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "snapshot_ids": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true,
+              "maxItems": 20
+            }
+          },
+          "required": [
+            "task_ids",
+            "task_count",
+            "snapshot_ids"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 20
+        },
+        "observation_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "causes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "cause": {
+                "type": "string",
+                "enum": [
+                  "stale_index",
+                  "architectural_coupling",
+                  "insufficient_context",
+                  "poor_navigation",
+                  "intentional_repeat",
+                  "lost_context",
+                  "rework",
+                  "necessary_validation",
+                  "flaky_or_environment",
+                  "external_wait",
+                  "necessary_exploration"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "supported",
+                  "not_excluded",
+                  "not_supported"
+                ]
+              },
+              "basis": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "stale_context_measurement",
+                    "refused_stale_reference",
+                    "current_context_measurement",
+                    "partial_context_coverage",
+                    "repeat_after_own_edit",
+                    "repeat_without_observed_edit",
+                    "cross_component_repeat",
+                    "co_edited_dependency",
+                    "single_component",
+                    "compaction_observed",
+                    "reread_after_compaction",
+                    "large_read_without_edit",
+                    "delivered_context_observed",
+                    "no_context_measurement",
+                    "failure_then_edit_then_pass",
+                    "repeated_failure_same_targets",
+                    "failure_then_pass_without_edit",
+                    "pass_repeated_without_change",
+                    "blocking_wait_observed",
+                    "no_blocking_evidence",
+                    "low_coverage"
+                  ]
+                },
+                "uniqueItems": true,
+                "maxItems": 6
+              }
+            },
+            "required": [
+              "cause",
+              "state",
+              "basis"
+            ]
+          }
+        },
+        "interventions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "NO_CHANGE",
+              "CONTEXT_ONLY",
+              "REFACTOR_CODE",
+              "REPARTITION",
+              "REASSIGN_OWNER",
+              "COLLECT_MORE_EVIDENCE"
+            ]
+          }
+        },
+        "next_step": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "string",
+              "enum": [
+                "refresh_index_and_recheck",
+                "compare_context_variant",
+                "inspect_coupling",
+                "review_validation_loop",
+                "review_ownership",
+                "collect_more_tasks"
+              ]
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+              },
+              "uniqueItems": true,
+              "maxItems": 20
+            }
+          },
+          "required": [
+            "check",
+            "targets"
+          ]
+        },
+        "priority": {
+          "const": "heuristic"
+        },
+        "decision": {
+          "$ref": "#/$defs/Decision"
+        }
+      },
+      "required": [
+        "finding_id",
+        "problem",
+        "evidence_state",
+        "quantities",
+        "scope",
+        "targets",
+        "observation_ids",
+        "causes",
+        "interventions",
+        "next_step",
+        "priority"
+      ]
+    },
+    "Abstention": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A problem class that the server did not diagnose, and why (v0.2).",
+      "properties": {
+        "problem": {
+          "type": "string",
+          "enum": [
+            "repeated_navigation",
+            "repeated_delivery",
+            "large_low_selectivity_read",
+            "recovery_after_lost_context",
+            "repeated_validation",
+            "coordination_wait"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "no_confirmed_tasks",
+            "insufficient_coverage"
+          ]
+        }
+      },
+      "required": [
+        "problem",
+        "reason"
+      ]
+    },
+    "Decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The minimum sufficient intervention for a finding (v0.2): observed differences of eval variant pairs that are bound to the finding's objectives, per alternative, with units, coverage and the pair reference (project_comparisons). Without a binding the alternatives are unbound and the choice is COLLECT_MORE_EVIDENCE. Incomplete resource coverage is not used for a choice. No net value, horizon or break-even: the cost model (07B) is unavailable.",
+      "properties": {
+        "chosen": {
+          "type": "string",
+          "enum": [
+            "NO_CHANGE",
+            "CONTEXT_ONLY",
+            "REFACTOR_CODE",
+            "REPARTITION",
+            "REASSIGN_OWNER",
+            "COLLECT_MORE_EVIDENCE"
+          ]
+        },
+        "alternatives": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "intervention": {
+                "type": "string",
+                "enum": [
+                  "CONTEXT_ONLY",
+                  "REFACTOR_CODE"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "chosen",
+                  "known",
+                  "unknown",
+                  "unbound",
+                  "partial_coverage",
+                  "excluded_correctness",
+                  "cost_unknown",
+                  "not_applicable"
+                ]
+              },
+              "effort_delta": {
+                "$ref": "#/$defs/EffortDelta"
+              },
+              "success_delta": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "observed": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "interval": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "lower": {
+                                "type": "number"
+                              },
+                              "upper": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "lower",
+                              "upper"
+                            ]
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "unit": {
+                        "const": "success_fraction"
+                      },
+                      "coverage": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    },
+                    "required": [
+                      "observed",
+                      "interval",
+                      "unit",
+                      "coverage"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "one_time_source": {
+                "type": "string",
+                "enum": [
+                  "configuration",
+                  "unknown"
+                ]
+              },
+              "scope": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "pair_id": {
+                        "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+                      },
+                      "arm": {
+                        "type": "string",
+                        "enum": [
+                          "context_only",
+                          "refactor"
+                        ]
+                      },
+                      "partition": {
+                        "type": "string",
+                        "enum": [
+                          "calibration",
+                          "held_out"
+                        ]
+                      },
+                      "paired_objectives": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "task_families": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "required": [
+                      "pair_id",
+                      "arm",
+                      "partition",
+                      "paired_objectives",
+                      "task_families"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "intervention",
+              "state",
+              "effort_delta",
+              "success_delta",
+              "one_time_source",
+              "scope"
+            ]
+          }
+        },
+        "cost_model": {
+          "const": "unavailable"
+        },
+        "basis": {
+          "const": "heuristic"
+        },
+        "evidence": {
+          "type": "string",
+          "enum": [
+            "bound_eval_pairs",
+            "unbound",
+            "none"
+          ]
+        }
+      },
+      "required": [
+        "chosen",
+        "alternatives",
+        "cost_model",
+        "basis",
+        "evidence"
+      ]
+    },
+    "ContextFeedback": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Feedback on one effective context policy identity (v0.2): counters derived from context measurements and a comparison of whole task windows against a matched cohort (same agent source, same edited components, context observed and no delivery). Proposals only; heuristic.",
+      "properties": {
+        "feedback_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "policy_ref": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "proposal": {
+          "type": "string",
+          "enum": [
+            "keep",
+            "propose_revision",
+            "propose_disable",
+            "insufficient_evidence"
+          ]
+        },
+        "quantities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "metric": {
+                "type": "string",
+                "enum": [
+                  "tasks_with_delivery",
+                  "comparable_tasks",
+                  "matched_groups",
+                  "deliveries",
+                  "expansions",
+                  "repeated_originals",
+                  "stale_refusals",
+                  "delivered_bytes",
+                  "navigation_after_delivery_per_task",
+                  "total_navigation_per_task",
+                  "total_navigation_per_comparable_task",
+                  "pass_rate_with_delivery",
+                  "pass_rate_comparable"
+                ]
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "tasks",
+                  "operations",
+                  "bytes",
+                  "operations_per_task",
+                  "fraction",
+                  "groups"
+                ]
+              },
+              "value": {
+                "oneOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "observed",
+                  "unknown"
+                ]
+              },
+              "coverage": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            },
+            "required": [
+              "metric",
+              "unit",
+              "value",
+              "state",
+              "coverage"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "state": {
+                      "const": "unknown"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "value": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "basis": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "enum": [
+              "below_minimum_tasks",
+              "missing_comparable_tasks",
+              "missing_outcomes",
+              "context_not_observed",
+              "unknown_task_controls",
+              "expansion_is_normal",
+              "more_total_navigation",
+              "less_total_navigation",
+              "worse_outcome_with_delivery",
+              "no_worse_outcome_with_delivery",
+              "hysteresis_hold"
+            ]
+          }
+        },
+        "task_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "observation_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "basis_label": {
+          "const": "heuristic"
+        }
+      },
+      "required": [
+        "feedback_id",
+        "policy_ref",
+        "proposal",
+        "quantities",
+        "basis",
+        "task_ids",
+        "observation_ids",
+        "basis_label"
+      ]
+    },
+    "ProjectComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A project-level eval variant comparison (v0.2), not bound to a finding: observed differences with coverage and the provenance of the compared eval versions.",
+      "properties": {
+        "pair_id": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+        },
+        "arm": {
+          "type": "string",
+          "enum": [
+            "context_only",
+            "refactor"
+          ]
+        },
+        "partition": {
+          "type": "string",
+          "enum": [
+            "calibration",
+            "held_out"
+          ]
+        },
+        "paired_objectives": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "task_families": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "effort_delta": {
+          "$ref": "#/$defs/EffortDelta"
+        },
+        "success_delta": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "observed": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "interval": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "lower": {
+                          "type": "number"
+                        },
+                        "upper": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "lower",
+                        "upper"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "unit": {
+                  "const": "success_fraction"
+                },
+                "coverage": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "required": [
+                "observed",
+                "interval",
+                "unit",
+                "coverage"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "objective_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "intervention_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "baseline_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "uniqueItems": true,
+          "maxItems": 50
+        },
+        "label": {
+          "const": "observed_unbound"
+        }
+      },
+      "required": [
+        "pair_id",
+        "arm",
+        "partition",
+        "paired_objectives",
+        "task_families",
+        "effort_delta",
+        "success_delta",
+        "objective_refs",
+        "intervention_refs",
+        "baseline_refs",
+        "label"
+      ]
+    },
+    "ForecastBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How a plan's forecast is to be read (v0.2): the scalar resource objective, the stated horizon, the model-conditional probability of a positive net value and the net interval over that horizon, the decision threshold and its provenance, the basis of the one-time cost, the kind of evidence and every qualification of the forecast. A forecast is never a measurement.",
+      "properties": {
+        "objective": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "metric": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Metric"
+            },
+            "unit": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Unit"
+            }
+          },
+          "required": [
+            "metric",
+            "unit"
+          ]
+        },
+        "horizon_tasks": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "threshold": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/Probability"
+        },
+        "threshold_basis": {
+          "type": "string",
+          "enum": [
+            "heuristic_default",
+            "configured_policy"
+          ]
+        },
+        "p_net_gain_positive": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Probability"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Model-conditional P(net value over the horizon > 0); null when unknown."
+        },
+        "net_gain_interval": {
+          "oneOf": [
+            {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Interval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Net value over the horizon in the objective unit (total, not per task); negative values are valid; null when unknown."
+        },
+        "cost_basis": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "observed_comparable_work",
+                "assumption_scenario"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "observed_comparable_work: an estimate from observed comparable refactoring work, not a measured cost of this change; assumption_scenario: a stated scenario; null: unknown."
+        },
+        "evidence": {
+          "type": "string",
+          "enum": [
+            "synthetic_fixture",
+            "project_history"
+          ]
+        },
+        "conditional_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "behavior_transport",
+              "unseen_transformation",
+              "feature_extrapolation",
+              "unseen_task_mix",
+              "unseen_configuration",
+              "coordination_unmodeled"
+            ]
+          }
+        },
+        "effect_basis": {
+          "$ref": "#/$defs/EffectBasis"
+        }
+      },
+      "required": [
+        "objective",
+        "horizon_tasks",
+        "threshold",
+        "threshold_basis",
+        "p_net_gain_positive",
+        "net_gain_interval",
+        "cost_basis",
+        "evidence",
+        "conditional_on"
+      ]
+    },
+    "EffectBasis": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Draft v0.2, optional: which effect distribution supplies the forecast economics. Absent: the legacy model-projection reading. model_projection: the model's paired per-task token delta over the sampled task mix, with a model-conditional interval (not a prediction for one task). observed_objective_clustered: an observed controlled comparison, intervention minus baseline tokens per task over objective clusters, with the uncertainty of its mean (not a validated production effect of a change). Wire checks validate the labels, the fields and their internal arithmetic only; whether the opaque records belong to the population and support the summary is checked by the producer, not by this document.",
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "model_projection",
+            "observed_objective_clustered"
+          ]
+        },
+        "estimand": {
+          "type": "string",
+          "enum": [
+            "model_task_mix_mean_delta",
+            "controlled_task_token_delta"
+          ]
+        },
+        "uncertainty": {
+          "type": "string",
+          "enum": [
+            "model_conditional_interval",
+            "uncertainty_of_mean_delta"
+          ]
+        },
+        "effect": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The observed per-task effect: the mean delta and its interval, in the forecast objective unit. Separate from the model's model_tokens prediction.",
+          "properties": {
+            "point": {
+              "type": "number"
+            },
+            "interval": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Interval"
+            },
+            "unit": {
+              "$ref": "urn:hint:schema:v0.3:common#/$defs/Unit"
+            },
+            "per": {
+              "type": "string",
+              "const": "task"
+            }
+          },
+          "required": [
+            "point",
+            "interval",
+            "unit",
+            "per"
+          ]
+        },
+        "objectives": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of objective clusters of the observed comparison."
+        },
+        "record_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId"
+          },
+          "description": "Opaque references to the producer records of the observed comparison."
+        },
+        "population_ref": {
+          "$ref": "urn:hint:schema:v0.3:common#/$defs/OpaqueId",
+          "description": "Opaque reference to the scoped population of the observed comparison."
+        },
+        "evidence_policy": {
+          "type": "string",
+          "const": "controlled-effect-v1",
+          "description": "The public interpretation of an observed controlled comparison; it identifies the reading, not proof of eligibility."
+        }
+      },
+      "required": [
+        "source",
+        "estimand",
+        "uncertainty"
+      ]
+    },
+    "EffortDelta": {
+      "description": "An observed token difference per attempt with its interval, coverage (objectives with known counters, all objectives) and the provenance of its counters (draft v0.2).",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "observed": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "interval": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "lower": {
+                      "type": "number"
+                    },
+                    "upper": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "lower",
+                    "upper"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "unit": {
+              "const": "tokens_per_attempt"
+            },
+            "coverage": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "counter_semantics": {
+              "type": "string",
+              "enum": [
+                "harbor-0.23.0+opencode:n-tokens-root-v1",
+                "hint-task-tokens-v1",
+                "openai-compat-provider-totals-v1",
+                "unknown"
+              ],
+              "description": "The token counters behind the difference. harbor-0.23.0+opencode:n-tokens-root-v1: Harbor 0.23.0 counters of an OpenCode run (root session only; input includes cache reads; output excludes reasoning; a missing step usage reads as 0). hint-task-tokens-v1: non-cached input plus generated output including reasoning, over the whole task. openai-compat-provider-totals-v1: the provider-reported prompt and completion totals of the observed requests of an isolated run with a complete, enforced model ledger (cache and reasoning semantics unknown); descriptive only, never task effort. Absent means unknown."
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "root_session",
+                "full_task",
+                "unknown"
+              ],
+              "description": "The part of the task's model work the counters cover. Only full_task with hint-task-tokens-v1 supports an effort-based decision; with openai-compat-provider-totals-v1, full_task means the observed request population of an isolated run, not task effort. Absent means unknown."
+            }
+          },
+          "required": [
+            "observed",
+            "interval",
+            "unit",
+            "coverage"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}
