@@ -564,8 +564,20 @@ func (s *Store) CheckPathContext(ctx context.Context, p string) error {
 // WriteState writes a file below `.hint/` atomically with owner-only permissions. It
 // checks the Git exclusion first.
 func (s *Store) WriteState(data []byte, elem ...string) error {
+	return s.WriteStateContext(context.Background(), data, elem...)
+}
+
+// WriteStateContext shares the existing atomic-replace core. Context checks bound
+// Git guards and refuse late success; local filesystem IO remains cooperative.
+func (s *Store) WriteStateContext(ctx context.Context, data []byte, elem ...string) error {
+	if ctx == nil {
+		return ErrBoundedState
+	}
+	if e := ctx.Err(); e != nil {
+		return e
+	}
 	p := s.Path(elem...)
-	if err := s.CheckPath(p); err != nil {
+	if err := s.CheckPathContext(ctx, p); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
@@ -591,7 +603,13 @@ func (s *Store) WriteState(data []byte, elem ...string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), p)
+	if e := ctx.Err(); e != nil {
+		return e
+	}
+	if e := os.Rename(tmp.Name(), p); e != nil {
+		return e
+	}
+	return ctx.Err()
 }
 
 // WriteJSON writes v as indented JSON below `.hint/`.

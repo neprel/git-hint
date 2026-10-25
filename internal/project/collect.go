@@ -38,7 +38,8 @@ type CollectOptions struct {
 
 // Collect scans every configured repository. It stores a new snapshot when the state
 // changed, and records the changed files as FILE_MUTATION observations. It needs no
-// server access.
+// server access. Normal CLI/MCP callers own the state lock. Direct callers must
+// serialize collect/publication themselves; this low-level function takes no nested lock.
 func Collect(s *store.Store, opt CollectOptions) ([]RepoResult, error) {
 	if err := s.CheckExcluded(); err != nil {
 		return nil, err

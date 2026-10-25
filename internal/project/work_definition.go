@@ -29,6 +29,7 @@ import (
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
+const WorkDefinitionInputsV2 = "project-work-definition-inputs-v2"
 const WorkDefinitionInputsVersion = "project-work-definition-inputs-v1"
 const WorkDefinitionRecordMax int64 = 1 << 20
 const definitionStateMax int64 = 64 << 20
@@ -65,6 +66,7 @@ type DefinitionRequest struct {
 	Family                string
 	DeclaredConfiguration activity.Configuration
 	QualifiedIO           qualify.ResolveIORequest
+	Baseline              *BaselineObservationRef
 }
 type WorkDefinitionRef struct {
 	RecordRef    string `json:"record_ref"`
@@ -88,6 +90,7 @@ type DefinitionSnapshotInput struct {
 	LatestRefObject string `json:"latest_ref_object"`
 }
 type WorkDefinitionIdentity struct {
+	Baseline                    *BaselineBinding          `json:"baseline,omitempty"`
 	Kind                        string                    `json:"kind"`
 	Basis                       string                    `json:"basis"`
 	ResolutionState             string                    `json:"resolution_state"`
@@ -312,6 +315,10 @@ func WriteWorkDefinitionInputs(parent context.Context, s *store.Store, request D
 	}
 	// Copy mutable request material before any state query.
 	request.ExactSetBytes = append([]byte(nil), request.ExactSetBytes...)
+	if request.Baseline != nil {
+		copy := *request.Baseline
+		request.Baseline = &copy
+	}
 	cfg, _ := json.Marshal(request.DeclaredConfiguration)
 	_ = json.Unmarshal(cfg, &request.DeclaredConfiguration)
 	lock, e := s.TryLockStateContext(ctx)
@@ -323,7 +330,11 @@ func WriteWorkDefinitionInputs(parent context.Context, s *store.Store, request D
 	}
 	defer lock.Unlock()
 	unit := hint.EvalRef(s.Key(), "work-unit", request.Label)
-	ref := hint.EvalRef(s.Key(), WorkDefinitionInputsVersion, unit)
+	kind := WorkDefinitionInputsVersion
+	if request.Baseline != nil {
+		kind = WorkDefinitionInputsV2
+	}
+	ref := hint.EvalRef(s.Key(), kind, unit)
 	r := &definitionStateRead{ctx: ctx, s: s}
 	absent, e := definitionHistory(r, request.Label, unit)
 	if e != nil {
@@ -337,7 +348,7 @@ func WriteWorkDefinitionInputs(parent context.Context, s *store.Store, request D
 			return zero, e
 		}
 		v := h.identity
-		if v.UnitRef != unit || v.FamilyRef != activity.FamilyRef(s.Key(), request.Family) || v.DeclaredConfigurationDigest != request.DeclaredConfiguration.Digest() || !reflect.DeepEqual(v.DeclaredConfiguration, request.DeclaredConfiguration) || v.PlanBinding.PlanID != request.PlanID || v.RawSetObject != library.Digest(request.ExactSetBytes) || v.QualifiedInputRequest != request.QualifiedIO {
+		if v.UnitRef != unit || v.FamilyRef != activity.FamilyRef(s.Key(), request.Family) || v.DeclaredConfigurationDigest != request.DeclaredConfiguration.Digest() || !reflect.DeepEqual(v.DeclaredConfiguration, request.DeclaredConfiguration) || v.PlanBinding.PlanID != request.PlanID || v.RawSetObject != library.Digest(request.ExactSetBytes) || v.QualifiedInputRequest != request.QualifiedIO || (request.Baseline == nil) != (v.Baseline == nil) || (request.Baseline != nil && *request.Baseline != v.Baseline.Observation) {
 			return zero, definitionProblem(ctx, "immutable_conflict")
 		}
 		return existing, nil
@@ -396,7 +407,15 @@ func WriteWorkDefinitionInputs(parent context.Context, s *store.Store, request D
 	if e != nil {
 		return zero, definitionProblem(ctx, "store_binding_refused")
 	}
-	value := WorkDefinitionIdentity{Kind: WorkDefinitionInputsVersion, Basis: "stored_input_consistency_only", ResolutionState: "resolved_inputs", RecordRef: ref, Namespace: s.Cfg.ProjectNamespace, UnitRef: unit, StoreBinding: binding, PlanBinding: definitionPlan(pr), FamilyRef: activity.FamilyRef(s.Key(), request.Family), DeclaredConfigurationDigest: request.DeclaredConfiguration.Digest(), DeclaredConfiguration: request.DeclaredConfiguration, QualifiedInputRequest: request.QualifiedIO, QualifiedInputIdentity: q.Identity(), QualifiedObjects: definitionQualifiedObjects(q), ResolverSourceIdentity: qualify.QualifiedInputSourceIdentity(), WriterSourceIdentity: definitionSourceIdentity(), BoundedReaderIdentity: store.BoundedStateSourceIdentity(), RawSetObject: add(request.ExactSetBytes), ExportStateObject: exportObject, SnapshotInputs: snapshots, InputValidatedAt: now.UTC().Format(time.RFC3339Nano), ObservedAbsentDefaults: absent}
+	value := WorkDefinitionIdentity{Kind: kind, Basis: "stored_input_consistency_only", ResolutionState: "resolved_inputs", RecordRef: ref, Namespace: s.Cfg.ProjectNamespace, UnitRef: unit, StoreBinding: binding, PlanBinding: definitionPlan(pr), FamilyRef: activity.FamilyRef(s.Key(), request.Family), DeclaredConfigurationDigest: request.DeclaredConfiguration.Digest(), DeclaredConfiguration: request.DeclaredConfiguration, QualifiedInputRequest: request.QualifiedIO, QualifiedInputIdentity: q.Identity(), QualifiedObjects: definitionQualifiedObjects(q), ResolverSourceIdentity: qualify.QualifiedInputSourceIdentity(), WriterSourceIdentity: definitionSourceIdentity(), BoundedReaderIdentity: store.BoundedStateSourceIdentity(), RawSetObject: add(request.ExactSetBytes), ExportStateObject: exportObject, SnapshotInputs: snapshots, InputValidatedAt: now.UTC().Format(time.RFC3339Nano), ObservedAbsentDefaults: absent}
+	if request.Baseline != nil {
+		b, e := loadBaselineObservation(ctx, s, *request.Baseline)
+		if e != nil || b.identity.RepoID != pr.RepoID || b.identity.SnapshotID != pr.SnapshotID || b.identity.SnapshotDigest != base.Repos[pr.RepoID].Snapshot.Record.Digest || !equalJSON(b.Snapshot(), base.Repos[pr.RepoID].Snapshot) {
+			return zero, definitionProblem(ctx, "baseline_binding_refused")
+		}
+		bb := b.Binding()
+		value.Baseline = &bb
+	}
 	for _, d := range q.ObjectDigests() {
 		b, _ := q.Object(d)
 		objects[d] = b
@@ -459,8 +478,11 @@ func loadWorkDefinitionResolved(ctx context.Context, s *store.Store, ref WorkDef
 		return nil, nil, definitionProblem(ctx, "store_binding_refused")
 	}
 	dg, e := definitionBinding(v)
-	if e != nil || dg != v.DefinitionBindingDigest || v.Kind != WorkDefinitionInputsVersion || v.Basis != "stored_input_consistency_only" || v.ResolutionState != "resolved_inputs" || v.Namespace != s.Cfg.ProjectNamespace || v.StoreBinding != storeBinding || v.RecordRef != ref.RecordRef || hint.EvalRef(s.Key(), WorkDefinitionInputsVersion, v.UnitRef) != ref.RecordRef || !batchID.MatchString(v.UnitRef) || !batchID.MatchString(v.FamilyRef) || !definitionConfigurationValid(v.DeclaredConfiguration) || v.DeclaredConfiguration.Digest() != v.DeclaredConfigurationDigest || v.WriterSourceIdentity != definitionSourceIdentity() || v.ResolverSourceIdentity != qualify.QualifiedInputSourceIdentity() || v.BoundedReaderIdentity != store.BoundedStateSourceIdentity() {
+	if e != nil || dg != v.DefinitionBindingDigest || (v.Kind != WorkDefinitionInputsVersion && v.Kind != WorkDefinitionInputsV2) || v.Basis != "stored_input_consistency_only" || v.ResolutionState != "resolved_inputs" || v.Namespace != s.Cfg.ProjectNamespace || v.StoreBinding != storeBinding || v.RecordRef != ref.RecordRef || hint.EvalRef(s.Key(), v.Kind, v.UnitRef) != ref.RecordRef || !batchID.MatchString(v.UnitRef) || !batchID.MatchString(v.FamilyRef) || !definitionConfigurationValid(v.DeclaredConfiguration) || v.DeclaredConfiguration.Digest() != v.DeclaredConfigurationDigest || v.WriterSourceIdentity != definitionSourceIdentity() || v.ResolverSourceIdentity != qualify.QualifiedInputSourceIdentity() || v.BoundedReaderIdentity != store.BoundedStateSourceIdentity() {
 		return nil, nil, definitionProblem(ctx, "record_binding_refused")
+	}
+	if (v.Kind == WorkDefinitionInputsVersion && v.Baseline != nil) || (v.Kind == WorkDefinitionInputsV2 && v.Baseline == nil) {
+		return nil, nil, ErrWorkDefinition
 	}
 	if len(v.SnapshotInputs) == 0 || len(v.SnapshotInputs) > 16 || len(v.SnapshotInputs) != len(s.Cfg.Repos) || len(v.ObservedAbsentDefaults) > 6 {
 		return nil, nil, definitionProblem(ctx, "record_shape_refused")
@@ -522,6 +544,12 @@ func loadWorkDefinitionResolved(ctx context.Context, s *store.Store, ref WorkDef
 	}
 	if ctx.Err() != nil {
 		return nil, nil, definitionProblem(ctx, "deadline")
+	}
+	if v.Baseline != nil {
+		b, e := loadBaselineObservation(ctx, s, v.Baseline.Observation)
+		if e != nil || b.Binding() != *v.Baseline || v.Baseline.RepoID != pr.RepoID || v.Baseline.SnapshotID != pr.SnapshotID || v.Baseline.SnapshotDigest != base.Repos[pr.RepoID].Snapshot.Record.Digest || !equalJSON(b.Snapshot(), base.Repos[pr.RepoID].Snapshot) {
+			return nil, nil, definitionProblem(ctx, "baseline_binding_refused")
+		}
 	}
 	return &WorkDefinitionInputs{identity: v}, q, nil
 }

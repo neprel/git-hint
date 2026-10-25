@@ -73,13 +73,25 @@ const snapshotMetadataAllowance = 4096
 // same scan result (for example before a crash ahead of the latest pointer) is returned
 // unchanged. Any other stored record or path refuses before the latest pointer changes.
 func saveSnapshot(s *store.Store, l *snapshot.Local) (*snapshot.Local, error) {
+	return saveSnapshotContext(context.Background(), s, l, nil)
+}
+
+// saveSnapshotContext shares immutable persistence and pointer publication with the
+// ordinary path. Filesystem calls are cooperative; late completion refuses success.
+func saveSnapshotContext(ctx context.Context, s *store.Store, l *snapshot.Local, beforePublish func(*snapshot.Local) error) (*snapshot.Local, error) {
+	if ctx == nil {
+		return nil, ErrSnapshotConflict
+	}
+	if e := ctx.Err(); e != nil {
+		return nil, e
+	}
 	repo, id := l.Record.RepoID, l.Record.SnapshotID
 	b, err := json.MarshalIndent(l, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 	b = append(b, '\n')
-	ctx, elem := context.Background(), []string{"state", "snapshots", repo, id + ".json"}
+	elem := []string{"state", "snapshots", repo, id + ".json"}
 	limit := int64(len(b)) + snapshotMetadataAllowance
 	err = s.WriteStateImmutableContext(ctx, b, limit, elem...)
 	switch {
@@ -99,8 +111,23 @@ func saveSnapshot(s *store.Store, l *snapshot.Local) (*snapshot.Local, error) {
 	default:
 		return nil, err
 	}
-	if err := s.WriteJSON(latestRef{id}, "state", "snapshots", repo, "latest.json"); err != nil {
+	if beforePublish != nil {
+		if e := beforePublish(l); e != nil {
+			return nil, e
+		}
+	}
+	if e := ctx.Err(); e != nil {
+		return nil, e
+	}
+	pointer, err := json.MarshalIndent(latestRef{id}, "", "  ")
+	if err != nil {
 		return nil, err
+	}
+	if err := s.WriteStateContext(ctx, append(pointer, '\n'), "state", "snapshots", repo, "latest.json"); err != nil {
+		return nil, err
+	}
+	if e := ctx.Err(); e != nil {
+		return nil, e
 	}
 	return l, nil
 }

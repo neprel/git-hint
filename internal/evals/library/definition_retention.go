@@ -15,12 +15,13 @@ const WorkDefinitionStateDir = "work-definitions"
 const ReferencePreparationStateDir = "reference-preparations"
 const CapturePolicyStateDir = "capture-policies"
 const CaptureReservationStateDir = "capture-source-reservations"
+const BaselineObservationStateDir = "baseline-observations"
 const CaptureSourceStateDir = "capture-sources"
 
 var ErrDefinitionReferences = errors.New("destructive retention refused: unmapped work-definition references")
 
 func (l *Library) definitionRetentionProblem() error {
-	for _, dir := range []string{WorkDefinitionStateDir, ReferencePreparationStateDir, CapturePolicyStateDir, CaptureReservationStateDir, CaptureSourceStateDir} {
+	for _, dir := range []string{WorkDefinitionStateDir, ReferencePreparationStateDir, CapturePolicyStateDir, CaptureReservationStateDir, CaptureSourceStateDir, BaselineObservationStateDir} {
 		_, e := os.Lstat(l.s.Path("state", dir))
 		if !os.IsNotExist(e) {
 			return ErrDefinitionReferences

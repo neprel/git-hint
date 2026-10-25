@@ -11,6 +11,7 @@ const (
 	preworkReferencePreparation preworkKind = iota + 1
 	preworkSelectedSource
 	preworkOriginalStart
+	preworkBaseline
 )
 
 // Nonzero storage prevents zero-sized pointer identity aliasing.
@@ -24,12 +25,13 @@ type preworkAcceptance struct {
 }
 
 func validPreworkKind(kind preworkKind) bool {
-	return kind == preworkReferencePreparation || kind == preworkSelectedSource || kind == preworkOriginalStart
+	return kind == preworkReferencePreparation || kind == preworkSelectedSource || kind == preworkBaseline
 }
 
 // mintPreworkAcceptance performs memory-only issuance. A kind-specific producer
 // must finish all success IO/release and its final caller-endpoint check FIRST.
-// The reference and selected-source producers use this memory-only core.
+// Only reference, selected-source and baseline producers use this core.
+// Original-start issuance remains forbidden.
 func mintPreworkAcceptance(kind preworkKind) preworkAcceptance {
 	if !validPreworkKind(kind) {
 		return preworkAcceptance{}

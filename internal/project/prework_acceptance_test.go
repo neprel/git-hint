@@ -22,13 +22,13 @@ func TestPreworkIssuerKindsAndImmutableCopies(t *testing.T) {
 	if unsafe.Sizeof(preworkIssuer{}) == 0 {
 		t.Fatal("zero-sized issuer")
 	}
-	for _, kind := range []preworkKind{preworkReferencePreparation, preworkSelectedSource, preworkOriginalStart} {
+	for _, kind := range []preworkKind{preworkReferencePreparation, preworkSelectedSource, preworkBaseline} {
 		original := mintPreworkAcceptance(kind)
 		copy := original
 		if !matchPreworkAcceptance(original, kind) {
 			t.Fatal("ready checkpoint refused")
 		}
-		for _, other := range []preworkKind{preworkReferencePreparation, preworkSelectedSource, preworkOriginalStart} {
+		for _, other := range []preworkKind{preworkReferencePreparation, preworkSelectedSource, preworkBaseline} {
 			if matchPreworkAcceptance(original, other) != (kind == other) {
 				t.Fatal("cross-kind checkpoint")
 			}
@@ -43,7 +43,7 @@ func TestPreworkIssuerKindsAndImmutableCopies(t *testing.T) {
 			t.Fatal("foreign issuer")
 		}
 	}
-	for _, kind := range []preworkKind{0, 4, 255} {
+	for _, kind := range []preworkKind{0, preworkOriginalStart, 255} {
 		a := mintPreworkAcceptance(kind)
 		if a != (preworkAcceptance{}) || matchPreworkAcceptance(a, kind) || matchPreworkAcceptance(a, preworkReferencePreparation) {
 			t.Fatal("unknown kind minted", kind)
@@ -127,7 +127,7 @@ func TestPreworkOnlyReviewedProductionMint(t *testing.T) {
 	}
 	count := 0
 	seen := map[string]int{}
-	reviewed := map[string]string{"reference_preparation.go": "preworkReferencePreparation", "capture_source.go": "preworkSelectedSource"}
+	reviewed := map[string]string{"reference_preparation.go": "preworkReferencePreparation", "capture_source.go": "preworkSelectedSource", "baseline_collect.go": "preworkBaseline"}
 	for _, entry := range entries {
 		n := entry.Name()
 		if !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
@@ -160,7 +160,7 @@ func TestPreworkOnlyReviewedProductionMint(t *testing.T) {
 			return true
 		})
 	}
-	if count != 2 || seen["reference_preparation.go"] != 1 || seen["capture_source.go"] != 1 {
+	if count != 3 || seen["baseline_collect.go"] != 1 || seen["reference_preparation.go"] != 1 || seen["capture_source.go"] != 1 {
 		t.Fatal("production mint callsite count", count, seen)
 	}
 }

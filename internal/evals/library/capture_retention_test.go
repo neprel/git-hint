@@ -8,7 +8,7 @@ import (
 )
 
 func TestCaptureRootsUseExistingRetentionBarrier(t *testing.T) {
-	for _, dir := range []string{CapturePolicyStateDir, CaptureReservationStateDir, CaptureSourceStateDir} {
+	for _, dir := range []string{CapturePolicyStateDir, CaptureReservationStateDir, CaptureSourceStateDir, BaselineObservationStateDir} {
 		for _, kind := range []string{"empty", "orphan", "corrupt", "link"} {
 			t.Run(dir+"/"+kind, func(t *testing.T) {
 				s := project(t)

@@ -27,7 +27,7 @@ import (
 
 var ErrCaptureSource = errors.New("selected source capture refused")
 
-//go:embed capture_source.go capture_source_records.go prework_acceptance.go
+//go:embed capture_source.go capture_source_records.go capture_source_pair.go baseline_collect.go baseline_records.go prework_acceptance.go
 var captureSources embed.FS
 
 func captureSourceIdentity() string {
@@ -301,7 +301,7 @@ func CaptureWorkDefinitionSource(parent context.Context, s *store.Store, req Cap
 	}); e != nil {
 		return nil, captureProblem(ctx, "policy_commit")
 	}
-	auditID := captureOperationID(s, CaptureSourceVersion, req.Definition, pr)
+	auditID := captureOperationID(s, captureVersion(v), req.Definition, pr)
 	reservation := captureReservation{Kind: captureReservationVersion, RecordRef: captureOperationID(s, captureReservationVersion, req.Definition, pr), PlannedAuditRef: auditID, DefinitionRef: req.Definition, PolicyRef: pr, UnitRef: v.UnitRef, StoreBinding: v.StoreBinding, Namespace: v.Namespace, RootBinding: p.RootBinding, Writer: p.Writer, ObservedAbsent: before, State: "reserved", Authority: "unknown", CreatedAt: p.CreatedAt}
 	var rr CaptureReservationRef
 	if e = phase("reservation_commit", func() error {
@@ -312,81 +312,27 @@ func CaptureWorkDefinitionSource(parent context.Context, s *store.Store, req Cap
 		return nil, captureProblem(ctx, "reservation_commit")
 	}
 	l := library.Open(s, 0)
-	var view *trees.SelectedSourceView
-	defer func() {
-		if view != nil {
-			if e := view.Close(); e != nil {
-				attempt = nil
-				err = errors.Join(err, ErrCaptureSource)
-			}
-		}
-	}()
-	if e = phase("view_open", func() error {
-		var e error
-		view, e = trees.OpenSelectedSourceView(ctx, l, root, trees.SourceViewOptions{Limits: limits})
-		return e
-	}); e != nil {
-		return nil, captureProblem(ctx, "view_open")
+	paired, e := captureSourcePair(ctx, l, root, limits, invocation, phase)
+	if e != nil {
+		return nil, e
 	}
-	var a, b *trees.SelectedSourceViewCapture
-	if e = phase("capture_a", func() error { var e error; a, e = view.Capture(ctx); return e }); e != nil {
-		return nil, captureProblem(ctx, "capture_a")
+	objects, receipts := paired.objects, paired.receipts
+	d, e := l.PutObjectContext(ctx, configBytes)
+	if e != nil || d != config.Digest {
+		return nil, ErrCaptureSource
 	}
-	if e = phase("capture_b", func() error { var e error; b, e = view.Capture(ctx); return e }); e != nil {
-		return nil, captureProblem(ctx, "capture_b")
+	objects[d] = configBytes
+	wire := trees.SelectedSourceWire{SelectedA: objects[receipts[0].Digest], SelectedB: objects[receipts[1].Digest], SourceA: objects[receipts[2].Digest], SourceB: objects[receipts[3].Digest]}
+	pair, e := trees.DecodeSelectedSourcePair(limits, wire)
+	if e != nil {
+		return nil, e
 	}
-	if e = phase("view_close", func() error { e := view.Close(); view = nil; return e }); e != nil {
-		return nil, captureProblem(ctx, "view_close")
+	inventory, e := captureInventory(pair, receipts, config, objects)
+	if e != nil {
+		return nil, e
 	}
-	objects := map[string][]byte{}
-	receipts := []DefinitionObject{}
-	var inventory []CaptureSourceObject
-	if e = phase("objects_and_receipts", func() error {
-		x, y := a.Sources(), b.Sources()
-		if x.InvocationIdentity != invocation.Identity() || y.InvocationIdentity != invocation.Identity() {
-			return ErrCaptureSource
-		}
-		wire, e := trees.EncodeSelectedSourcePair(limits, a.Selected().Receipt(), b.Selected().Receipt(), x, y)
-		if e != nil {
-			return e
-		}
-		pair, e := trees.DecodeSelectedSourcePair(limits, wire)
-		if e != nil {
-			return e
-		}
-		var used int64
-		for _, ref := range pair.ObjectRefs() {
-			cap := min(ref.MaxBytes, (128<<20)-used)
-			if cap < 1 {
-				return ErrCaptureSource
-			}
-			raw, e := l.ResolveBoundedRead(ctx, "object", ref.Digest, cap)
-			if e != nil {
-				return e
-			}
-			used += int64(len(raw))
-			objects[ref.Digest] = raw
-		}
-		if _, e = pair.ValidateObjects(objects); e != nil {
-			return e
-		}
-		for _, raw := range [][]byte{wire.SelectedA, wire.SelectedB, wire.SourceA, wire.SourceB} {
-			d, e := l.PutObjectContext(ctx, raw)
-			if e != nil {
-				return e
-			}
-			receipts = append(receipts, DefinitionObject{d, int64(len(raw))})
-			objects[d] = raw
-		}
-		d, e := l.PutObjectContext(ctx, configBytes)
-		if e != nil || d != config.Digest {
-			return ErrCaptureSource
-		}
-		objects[d] = configBytes
-		inventory, e = captureInventory(pair, receipts, config, objects)
-		return e
-	}); e != nil {
-		return nil, captureProblem(ctx, "objects_and_receipts")
+	if e = compareBaselineSource(ctx, s, v, pair, objects); e != nil {
+		return nil, e
 	}
 	if e = phase("definition_final", func() error {
 		def, _, e := loadWorkDefinitionResolved(ctx, s, req.Definition)
@@ -407,7 +353,7 @@ func CaptureWorkDefinitionSource(parent context.Context, s *store.Store, req Cap
 	}); e != nil {
 		return nil, captureProblem(ctx, "history_final")
 	}
-	audit := CaptureSourceIdentity{Kind: CaptureSourceVersion, RecordRef: auditID, DefinitionRef: req.Definition, PolicyRef: pr, ReservationRef: rr, Definition: v, RootBinding: p.RootBinding, RootIdentity: a.Selected().Receipt().RootIdentity, ReceiptObjects: receipts, Objects: inventory, ObservedAbsentBefore: before, ObservedAbsentAfter: after, SharedStateReadBytesAtCommitPrepare: r.used, OuterInvocation: invocation.Identity(), OuterStats: invocation.Stats(), ClockScope: auditID, Brackets: brackets, CommitPrepareNS: time.Since(anchor).Nanoseconds(), State: "observed_selected_source_consistent", Basis: "repeated_local_selected_artifact_observation", Authority: "unknown", Writer: p.Writer, CreatedAt: p.CreatedAt}
+	audit := CaptureSourceIdentity{Kind: captureVersion(v), RecordRef: auditID, DefinitionRef: req.Definition, PolicyRef: pr, ReservationRef: rr, Definition: v, RootBinding: p.RootBinding, RootIdentity: paired.selected.RootIdentity, ReceiptObjects: receipts, Objects: inventory, ObservedAbsentBefore: before, ObservedAbsentAfter: after, SharedStateReadBytesAtCommitPrepare: r.used, OuterInvocation: invocation.Identity(), OuterStats: invocation.Stats(), ClockScope: auditID, Brackets: brackets, CommitPrepareNS: time.Since(anchor).Nanoseconds(), State: "observed_selected_source_consistent", Basis: "repeated_local_selected_artifact_observation", Authority: "unknown", Writer: p.Writer, CreatedAt: p.CreatedAt}
 	captureObserve(ctx, "audit_commit_begin")
 	ref, e := captureWrite(ctx, s, library.CaptureSourceStateDir, captureRecordMax, audit, auditID)
 	if e != nil {
@@ -443,5 +389,5 @@ func CaptureWorkDefinitionSource(parent context.Context, s *store.Store, req Cap
 
 // Declared local family list for structural source-identity guards.
 func captureSourceFamily(name string) bool {
-	return (strings.HasPrefix(name, "capture_source") || strings.HasPrefix(name, "prework_acceptance")) && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+	return (strings.HasPrefix(name, "baseline_") || strings.HasPrefix(name, "capture_source") || strings.HasPrefix(name, "prework_acceptance")) && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
 }

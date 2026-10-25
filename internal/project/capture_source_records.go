@@ -18,6 +18,7 @@ import (
 	"github.com/neprel/git-hint/internal/store"
 )
 
+const CaptureSourceV2 = "project-capture-source-v2"
 const CaptureSourceVersion = "project-capture-source-v1"
 const capturePolicyVersion = "project-capture-policy-v1"
 const captureReservationVersion = "project-capture-source-reservation-v1"
@@ -197,7 +198,7 @@ func loadCaptureSource(ctx context.Context, s *store.Store, ref CaptureSourceRef
 	if r.Kind != captureReservationVersion || r.RecordRef != a.ReservationRef.RecordRef || r.RecordRef != captureOperationID(s, captureReservationVersion, a.DefinitionRef, a.PolicyRef) || r.PlannedAuditRef != ref.RecordRef || r.DefinitionRef != a.DefinitionRef || r.PolicyRef != a.PolicyRef || r.UnitRef != v.UnitRef || r.StoreBinding != v.StoreBinding || r.Namespace != v.Namespace || r.RootBinding != p.RootBinding || r.Writer != p.Writer || r.State != "reserved" || r.Authority != "unknown" || r.CreatedAt != p.CreatedAt {
 		return nil, captureProblem(ctx, "reservation_binding")
 	}
-	if a.Kind != CaptureSourceVersion || a.RecordRef != ref.RecordRef || a.RecordRef != captureOperationID(s, CaptureSourceVersion, a.DefinitionRef, a.PolicyRef) || !reflect.DeepEqual(a.Definition, v) || a.RootBinding != p.RootBinding || a.Writer != p.Writer || a.OuterInvocation != p.Invocation || a.Authority != "unknown" || a.State != "observed_selected_source_consistent" || a.Basis != "repeated_local_selected_artifact_observation" || a.ClockScope != a.RecordRef || a.CreatedAt != p.CreatedAt || !reflect.DeepEqual(a.ObservedAbsentBefore, r.ObservedAbsent) || !reflect.DeepEqual(a.ObservedAbsentBefore, a.ObservedAbsentAfter) || !captureAbsentValid(a.ObservedAbsentBefore) || a.SharedStateReadBytesAtCommitPrepare < 0 || a.SharedStateReadBytesAtCommitPrepare > definitionStateMax || len(a.ReceiptObjects) != 4 {
+	if a.Kind != captureVersion(v) || a.RecordRef != ref.RecordRef || a.RecordRef != captureOperationID(s, captureVersion(v), a.DefinitionRef, a.PolicyRef) || !reflect.DeepEqual(a.Definition, v) || a.RootBinding != p.RootBinding || a.Writer != p.Writer || a.OuterInvocation != p.Invocation || a.Authority != "unknown" || a.State != "observed_selected_source_consistent" || a.Basis != "repeated_local_selected_artifact_observation" || a.ClockScope != a.RecordRef || a.CreatedAt != p.CreatedAt || !reflect.DeepEqual(a.ObservedAbsentBefore, r.ObservedAbsent) || !reflect.DeepEqual(a.ObservedAbsentBefore, a.ObservedAbsentAfter) || !captureAbsentValid(a.ObservedAbsentBefore) || a.SharedStateReadBytesAtCommitPrepare < 0 || a.SharedStateReadBytesAtCommitPrepare > definitionStateMax || len(a.ReceiptObjects) != 4 {
 		return nil, captureProblem(ctx, "audit_binding")
 	}
 	if t, e := time.Parse(time.RFC3339Nano, a.CreatedAt); e != nil || t.IsZero() {
@@ -268,6 +269,9 @@ func loadCaptureSource(ctx context.Context, s *store.Store, ref CaptureSourceRef
 	}
 	if ctx.Err() != nil {
 		return nil, captureProblem(ctx, "deadline")
+	}
+	if e = compareBaselineSource(ctx, s, v, pair, objects); e != nil {
+		return nil, e
 	}
 	return &CaptureSourceInputs{a, objects}, nil
 }

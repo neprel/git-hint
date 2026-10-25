@@ -292,8 +292,8 @@ func TestCaptureSourceSourceSetAndEveryDependencyHashed(t *testing.T) {
 		}
 		return nil
 	})
-	expectedDeps := []string{"capture_source_assets.go", "go.mod", "go.sum"}
-	for _, dir := range []string{"internal/evals/trees", "internal/readgit", "internal/evals/library", "internal/store", "internal/hint"} {
+	expectedDeps := []string{"capture_source_assets.go", "go.mod", "go.sum", "internal/project/state.go", "internal/project/collect.go"}
+	for _, dir := range []string{"internal/evals/trees", "internal/readgit", "internal/evals/library", "internal/store", "internal/hint", "internal/scan", "internal/snapshot"} {
 		entries, e := os.ReadDir(filepath.Join("..", "..", dir))
 		if e != nil {
 			t.Fatal(e)
