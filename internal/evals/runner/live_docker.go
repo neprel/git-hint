@@ -159,16 +159,29 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		if err != nil {
 			return finish(agentInstallError{err})
 		}
-		if install, err = recipe.archive(bin.data); err != nil {
+		var rg []byte
+		if o.Ripgrep != nil {
+			rg, err = o.Ripgrep.binary(ctx, fmt.Sprint(bin.prov["target"]))
+			if err != nil {
+				return finish(agentInstallError{err})
+			}
+			recipe, err = recipe.withRipgrep(fmt.Sprint(bin.prov["target"]))
+			if err != nil {
+				return finish(agentInstallError{err})
+			}
+			bin.prov["ripgrep_sha256"] = ripgrepSHA256
+			bin.prov["ripgrep_version"] = ripgrepVersion
+		}
+		if install, err = recipe.archiveWithRipgrep(bin.data, rg); err != nil {
 			return finish(agentInstallError{err})
 		}
 		cmd, env = recipe.Argv, recipe.Env
-		digest, err = openCodeExecutionDigestWithPolicy(o.Live.model, instr, bin.prov, img, o.StudyLaunchPolicy)
+		digest, err = openCodeExecutionDigestRuntime(o.Live.model, instr, bin.prov, img, o.StudyLaunchPolicy, o.Ripgrep != nil)
 		if err != nil {
 			return finish(agentInstallError{err})
 		}
 		if o.StudyLaunchPolicy != "" {
-			a, err := DockerLaunchDigestWithPolicy(fmt.Sprint(bin.prov["version"]), o.Live.model, fmt.Sprint(bin.prov["target"]), o.StudyLaunchPolicy)
+			a, err := dockerLaunchDigestRuntime(fmt.Sprint(bin.prov["version"]), o.Live.model, fmt.Sprint(bin.prov["target"]), o.StudyLaunchPolicy, o.Ripgrep != nil)
 			if err != nil || a != o.ExpectLaunchDigest {
 				return finish(agentInstallError{errors.New("study actual launch differs from frozen planned digest")})
 			}

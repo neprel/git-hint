@@ -36,6 +36,9 @@ type SuiteOptions struct {
 	// OpenCodeTgz is a local copy of the pinned OpenCode archive for the container runner
 	// (offline; checked against the pin like a download)
 	OpenCodeTgz string
+	// RipgrepBinary opts the existing study policy into one pinned offline rg executable.
+	// Empty preserves the old runtime; ordinary CLI/default integration is not enabled.
+	RipgrepBinary string
 	// BackendCapture is the controlled research setup's explicit opt-in to the real backend
 	// captures of live attempts (never a default; the references use the store key)
 	BackendCapture *runner.SSHCapture
@@ -62,6 +65,14 @@ type SuiteReport struct {
 // RunSuite freezes a suite and runs bounded trials. Every attempt is recorded.
 func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersion string, o SuiteOptions, now time.Time) (SuiteReport, error) {
 	rep := SuiteReport{Outcomes: map[string]int{}}
+	if o.RipgrepBinary != "" && (o.StudyLaunchPolicy != runner.StudyLaunchSingleRootV1 || o.Agent != "opencode" || o.Live == nil || !o.CapturePrelaunchTree) {
+		return rep, fmt.Errorf("offline ripgrep requires the live OpenCode study runtime")
+	}
+	if o.RipgrepBinary != "" {
+		if _, ok := r.(*runner.Docker); !ok {
+			return rep, fmt.Errorf("offline ripgrep requires the common Docker runner")
+		}
+	}
 	if err := o.StudyLaunchPolicy.Check(); err != nil {
 		return rep, err
 	}
@@ -185,7 +196,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			target = t
 		}
 		var err error
-		if launch, err = runner.DockerLaunchDigestWithPolicy(runner.DockerOpenCodeVersion, o.Live.ModelLabel, target, o.StudyLaunchPolicy); err != nil {
+		if launch, err = suiteLaunchDigest(o, target); err != nil {
 			return rep, err
 		}
 	}
@@ -250,6 +261,9 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				counter = o.Live.NewTrial(lim.TrialRequests)
 				ro.Env, ro.Attempts, ro.Live, ro.Counter, ro.ExpectTarget = o.Live.AgentEnv(counter), 1, o.Live, counter, target
 				ro.OpenCode = &runner.OpenCodeSource{Version: runner.DockerOpenCodeVersion, CacheDir: s.Path("cache", "evals", "opencode"), TgzFile: o.OpenCodeTgz}
+				if o.RipgrepBinary != "" {
+					ro.Ripgrep = &runner.RipgrepSource{BinaryFile: o.RipgrepBinary}
+				}
 				if o.BackendCapture != nil {
 					ro.BackendCapture, ro.CaptureKey = o.BackendCapture, s.Key()
 				}
@@ -276,7 +290,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				if t := jobAgentTarget(work); t != "" {
 					got = t
 				}
-				a, err := runner.DockerLaunchDigestWithPolicy(runner.DockerOpenCodeVersion, o.Live.ModelLabel, got, o.StudyLaunchPolicy)
+				a, err := suiteLaunchDigest(o, got)
 				if err != nil {
 					return rep, err
 				}
@@ -461,4 +475,12 @@ func controlledEligible(rec map[string]any) bool {
 		return str(v["kind"]) == runner.IOInterface
 	}
 	return false
+}
+
+// suiteLaunchDigest is shared by frozen planning and the actual installed-target report.
+func suiteLaunchDigest(o SuiteOptions, target string) (string, error) {
+	if o.RipgrepBinary != "" {
+		return runner.DockerLaunchDigestWithRipgrep(runner.DockerOpenCodeVersion, o.Live.ModelLabel, target, o.StudyLaunchPolicy)
+	}
+	return runner.DockerLaunchDigestWithPolicy(runner.DockerOpenCodeVersion, o.Live.ModelLabel, target, o.StudyLaunchPolicy)
 }

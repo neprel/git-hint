@@ -27,6 +27,7 @@ type studyFakeOptions struct {
 	preexisting, ambiguous, ancestor, launcher, inventory string
 	loader, mismatch                                      bool
 	hook                                                  func(LaunchFacts) error
+	ripgrepFile, ripgrepInventory                         string
 	failStart                                             bool // the agent's start request fails
 }
 type storedStudyFile struct {
@@ -191,6 +192,40 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 						files["study/"+o.inventory] = storedStudyFile{header: tar.Header{Typeflag: tar.TypeReg, Mode: 0600, Uid: 65534, Gid: 65534}, body: []byte("unexpected")}
 					}
 				}
+			case "/opt/hint/bin/rg":
+				file, installed := st.files[ripgrepInstall]
+				if !installed {
+					if o.preexisting != source {
+						w.WriteHeader(404)
+						return
+					}
+					file = storedStudyFile{header: tar.Header{Typeflag: tar.TypeReg, Mode: 0755}, body: []byte("preexisting")}
+				}
+				if o.ripgrepInventory == "missing" {
+					w.WriteHeader(404)
+					return
+				}
+				if o.ripgrepInventory == "mode" {
+					file.header.Mode = 0775
+				}
+				if o.ripgrepInventory == "owner" {
+					file.header.Uid = 65534
+				}
+				if o.ripgrepInventory == "link" {
+					file.header.Typeflag = tar.TypeSymlink
+					file.header.Linkname = "other"
+					file.body = nil
+				}
+				if o.ripgrepInventory == "bytes" {
+					file.body = append([]byte{}, file.body...)
+					if len(file.body) > 0 {
+						file.body[0] ^= 1
+					}
+				}
+				if o.ripgrepInventory == "extra" {
+					files["rg/extra"] = storedStudyFile{header: tar.Header{Typeflag: tar.TypeReg, Mode: 0755}, body: []byte("extra")}
+				}
+				files["rg"] = file
 			case "/opt/hint/bin/opencode":
 				if o.preexisting != source {
 					w.WriteHeader(404)
@@ -209,6 +244,14 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 				return
 			}
 			b := studyArchive(files)
+			if source == "/"+ripgrepInstall {
+				if o.ripgrepInventory == "cut" {
+					b = b[:512]
+				}
+				if o.ripgrepInventory == "trailing" {
+					b = append(b, 1)
+				}
+			}
 			if source == studyRoot && o.inventory == "cut" && len(st.files) > 0 {
 				b = b[:512]
 			}
@@ -294,13 +337,23 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 	if err != nil {
 		t.Fatal(err)
 	}
+	if o.ripgrepFile != "" {
+		planned, err = DockerLaunchDigestWithRipgrep(DockerOpenCodeVersion, "m", "linux-arm64", StudyLaunchSingleRootV1)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	if o.mismatch {
 		planned = "sha256:" + strings.Repeat("0", 64)
 	}
 	task := t.TempDir()
 	os.MkdirAll(filepath.Join(task, "environment", "repo"), 0755)
 	os.WriteFile(filepath.Join(task, "instruction.md"), []byte("do"), 0600)
-	d.trial(context.Background(), task, st.dir, "t__1", RunOptions{Agent: "opencode", Attempts: 1, Live: live, Counter: c, OpenCode: &OpenCodeSource{Version: DockerOpenCodeVersion, TgzFile: file, CacheDir: t.TempDir()}, ExpectTarget: "linux-arm64", StudyLaunchPolicy: StudyLaunchSingleRootV1, CapturePrelaunchTree: true, ExpectLaunchDigest: planned, BeforeAgentStart: o.hook}, taskLimits{agent: time.Second, verifier: time.Second, cpus: 1, memoryMB: 128}, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
+	opts := RunOptions{Agent: "opencode", Attempts: 1, Live: live, Counter: c, OpenCode: &OpenCodeSource{Version: DockerOpenCodeVersion, TgzFile: file, CacheDir: t.TempDir()}, ExpectTarget: "linux-arm64", StudyLaunchPolicy: StudyLaunchSingleRootV1, CapturePrelaunchTree: true, ExpectLaunchDigest: planned, BeforeAgentStart: o.hook}
+	if o.ripgrepFile != "" {
+		opts.Ripgrep = &RipgrepSource{BinaryFile: o.ripgrepFile}
+	}
+	d.trial(context.Background(), task, st.dir, "t__1", opts, taskLimits{agent: time.Second, verifier: time.Second, cpus: 1, memoryMB: 128}, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
 	var result trialResult
 	raw, err := os.ReadFile(filepath.Join(st.dir, "result.json"))
 	if err != nil || json.Unmarshal(raw, &result) != nil {

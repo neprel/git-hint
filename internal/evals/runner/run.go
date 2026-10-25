@@ -96,6 +96,7 @@ type RunOptions struct {
 	Live     *Live
 	Counter  *Counter
 	OpenCode *OpenCodeSource // the pinned OpenCode of a live opencode attempt
+	Ripgrep  *RipgrepSource  // explicit offline study runtime only; nil preserves the old recipe
 	// ExpectTarget is the OpenCode target frozen in the run's configuration; the attempt
 	// refuses another
 	ExpectTarget string

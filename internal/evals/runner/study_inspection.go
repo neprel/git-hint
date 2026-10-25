@@ -72,15 +72,26 @@ func safeStudyDir(h studyEntry) bool {
 // studyEntries intentionally reads only a bounded first header for ancestor metadata.
 // Full inventories/executables require a complete bounded archive and no aliases.
 func (d *Docker) studyEntries(ctx context.Context, id, source string, first bool) ([]studyEntry, error) {
+	return d.studyEntriesBounded(ctx, id, source, first, studyInspectionBytes)
+}
+
+// The larger bound is used only for the single compiled-pin rg executable.
+func (d *Docker) studyEntriesBounded(ctx context.Context, id, source string, first bool, limit int64) (result []studyEntry, resultErr error) {
 	res, err := d.cli.CopyFromContainer(ctx, id, client.CopyFromContainerOptions{SourcePath: source})
 	if err != nil {
 		return nil, err
 	}
-	defer res.Content.Close()
+	defer func() {
+		err := res.Content.Close()
+		if limit == ripgrepArchiveBytes && resultErr == nil && err != nil {
+			result = nil
+			resultErr = errors.New("offline ripgrep inspection close failed")
+		}
+	}()
 	if res.Stat.LinkTarget != "" {
 		return nil, errors.New("study path is a link")
 	}
-	raw := &treeArchiveReader{source: res.Content, limit: studyInspectionBytes}
+	raw := &treeArchiveReader{source: res.Content, limit: limit}
 	tr := tar.NewReader(raw)
 	var entries []studyEntry
 	seen := map[string]bool{}
@@ -129,7 +140,7 @@ func (d *Docker) studyEntries(ctx context.Context, id, source string, first bool
 		if seen[name] || (h.Typeflag != tar.TypeReg && h.Typeflag != tar.TypeDir) || len(h.Xattrs) > 0 || len(entries) >= studyInspectionEntries {
 			return nil, errors.New("ambiguous study archive")
 		}
-		if h.Size < 0 || h.Size > studyInspectionBytes {
+		if h.Size < 0 || h.Size > limit {
 			return nil, errors.New("study archive content too large")
 		}
 		seen[name] = true
@@ -214,7 +225,11 @@ func (d *Docker) inspectStudyBefore(ctx context.Context, id, image string, r ope
 			return "", errors.New("inconsistent study ancestor state")
 		}
 	}
-	for _, source := range studyAbsentPaths() {
+	absent := studyAbsentPaths()
+	if r.Ripgrep {
+		absent = append(absent, "/"+ripgrepInstall)
+	}
+	for _, source := range absent {
 		res, err := d.cli.CopyFromContainer(ctx, id, client.CopyFromContainerOptions{SourcePath: source})
 		if err == nil {
 			res.Content.Close()
@@ -260,6 +275,14 @@ func (d *Docker) inspectStudyAfter(ctx context.Context, id, image string, r open
 	sort.Slice(expected, func(i, j int) bool { return expected[i].Name < expected[j].Name })
 	if !reflect.DeepEqual(got, expected) {
 		return "", errors.New("study configuration or initial state differs from recipe")
+	}
+	if r.Ripgrep {
+		tool, err := d.studyEntriesBounded(ctx, id, "/"+ripgrepInstall, false, ripgrepArchiveBytes)
+		expected := studyEntry{Name: "", Type: tar.TypeReg, Mode: 0755, Size: ripgrepSize, UID: 0, GID: 0, Digest: ripgrepSHA256}
+		if err != nil || len(tool) != 1 || tool[0] != expected {
+			return "", errors.New("offline ripgrep installed inventory differs")
+		}
+		return launchHash([]any{"offline-ripgrep-inventory-v1", got, tool}), nil
 	}
 	return launchHash(got), nil
 }

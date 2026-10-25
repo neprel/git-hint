@@ -28,6 +28,9 @@ func (p StudyLaunchPolicy) Check() error {
 // SupportsStudyLaunchPolicy describes the runner implementation, not a prepared run.
 func (d *Docker) SupportsStudyLaunchPolicy(p StudyLaunchPolicy) bool { return p.Check() == nil }
 func (o RunOptions) checkStudyLaunch() error {
+	if o.Ripgrep != nil && (o.StudyLaunchPolicy != StudyLaunchSingleRootV1 || o.Ripgrep.BinaryFile == "" || o.OpenCode == nil || o.OpenCode.Version != DockerOpenCodeVersion) {
+		return errors.New("offline ripgrep requires the pinned OpenCode study runtime")
+	}
 	if err := o.StudyLaunchPolicy.Check(); err != nil {
 		return err
 	}
@@ -66,6 +69,7 @@ type launchFile struct {
 	Binary   bool
 }
 type openCodeRecipe struct {
+	Ripgrep   bool
 	Policy    StudyLaunchPolicy
 	Argv, Env []string
 	Config    []byte
@@ -121,6 +125,18 @@ func makeOpenCodeRecipe(model, instruction, token string, p StudyLaunchPolicy) (
 	return r, nil
 }
 
+func (r openCodeRecipe) withRipgrep(target string) (openCodeRecipe, error) {
+	if r.Policy != StudyLaunchSingleRootV1 {
+		return r, errors.New("offline ripgrep requires a study recipe")
+	}
+	if _, err := ripgrepIdentity(target); err != nil {
+		return r, err
+	}
+	r.Ripgrep = true
+	r.Files = append(r.Files, launchFile{Name: ripgrepInstall, Type: tar.TypeReg, Mode: 0755, Binary: true})
+	return r, nil
+}
+
 func openCodeEnvironment(token string, p StudyLaunchPolicy) []string {
 	if p == "" {
 		return []string{"OPENAI_BASE_URL=http://gate:8080/t/" + token, "OPENAI_API_KEY=hint-proxy", "HOME=/tmp"}
@@ -128,12 +144,21 @@ func openCodeEnvironment(token string, p StudyLaunchPolicy) []string {
 	return []string{"HOME=" + studyRoot + "/agent-home", "XDG_CONFIG_HOME=" + studyRoot + "/xdg-config", "XDG_DATA_HOME=" + studyRoot + "/runtime/data", "XDG_STATE_HOME=" + studyRoot + "/runtime/state", "XDG_CACHE_HOME=" + studyRoot + "/runtime/cache", "TMPDIR=" + studyRoot + "/runtime/tmp", "PATH=/opt/hint/bin:/usr/local/bin:/usr/bin:/bin", "OPENCODE_CONFIG_DIR=" + studyRoot + "/config", "OPENCODE_CONFIG_PROJECT_DISABLE=1", "OPENCODE_DISABLE_MODELS_FETCH=1", "OPENCODE_DISABLE_AUTOUPDATE=1", "OPENAI_BASE_URL=http://gate:8080/t/" + token, "OPENAI_API_KEY=hint-proxy"}
 }
 func (r openCodeRecipe) archive(binary []byte) ([]byte, error) {
+	return r.archiveWithRipgrep(binary, nil)
+}
+func (r openCodeRecipe) archiveWithRipgrep(binary, rg []byte) ([]byte, error) {
+	if r.Ripgrep && len(rg) == 0 {
+		return nil, errors.New("offline ripgrep payload is missing")
+	}
 	var b bytes.Buffer
 	w := tar.NewWriter(&b)
 	for _, file := range r.Files {
 		body := []byte(file.Body)
 		if file.Binary {
 			body = binary
+			if file.Name == ripgrepInstall {
+				body = rg
+			}
 		}
 		h := &tar.Header{Name: file.Name, Typeflag: file.Type, Mode: file.Mode, Uid: file.UID, Gid: file.GID, ModTime: time.Unix(0, 0), Format: tar.FormatPAX}
 		if file.Type == tar.TypeReg {
@@ -165,6 +190,15 @@ func (r openCodeRecipe) identity() any {
 // DockerLaunchDigestWithPolicy renders the same recipe used by the actual runner.
 // Empty policy retains the exact legacy identity. Nonempty policy is not eligibility proof.
 func DockerLaunchDigestWithPolicy(version, model, target string, p StudyLaunchPolicy) (string, error) {
+	return dockerLaunchDigestRuntime(version, model, target, p, false)
+}
+
+// DockerLaunchDigestWithRipgrep selects the same study controls with one required,
+// pinned offline GNU aarch64 ripgrep payload. It does not validate an image ABI.
+func DockerLaunchDigestWithRipgrep(version, model, target string, p StudyLaunchPolicy) (string, error) {
+	return dockerLaunchDigestRuntime(version, model, target, p, true)
+}
+func dockerLaunchDigestRuntime(version, model, target string, p StudyLaunchPolicy, rg bool) (string, error) {
 	if p != "" && version != DockerOpenCodeVersion {
 		return "", errors.New("study launch requires reviewed OpenCode version")
 	}
@@ -176,6 +210,14 @@ func DockerLaunchDigestWithPolicy(version, model, target string, p StudyLaunchPo
 	if err != nil {
 		return "", err
 	}
+	if rg {
+		r, err = r.withRipgrep(target)
+		if err != nil {
+			return "", err
+		}
+		identity, _ := ripgrepIdentity(target)
+		return launchHash([]any{"hint-docker-study-offline-ripgrep-launch-v1", DockerRunnerVersion, GatePolicy, GatePolicyDigest(), version, target, pin, r.identity(), identity, "uid65534_capdropall_nnp_nohostmount", "root_owned_ancestors", "bounded_env_executable_from_exact_image", "loader_environment_refused"}), nil
+	}
 	gate := sha256.Sum256([]byte(gatePolicyText))
 	if p == "" {
 		env := append([]string{}, r.Env...)
@@ -185,10 +227,25 @@ func DockerLaunchDigestWithPolicy(version, model, target string, p StudyLaunchPo
 	return launchHash([]any{"hint-docker-study-launch-v1", DockerRunnerVersion, GatePolicy, hex.EncodeToString(gate[:]), version, target, pin, r.identity(), "uid65534_capdropall_nnp_nohostmount", "root_owned_ancestors", "bounded_env_executable_from_exact_image", "loader_environment_refused"}), nil
 }
 func openCodeExecutionDigestWithPolicy(model, instruction string, prov map[string]any, imageID string, p StudyLaunchPolicy) (string, error) {
+	return openCodeExecutionDigestRuntime(model, instruction, prov, imageID, p, false)
+}
+func openCodeExecutionDigestRuntime(model, instruction string, prov map[string]any, imageID string, p StudyLaunchPolicy, rg bool) (string, error) {
 	h := sha256.Sum256([]byte(instruction))
 	r, err := makeOpenCodeRecipe(model, "sha256:"+hex.EncodeToString(h[:]), "<token>", p)
 	if err != nil {
 		return "", err
+	}
+	if rg {
+		target, _ := prov["target"].(string)
+		r, err = r.withRipgrep(target)
+		if err != nil {
+			return "", err
+		}
+		if prov["version"] != DockerOpenCodeVersion || prov["ripgrep_sha256"] != ripgrepSHA256 || !prelaunchDigestPattern.MatchString(imageID) {
+			return "", errors.New("offline ripgrep execution identity is unverified")
+		}
+		identity, _ := ripgrepIdentity(target)
+		return launchHash([]any{"hint-docker-study-offline-ripgrep-execution-v1", r.identity(), prov["version"], prov["binary_sha256"], target, imageID, identity}), nil
 	}
 	if p == "" {
 		archive, err := r.archive(nil)
