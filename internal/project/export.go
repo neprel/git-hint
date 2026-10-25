@@ -65,6 +65,10 @@ type ExportOptions struct {
 // network and writes nothing. Every document passes the schema, the semantic rules and the
 // export policy; otherwise BuildPackage fails (deny by default).
 func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
+	return buildPackage(s, opt, nil)
+}
+
+func buildPackage(s *store.Store, opt ExportOptions, receipt *projectionCollector) (*Package, error) {
 	ver, err := packageVersion(s, opt)
 	if err != nil {
 		return nil, err
@@ -295,6 +299,7 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 			if err != nil {
 				return nil, err
 			}
+			receipt.capture(o, srcs[o.SourceID], m)
 			list = append(list, m)
 			used[o.SourceID] = true
 			p.Observations = append(p.Observations, o.ObservationID)
@@ -321,6 +326,7 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 				map[string]any{"observations": list}, created); err != nil {
 				return nil, err
 			}
+			receipt.seal(p.Docs[len(p.Docs)-1])
 		}
 	}
 	p.Report.Notes = append(p.Report.Notes,

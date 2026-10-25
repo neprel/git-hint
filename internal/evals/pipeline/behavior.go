@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/neprel/git-hint/internal/activity"
@@ -219,57 +220,78 @@ func behaviorResolver(ctx context.Context, s *store.Store, l *library.Library, r
 	}, base, cleanup, nil
 }
 
-// observedStartResolver never substitutes declared BASE for an unavailable capture. This
-// changes only this run's resolver; it neither collects the tree into project state nor
-// enables a baseline export/producer adapter.
+// observedStartResult owns one materialization and one scan. It is local factual
+// input, not a public snapshot or capture authority. The graph is never rescanned.
+type observedStartResult struct {
+	resolve  activity.Resolver
+	graph    *scan.Result
+	repoID   string
+	capture  runner.PrelaunchTreeCapture
+	baseTree string
+	cleanup  func()
+	once     sync.Once
+}
+
+func (r *observedStartResult) close() { r.once.Do(r.cleanup) }
+
+// observedStartResolver never substitutes BASE for an unavailable capture.
+// It preserves the behavior-only interface and publishes no project snapshot.
 func observedStartResolver(ctx context.Context, s *store.Store, rec map[string]any, work string, job jobResult) (activity.Resolver, string, string, func(), error) {
+	r, err := resolveObservedStart(ctx, s, rec, work, job)
+	if err != nil {
+		return nil, "", "", nil, err
+	}
+	return r.resolve, r.baseTree, r.capture.Digest, r.close, nil
+}
+
+func resolveObservedStart(ctx context.Context, s *store.Store, rec map[string]any, work string, job jobResult) (*observedStartResult, error) {
 	bad := errors.New("observed start unavailable")
 	capture := job.Container.PrelaunchTree
 	ledger := job.Container.Ledger
 	if capture == nil || capture.State != "complete" || capture.Clock != "ledger_anchor_monotonic_ms" || capture.StartedMs < 0 || capture.FinishedMs < capture.StartedMs ||
 		ledger == nil || ledger.AgentRun == nil || ledger.AgentRun.EnclosureStartMs == nil || capture.FinishedMs > *ledger.AgentRun.EnclosureStartMs ||
 		!observedStartDigestPattern.MatchString(capture.ExecutionDigest) || capture.ExecutionDigest != ledger.AgentRun.ExecutionDigest || capture.ExecutionDigest != job.Container.AgentBinary.ExecutionDigest {
-		return nil, "", "", nil, bad
+		return nil, bad
 	}
 	repos, ok := rec["repositories"].([]any)
 	if !ok || len(repos) != 1 {
-		return nil, "", "", nil, bad
+		return nil, bad
 	}
 	repo, ok := repos[0].(map[string]any)
 	if !ok || str(repo["base_tree"]) == "" {
-		return nil, "", "", nil, bad
+		return nil, bad
 	}
 	repoID := ""
 	for _, configured := range s.Cfg.Repos {
 		if configured.Name == str(repo["repo"]) {
 			if repoID != "" {
-				return nil, "", "", nil, bad
+				return nil, bad
 			}
 			repoID = s.RepoID(configured)
 		}
 	}
 	if repoID == "" {
-		return nil, "", "", nil, bad
+		return nil, bad
 	}
 	temp, err := os.MkdirTemp(s.Path("cache"), "behavior-observed-")
 	if err != nil {
-		return nil, "", "", nil, err
+		return nil, err
 	}
 	cleanup := func() { os.RemoveAll(temp) }
 	artifact := filepath.Join(work, "jobs", "trial", "trial__1", "agent", "prelaunch.tar")
 	files, err := runner.MaterializePrelaunchTree(artifact, capture.Digest, temp)
 	if err != nil {
 		cleanup()
-		return nil, "", "", nil, err
+		return nil, err
 	}
 	if len(files) == 0 {
 		cleanup()
-		return nil, "", "", nil, bad
+		return nil, bad
 	}
 	scanned, err := scan.Scan(scan.Options{Ctx: ctx, Root: temp, RepoID: repoID, Key: s.Key(), Files: files})
 	if err != nil {
 		cleanup()
-		return nil, "", "", nil, err
+		return nil, err
 	}
 	ids := map[string]string{}
 	for _, entity := range scanned.Entities {
@@ -277,13 +299,14 @@ func observedStartResolver(ctx context.Context, s *store.Store, rec map[string]a
 			ids["/app/"+entity.Path] = entity.ID
 		}
 	}
-	return func(name string) (string, bool) {
+	resolve := func(name string) (string, bool) {
 		if !strings.HasPrefix(name, "/app/") || path.Clean(name) != name {
 			return "", false
 		}
 		id, ok := ids[name]
 		return id, ok
-	}, str(repo["base_tree"]), capture.Digest, cleanup, nil
+	}
+	return &observedStartResult{resolve: resolve, graph: scanned, repoID: repoID, capture: *capture, baseTree: str(repo["base_tree"]), cleanup: cleanup}, nil
 }
 
 // Inspection-only receipts do not grant canonical/calibration eligibility. The separate
