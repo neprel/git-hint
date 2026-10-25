@@ -106,3 +106,61 @@ func TestEconomicRecommendInvalidFlagsBeforeStore(t *testing.T) {
 		}
 	}
 }
+
+func TestEconomicReceivedUnknownAttemptInventories(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "received.json")
+	for _, tc := range []struct{ coverage, attempts, want string }{
+		{`[1,3]`, `null`, "coverage=1/3; attempts=unknown"},
+		{`[0,3]`, `0`, "coverage=0/3; attempts=0"},
+		{`[1,2]`, `1`, "coverage=1/2; attempts=1"},
+	} {
+		raw := strings.ReplaceAll(string(economicFixtureBytes(t)), `"canonical_tokens":37`, `"canonical_tokens":null`)
+		raw = strings.ReplaceAll(raw, `"counter_semantics":"hint-task-tokens-v1"`, `"counter_semantics":"unknown"`)
+		raw = strings.ReplaceAll(raw, `"coverage":[1,1]`, `"coverage":`+tc.coverage)
+		raw = strings.ReplaceAll(raw, `"attempts":2`, `"attempts":`+tc.attempts)
+		if e := os.WriteFile(file, []byte(raw), 0600); e != nil {
+			t.Fatal(e)
+		}
+		r := must(t, run(t, dir, "", "recommend", "--received", file, "--project-namespace", "11111111111111111111111111111111", "--economic-horizon", "10", "--economic-threshold", "0.95"))
+		if !strings.Contains(r.stdout, "canonical full-task tokens=unknown") || !strings.Contains(r.stdout, tc.want) {
+			t.Fatal(r.stdout)
+		}
+	}
+}
+
+func TestEconomicEmptyRetryFetchesOnlyAndLegacyStaysIdle(t *testing.T) {
+	shop, _ := setup(t)
+	s, e := store.Open(shop)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("HINT_SERVER_TOKEN", "synthetic-existing-namespace-token")
+	var gets, posts atomic.Int32
+	raw := strings.ReplaceAll(string(economicFixtureBytes(t)), "11111111111111111111111111111111", s.Cfg.ProjectNamespace)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			posts.Add(1)
+			w.WriteHeader(400)
+			return
+		}
+		gets.Add(1)
+		if r.Header.Get("Authorization") != "Bearer synthetic-existing-namespace-token" || r.URL.Query().Get("project_namespace") != s.Cfg.ProjectNamespace || r.URL.Query().Get("economic_horizon") != "10" {
+			t.Error("request binding")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, raw)
+	}))
+	defer srv.Close()
+	legacy := must(t, run(t, shop, "", "recommend", "--retry", "--server", srv.URL))
+	if !strings.Contains(legacy.stdout, "No queued packages.") || gets.Load() != 0 || posts.Load() != 0 {
+		t.Fatal("legacy empty retry changed", legacy)
+	}
+	r := must(t, run(t, shop, "", "recommend", "--retry", "--server", srv.URL, "--economic-horizon", "10", "--economic-threshold", "0.95"))
+	if gets.Load() != 1 || posts.Load() != 0 || !strings.Contains(r.stdout, "canonical full-task tokens=37") || strings.Contains(r.stdout, "Send ") || strings.Contains(r.stdout, "Sent ") {
+		t.Fatal("economic empty retry uploads or requests send consent", r, gets.Load(), posts.Load())
+	}
+	if _, e := project.LatestRecommendation(s); e == nil {
+		t.Fatal("sidecar saved as plan")
+	}
+}

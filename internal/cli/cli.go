@@ -568,6 +568,9 @@ func cmdRecommend(e *Env, args []string) int {
 		}
 		if len(ids) == 0 {
 			fmt.Fprintln(e.Stdout, "No queued packages.")
+			if economic {
+				return fetchEconomic(e, ctx, c, s.Cfg.ProjectNamespace, economicPolicy)
+			}
 			return 0
 		}
 		for _, id := range ids {
@@ -617,12 +620,7 @@ func cmdRecommend(e *Env, args []string) int {
 	}
 	fmt.Fprintf(e.Stdout, "Sent %d documents to %s.\n", n, c.Origin())
 	if economic {
-		assessment, err := c.EconomicRecommendations(ctx, s.Cfg.ProjectNamespace, economicPolicy)
-		if err != nil {
-			return fail(e, fmt.Errorf("fetch economic assessment: %w", err))
-		}
-		renderEconomic(e, assessment)
-		return 0
+		return fetchEconomic(e, ctx, c, s.Cfg.ProjectNamespace, economicPolicy)
 	}
 	raw, err := c.RecommendationsWith(ctx, s.Cfg.ProjectNamespace, policy)
 	if err != nil {

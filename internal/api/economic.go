@@ -73,7 +73,7 @@ type EconomicAssessment struct {
 	Policy           EconomicPolicy
 	CanonicalTokens  *int64
 	Coverage         [2]int64
-	Attempts         int64
+	Attempts         *int64
 	CounterSemantics string
 	Reasons          []string
 }
@@ -281,9 +281,12 @@ func ParseEconomicAssessment(raw []byte, ns string, p EconomicPolicy) (*Economic
 	if out.Coverage[0] > out.Coverage[1] {
 		return nil, errEconomic
 	}
-	out.Attempts, ok = economicInt(b["attempts"])
-	if !ok || out.Attempts < out.Coverage[1] {
-		return nil, errEconomic
+	if b["attempts"] != nil {
+		n, valid := economicInt(b["attempts"])
+		if !valid {
+			return nil, errEconomic
+		}
+		out.Attempts = &n
 	}
 	out.CounterSemantics, ok = b["counter_semantics"].(string)
 	if !ok {
@@ -291,7 +294,7 @@ func ParseEconomicAssessment(raw []byte, ns string, p EconomicPolicy) (*Economic
 	}
 	if b["canonical_tokens"] != nil {
 		n, ok := economicInt(b["canonical_tokens"])
-		if !ok || out.CounterSemantics != "hint-task-tokens-v1" || out.Coverage[0] != out.Coverage[1] || out.Coverage[0] == 0 {
+		if !ok || out.CounterSemantics != "hint-task-tokens-v1" || out.Coverage[0] != out.Coverage[1] || out.Coverage[0] == 0 || out.Attempts == nil || *out.Attempts < out.Coverage[1] {
 			return nil, errEconomic
 		}
 		out.CanonicalTokens = &n

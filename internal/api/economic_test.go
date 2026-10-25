@@ -30,7 +30,7 @@ func economicP(t *testing.T) EconomicPolicy {
 func TestEconomicSidecarStrictProjection(t *testing.T) {
 	p := economicP(t)
 	a, e := ParseEconomicAssessment([]byte(economicFixture), economicNS, p)
-	if e != nil || a == nil || a.CanonicalTokens == nil || *a.CanonicalTokens != 37 || a.Attempts != 2 {
+	if e != nil || a == nil || a.CanonicalTokens == nil || *a.CanonicalTokens != 37 || a.Attempts == nil || *a.Attempts != 2 {
 		t.Fatalf("%+v %v", a, e)
 	}
 	unknown := strings.ReplaceAll(economicFixture, `"canonical_tokens":37`, `"canonical_tokens":null`)
@@ -124,5 +124,47 @@ func TestEconomicAuthenticatedJSONTransportNoFallback(t *testing.T) {
 				t.Fatalf("response error=%v calls=%d", e, calls.Load())
 			}
 		})
+	}
+}
+
+func TestEconomicUnknownAttemptInventories(t *testing.T) {
+	for _, tc := range []struct {
+		name, coverage, attempts string
+		want                     *int64
+	}{
+		{"budget", `[1,3]`, `null`, nil},
+		{"unbound", `[0,3]`, `0`, func() *int64 { n := int64(0); return &n }()},
+		{"partial", `[1,2]`, `1`, func() *int64 { n := int64(1); return &n }()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := strings.ReplaceAll(economicFixture, `"canonical_tokens":37`, `"canonical_tokens":null`)
+			raw = strings.ReplaceAll(raw, `"counter_semantics":"hint-task-tokens-v1"`, `"counter_semantics":"unknown"`)
+			raw = strings.ReplaceAll(raw, `"coverage":[1,1]`, `"coverage":`+tc.coverage)
+			raw = strings.ReplaceAll(raw, `"attempts":2`, `"attempts":`+tc.attempts)
+			a, e := ParseEconomicAssessment([]byte(raw), economicNS, economicP(t))
+			if e != nil || a == nil || a.CanonicalTokens != nil {
+				t.Fatalf("%+v %v", a, e)
+			}
+			if tc.want == nil {
+				if a.Attempts != nil {
+					t.Fatal("null inventory fabricated")
+				}
+			} else if a.Attempts == nil || *a.Attempts != *tc.want {
+				t.Fatal("inventory changed")
+			}
+			for _, bad := range []string{`true`, `-1`, `1.0`, `"1"`} {
+				if a, e := ParseEconomicAssessment([]byte(strings.ReplaceAll(raw, `"attempts":`+tc.attempts, `"attempts":`+bad)), economicNS, economicP(t)); e == nil || a != nil {
+					t.Fatal("invalid inventory accepted", bad)
+				}
+			}
+			if a, e := ParseEconomicAssessment([]byte(strings.ReplaceAll(raw, `"attempts":`+tc.attempts+`,`, ``)), economicNS, economicP(t)); e == nil || a != nil {
+				t.Fatal("absent inventory accepted")
+			}
+		})
+	}
+	for _, count := range []string{`null`, `0`} {
+		if a, e := ParseEconomicAssessment([]byte(strings.ReplaceAll(economicFixture, `"attempts":2`, `"attempts":`+count)), economicNS, economicP(t)); e == nil || a != nil {
+			t.Fatal("known canonical baseline lacks supported attempt count", count)
+		}
 	}
 }
