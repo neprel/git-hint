@@ -103,12 +103,19 @@ func (d *Docker) proxyHost(ctx context.Context, bGateway string) (listen, hostEn
 	if err != nil {
 		return "", "", errGate
 	}
-	osName := info.Info.OperatingSystem
+	return proxyAddress(runtime.GOOS, info.Info.OperatingSystem, info.Info.OSType, d.cli.DaemonHost(), bGateway)
+}
+
+// A Linux caller must share the daemon's network namespace to bind its B gateway.
+// This also supports a host-network CLI container on a local Desktop/OrbStack
+// engine. A bridge-only caller cannot bind that address and fails before launch.
+func proxyAddress(callerOS, osName, engineOS, daemonHost, bGateway string) (listen, hostEntry string, err error) {
+	local := strings.HasPrefix(daemonHost, "unix://")
 	switch {
+	case callerOS == "linux" && engineOS == "linux" && local && bGateway != "":
+		return bGateway, "hint-proxy:" + bGateway, nil
 	case strings.Contains(osName, "OrbStack") || strings.Contains(osName, "Docker Desktop"):
 		return "127.0.0.1", "hint-proxy:host-gateway", nil
-	case runtime.GOOS == "linux" && info.Info.OSType == "linux" && strings.HasPrefix(d.cli.DaemonHost(), "unix://") && bGateway != "":
-		return bGateway, "hint-proxy:" + bGateway, nil
 	}
 	return "", "", fmt.Errorf("%w: no verified host interface for %q", errGate, osName)
 }
