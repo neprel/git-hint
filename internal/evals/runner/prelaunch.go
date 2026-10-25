@@ -353,10 +353,18 @@ func (r prelaunchContextReader) Read(p []byte) (int, error) {
 }
 
 func consumePrelaunch(ctx context.Context, a *PrelaunchArtifact, check func(context.Context, *PrelaunchArtifact) error) (err error) {
+	returned := false
 	defer func() {
-		if e := a.close(); e != nil && err == nil {
-			err = e
+		// Only this new callback boundary converts panics. Never retain the panic value.
+		_ = recover()
+		if !returned {
+			err = errors.New("prelaunch callback panicked")
+		}
+		if e := a.close(); e != nil {
+			err = errors.Join(err, errors.New("prelaunch retention cleanup failed"))
 		}
 	}()
-	return check(ctx, a)
+	err = check(ctx, a)
+	returned = true
+	return err
 }

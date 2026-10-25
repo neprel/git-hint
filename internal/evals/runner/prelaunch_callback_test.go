@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -175,15 +176,79 @@ func TestPrelaunchConsumerPanicStillClosesRetainedCapability(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	func() {
-		defer func() {
-			if recover() == nil {
-				t.Fatal("lost panic")
-			}
-		}()
-		consumePrelaunch(context.Background(), a, func(context.Context, *PrelaunchArtifact) error { panic("synthetic") })
-	}()
+	err := consumePrelaunch(context.Background(), a, func(context.Context, *PrelaunchArtifact) error { panic("PRIVATE PANIC SENTINEL") })
+	if err == nil || err.Error() != "prelaunch callback panicked" {
+		t.Fatal("missing static panic refusal", err)
+	}
+
 	if _, e := a.Materialize(context.Background(), t.TempDir()); e == nil {
 		t.Fatal("panic retained capability")
+	}
+}
+
+func TestPrelaunchCallbackPanicRoutesThroughOwnedLifecycle(t *testing.T) {
+	hooks := 0
+	r, c, s := studyFake(t, studyFakeOptions{prelaunchCheck: func(context.Context, *PrelaunchArtifact) error { panic("PRIVATE PANIC SENTINEL") }, hook: func(LaunchFacts) error { hooks++; return nil }})
+	s.mu.Lock()
+	starts := s.starts
+	s.mu.Unlock()
+	s.engine.mu.Lock()
+	containers, networks := len(s.engine.containers), len(s.engine.networks)
+	s.engine.mu.Unlock()
+	if hooks != 0 || starts != 0 || c.Requests() != 0 || containers != 0 || networks != 0 {
+		t.Fatalf("hooks=%d starts=%d requests=%d containers=%d networks=%d", hooks, starts, c.Requests(), containers, networks)
+	}
+	report := c.Report()
+	if !c.sealStarted() || c.SealedAt() == "" || report.AgentRun == nil || report.AgentRun.Outcome != AgentRefusedBeforeLaunch {
+		t.Fatal("counter not sealed/refused", report)
+	}
+	raw, e := json.Marshal(r)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if bytes.Contains(raw, []byte("PRIVATE PANIC SENTINEL")) {
+		t.Fatal("panic escaped")
+	}
+	var capture PrelaunchTreeCapture
+	b, _ := json.Marshal(r.Container["prelaunch_tree"])
+	if json.Unmarshal(b, &capture) != nil || capture.CheckState != "failed" || capture.CheckFinishedMs < capture.CheckStartedMs || r.ExceptionInfo == nil {
+		t.Fatal("missing failed callback result", capture)
+	}
+}
+
+func TestPrelaunchConsumerPreservesPrimaryAndStaticCleanupFailure(t *testing.T) {
+	for _, panics := range []bool{false, true} {
+		t.Run(map[bool]string{false: "returned_error", true: "panic_nil"}[panics], func(t *testing.T) {
+			raw := tarOf(t, &tar.Header{Name: "app/", Typeflag: tar.TypeDir, Mode: 0755}).Bytes()
+			p := filepath.Join(t.TempDir(), "input")
+			os.WriteFile(p, raw, 0600)
+			h := sha256.Sum256(raw)
+			a, e := retainPrelaunch(context.Background(), p, PrelaunchTreeCapture{State: "complete", Digest: "sha256:" + hex.EncodeToString(h[:])})
+			if e != nil {
+				t.Fatal(e)
+			}
+			primary := errors.New("synthetic primary")
+			err := consumePrelaunch(context.Background(), a, func(context.Context, *PrelaunchArtifact) error {
+				if e := a.file.Close(); e != nil {
+					t.Fatal(e)
+				}
+				if panics {
+					panic(nil)
+				}
+				return primary
+			})
+			if err == nil || !strings.Contains(err.Error(), "prelaunch retention cleanup failed") || strings.Contains(err.Error(), p) {
+				t.Fatal("missing/static cleanup refusal", err)
+			}
+			if !panics && !errors.Is(err, primary) {
+				t.Fatal("primary error lost", err)
+			}
+			if panics && !strings.Contains(err.Error(), "prelaunch callback panicked") {
+				t.Fatal("nil panic lost", err)
+			}
+			if _, e := os.Stat(a.dir); !os.IsNotExist(e) {
+				t.Fatal("retention not removed", e)
+			}
+		})
 	}
 }

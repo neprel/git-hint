@@ -39,6 +39,7 @@ type storedStudyFile struct {
 	body   []byte
 }
 type studyFakeState struct {
+	engine *fakeQ4Engine
 	mu     sync.Mutex
 	files  map[string]storedStudyFile
 	starts int
@@ -72,7 +73,7 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 	d, s := fakeQ4Docker(t, false)
 	live, _ := fakeModel(t)
 	c := live.NewTrial(10)
-	st := &studyFakeState{files: map[string]storedStudyFile{}, dir: t.TempDir()}
+	st := &studyFakeState{engine: s, files: map[string]storedStudyFile{}, dir: t.TempDir()}
 	isAgent := func(p string) bool {
 		id := path.Base(path.Dir(p))
 		s.mu.Lock()
