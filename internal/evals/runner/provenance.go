@@ -65,7 +65,17 @@ func (d *Docker) create(ctx context.Context, cfg *container.Config, host *contai
 	if err != nil {
 		return "", err
 	}
+	if p := referencePhaseFrom(ctx); p != nil {
+		p.cid = c.ID
+		p.audit.ContainerRef = referenceDigest([]byte(c.ID))
+		p.audit.ImageID = cfg.Image
+		p.audit.CommandDigest = referenceJSON(cfg.Cmd)
+	}
 	refuse := func(why error) (string, error) { // removed before any start; a failed removal is reported
+		if p := referencePhaseFrom(ctx); p != nil {
+			d.removeForPhase(ctx, c.ID)
+			return "", errors.Join(why, p.err)
+		}
 		return "", errors.Join(why, d.removeErr(c.ID))
 	}
 	ins, err := d.cli.ContainerInspect(ctx, c.ID, client.ContainerInspectOptions{})

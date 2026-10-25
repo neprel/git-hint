@@ -145,31 +145,17 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 	prov["reference_tree"] = rd
 	limit := time.Duration(t.spec.CaseSeconds) * time.Second
 	allNone := true // every run's networks as the engine reports them
-	expected := map[string]caseRun{}
-	oh := sha256.New()
-	for _, id := range t.spec.Cases {
-		var first caseRun
-		for k := 0; k < OracleRuns; k++ {
-			r, err := d.runCase(ctx, img, reference, t.spec.Entry, t.inputs[id], limit, lim)
-			if err := deadline(); err != nil {
-				return 0, prov, err
-			}
-			// a failed reference run is no expectation (C7BJ-6): it must exit 0 with a complete
-			// stream, its input delivered, within its limit
-			if err != nil || !r.usable() || r.status != 0 {
-				return 0, prov, errIOVerdict{fmt.Sprintf("reference run of case %s failed", id)}
-			}
-			allNone = allNone && r.networkNone
-			if k > 0 && (r.status != first.status || !bytes.Equal(r.out, first.out)) {
-				return 0, prov, errIOVerdict{fmt.Sprintf("reference runs of case %s differ", id)}
-			}
-			first = r
+	expected, outputs, allNone, err := referenceExpectations(t, func(id string, repetition int) (caseRun, error) {
+		r, e := d.runCase(ctx, img, reference, t.spec.Entry, t.inputs[id], limit, lim)
+		if de := deadline(); de != nil {
+			return r, de
 		}
-		expected[id] = first
-		fmt.Fprintf(oh, "%s\x00%d\x00%d\x00", id, first.status, len(first.out))
-		oh.Write(first.out)
+		return r, e
+	})
+	if err != nil {
+		return 0, prov, err
 	}
-	prov["oracle_outputs"] = "sha256:" + hex.EncodeToString(oh.Sum(nil))
+	prov["oracle_outputs"] = outputs
 	var lines []string
 	pass := true
 	ch := sha256.New() // the captured candidate results, sealed on the host
@@ -235,11 +221,28 @@ func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, 
 	if err != nil {
 		return caseRun{}, err
 	}
-	defer d.remove(cid)
+	defer d.removeForPhase(ctx, cid)
+	phase := referencePhaseFrom(ctx)
 	pr, pw := io.Pipe()
-	go func() { pw.CloseWithError(retree(tree, "hint/", pw)) }()
+	copied := make(chan error, 1)
+	go func() {
+		var e error
+		if phase == nil {
+			e = retree(tree, "hint/", pw)
+		} else {
+			e = referenceRetree(ctx, tree, phase.artifactDigest, "hint/", pw, phase.archiveCap)
+		}
+		pw.CloseWithError(e)
+		copied <- e
+	}()
 	_, err = d.cli.CopyToContainer(ctx, cid, client.CopyToContainerOptions{DestinationPath: "/", Content: pr})
 	pr.Close()
+	if phase != nil {
+		phase.join(copied)
+		if phase.err != nil {
+			return caseRun{}, phase.err
+		}
+	}
 	if err != nil {
 		return caseRun{}, err
 	}
@@ -261,9 +264,12 @@ func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, 
 		wrote <- err
 	}()
 	var r caseRun
+	if phase != nil {
+		_ = att.Conn.SetDeadline(phase.joinEnd)
+	}
 	runErr := d.runToEnd(ctx, cid, limit, "case")
 	// the engine's own record of the run's networks: only "none" with no attached network
-	if ins, err := d.cli.ContainerInspect(context.Background(), cid, client.ContainerInspectOptions{}); err == nil && ins.Container.HostConfig != nil {
+	if ins, err := d.cli.ContainerInspect(inspectionContext(ctx), cid, client.ContainerInspectOptions{}); err == nil && ins.Container.HostConfig != nil {
 		r.networkNone = ins.Container.HostConfig.NetworkMode == "none" &&
 			(ins.Container.NetworkSettings == nil || len(ins.Container.NetworkSettings.Networks) == 0 || onlyNone(ins.Container.NetworkSettings.Networks))
 	}
@@ -279,15 +285,37 @@ func (d *Docker) runCase(ctx context.Context, img, tree string, entry []string, 
 	// the container has stopped (or failed): the stream must end on its own; if it does not
 	// within the bound, the connection is closed; both goroutines are joined either way
 	var rerr error
-	select {
-	case rerr = <-readErr:
-	case <-time.After(5 * time.Second):
-		att.Close()
-		<-readErr
-		rerr = errors.New("the output stream did not end")
+	if phase == nil {
+		select {
+		case rerr = <-readErr:
+		case <-time.After(5 * time.Second):
+			att.Close()
+			<-readErr
+			rerr = errors.New("the output stream did not end")
+		}
+	} else {
+		select {
+		case rerr = <-readErr:
+		case <-ctx.Done():
+			att.Close()
+			phase.join(readErr)
+			rerr = ctx.Err()
+		case <-streamEnd(ctx, 0):
+			att.Close()
+			phase.join(readErr)
+			rerr = errReferencePrepare
+		}
 	}
 	att.Close()
-	werr := <-wrote
+	var werr error
+	if phase == nil {
+		werr = <-wrote
+	} else {
+		werr = phase.join(wrote)
+		if phase.err != nil {
+			return caseRun{}, phase.err
+		}
+	}
 	if runErr != nil && !r.timedOut && !errors.As(runErr, &ee) {
 		return caseRun{}, runErr
 	}
@@ -364,7 +392,11 @@ func retree(artifact, prefix string, w io.Writer) error {
 		return err
 	}
 	defer f.Close()
-	tr := tar.NewReader(f)
+	return retreeFrom(f, prefix, w)
+}
+
+func retreeFrom(r io.Reader, prefix string, w io.Writer) error {
+	tr := tar.NewReader(r)
 	tw := tar.NewWriter(w)
 	for {
 		h, err := tr.Next()
@@ -385,4 +417,34 @@ func retree(artifact, prefix string, w io.Writer) error {
 			return err
 		}
 	}
+}
+
+// referenceExpectations is the one B1 oracle agreement and output-digest recipe.
+// Preparation and ordinary ioPhase use the same case order and OracleRuns.
+func referenceExpectations(t *ioTask, run func(string, int) (caseRun, error)) (map[string]caseRun, string, bool, error) {
+	expected := map[string]caseRun{}
+	oh := sha256.New()
+	allNone := true
+	for _, id := range t.spec.Cases {
+		var first caseRun
+		for k := 0; k < OracleRuns; k++ {
+			r, err := run(id, k)
+			if err != nil || !r.usable() || r.status != 0 {
+				var te timeoutError
+				if errors.As(err, &te) {
+					return nil, "", false, err
+				}
+				return nil, "", false, errIOVerdict{fmt.Sprintf("reference run of case %s failed", id)}
+			}
+			allNone = allNone && r.networkNone
+			if k > 0 && (r.status != first.status || !bytes.Equal(r.out, first.out)) {
+				return nil, "", false, errIOVerdict{fmt.Sprintf("reference runs of case %s differ", id)}
+			}
+			first = r
+		}
+		expected[id] = first
+		fmt.Fprintf(oh, "%s\x00%d\x00%d\x00", id, first.status, len(first.out))
+		oh.Write(first.out)
+	}
+	return expected, "sha256:" + hex.EncodeToString(oh.Sum(nil)), allNone, nil
 }

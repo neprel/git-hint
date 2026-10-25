@@ -340,11 +340,14 @@ func (d *Docker) applyPhase(ctx context.Context, solution, agent string, lim tas
 	if err != nil {
 		return "", err
 	}
-	defer d.remove(cid)
+	defer d.removeForPhase(ctx, cid)
 	if agent == "oracle" { // the reference enters only the oracle's container, never an agent image
 		sol, err := tarDir(solution, "solution")
 		if err != nil {
 			return "", err
+		}
+		if p := referencePhaseFrom(ctx); p != nil && referenceDigest(sol) != p.referenceDigest {
+			return "", errReferencePrepare
 		}
 		if _, err := d.cli.CopyToContainer(ctx, cid, client.CopyToContainerOptions{DestinationPath: "/", Content: bytes.NewReader(sol)}); err != nil {
 			return "", err
@@ -354,11 +357,28 @@ func (d *Docker) applyPhase(ctx context.Context, solution, agent string, lim tas
 	if err := os.MkdirAll(filepath.Dir(artifact), 0o700); err != nil {
 		return "", err
 	}
-	if logs, err := d.cli.ContainerLogs(ctx, cid, client.ContainerLogsOptions{ShowStdout: true}); err == nil {
-		var out bytes.Buffer
-		_, _ = stdcopy.StdCopy(&limitWriter{w: &out, n: 64 << 10}, io.Discard, logs)
-		logs.Close()
-		_ = os.WriteFile(filepath.Join(filepath.Dir(artifact), "oracle.txt"), out.Bytes(), 0o600)
+	if p := referencePhaseFrom(ctx); p != nil {
+		logs, e := d.cli.ContainerLogs(ctx, cid, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+		if e != nil {
+			p.fail(e)
+		} else {
+			out := &capWriter{max: 64 << 10}
+			e = demux(out, out, logs)
+			ce := logs.Close()
+			p.fail(e)
+			p.fail(ce)
+			if out.over {
+				p.fail(errReferencePrepare)
+			}
+			p.fail(os.WriteFile(filepath.Join(filepath.Dir(artifact), "oracle.txt"), out.buf.Bytes(), 0600))
+		}
+	} else {
+		if logs, err := d.cli.ContainerLogs(ctx, cid, client.ContainerLogsOptions{ShowStdout: true}); err == nil {
+			var out bytes.Buffer
+			_, _ = stdcopy.StdCopy(&limitWriter{w: &out, n: 64 << 10}, io.Discard, logs)
+			logs.Close()
+			_ = os.WriteFile(filepath.Join(filepath.Dir(artifact), "oracle.txt"), out.Bytes(), 0o600)
+		}
 	}
 	if runErr != nil {
 		return "", runErr
@@ -368,7 +388,10 @@ func (d *Docker) applyPhase(ctx context.Context, solution, agent string, lim tas
 	if err != nil {
 		return "", err
 	}
-	defer src.Content.Close()
+	defer closeForPhase(ctx, src.Content)
+	if p := referencePhaseFrom(ctx); p != nil {
+		return freezeTreeWithLimits(&referenceReader{ctx: ctx, r: src.Content}, artifact, p.archiveCap, p.archiveCap)
+	}
 	return freezeTree(src.Content, artifact)
 }
 
@@ -380,11 +403,21 @@ func (d *Docker) runToEnd(ctx context.Context, id string, limit time.Duration, p
 	if _, err := d.cli.ContainerStart(ctx, id, client.ContainerStartOptions{}); err != nil {
 		return err
 	}
+	if p := referencePhaseFrom(ctx); p != nil {
+		p.audit.Started = true
+	}
 	wctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	w := d.cli.ContainerWait(wctx, id, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
-	case res := <-w.Result:
+	case res, ok := <-w.Result:
+		if p := referencePhaseFrom(ctx); p != nil {
+			if !ok {
+				return errReferencePrepare
+			}
+			p.audit.WaitObserved = true
+			p.audit.ExitStatus = res.StatusCode
+		}
 		if res.Error != nil && res.Error.Message != "" {
 			return fmt.Errorf("%s container: %s", phase, res.Error.Message)
 		}
@@ -392,9 +425,14 @@ func (d *Docker) runToEnd(ctx context.Context, id string, limit time.Duration, p
 			return exitError{phase, res.StatusCode}
 		}
 		return nil
-	case err := <-w.Error:
+	case err, ok := <-w.Error:
+		if referencePhaseFrom(ctx) != nil && (!ok || err == nil) {
+			return errReferencePrepare
+		}
 		t := 5
-		_, _ = d.cli.ContainerStop(context.Background(), id, client.ContainerStopOptions{Timeout: &t})
+		if referencePhaseFrom(ctx) == nil {
+			_, _ = d.cli.ContainerStop(context.Background(), id, client.ContainerStopOptions{Timeout: &t})
+		}
 		if wctx.Err() != nil {
 			return timeoutError{phase}
 		}
@@ -546,12 +584,19 @@ func freezeTree(r io.Reader, artifact string) (string, error) {
 // The separate limit permits small offline boundary tests; production always uses the
 // fixed raw archive bound above, in addition to content and entry limits.
 func freezeTreeBounded(r io.Reader, artifact string, rawLimit int64) (string, error) {
+	return freezeTreeWithLimits(r, artifact, rawLimit, 0)
+}
+func freezeTreeWithLimits(r io.Reader, artifact string, rawLimit, outputLimit int64) (string, error) {
 	f, err := os.OpenFile(artifact, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", err
 	}
 	h := sha256.New()
-	tw := tar.NewWriter(io.MultiWriter(f, h))
+	var target io.Writer = io.MultiWriter(f, h)
+	if outputLimit > 0 {
+		target = &referenceOutput{w: target, left: outputLimit}
+	}
+	tw := tar.NewWriter(target)
 	raw := &treeArchiveReader{source: r, limit: rawLimit}
 	tr := tar.NewReader(raw)
 	var size, padding int64
@@ -707,7 +752,7 @@ func (d *Docker) build(ctx context.Context, dir, kind string) (id, tag, contextD
 	if err != nil {
 		return "", "", "", err
 	}
-	defer res.Body.Close()
+	defer closeForPhase(ctx, res.Body)
 	sc := bufio.NewScanner(res.Body)
 	sc.Buffer(make([]byte, 64<<10), 4<<20)
 	// every line of the build stream must be a protocol message, and the stream must end
