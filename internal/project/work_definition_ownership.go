@@ -40,7 +40,17 @@ func (owners definitionRunOwners) add(owner definitionRunOwner) error {
 	if _, exists := owners[b.RunRef]; exists {
 		return ErrWorkDefinition
 	}
+	// Project execution keys have an independent ownership domain. The same
+	// execution cannot move between different run/epoch holders.
+	if b.Origin == "project" {
+		if _, exists := owners["execution:"+b.ExecutionRef]; exists {
+			return ErrWorkDefinition
+		}
+	}
 	owners[b.RunRef] = owner
+	if b.Origin == "project" {
+		owners["execution:"+b.ExecutionRef] = owner
+	}
 	return nil
 }
 

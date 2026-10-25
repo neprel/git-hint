@@ -55,6 +55,22 @@ func TestWorkDefinitionOwnerMissingTupleAndDuplicateDomainsRefuse(t *testing.T) 
 	if err = owners.add(owner); !errors.Is(err, ErrWorkDefinition) {
 		t.Fatal("duplicate holder admitted", err)
 	}
+	compatible := owner
+	compatible.epoch++
+	compatible.binding.RunRef = activity.RunRef(f.s.Key(), "another-run")
+	compatible.binding.ExecutionRef = hint.EvalRef(f.s.Key(), "execution", memLabel, "another-run")
+	if err = owners.add(compatible); err != nil {
+		t.Fatal("distinct executions of one attempt/task refused", err)
+	}
+	reused := owner
+	reused.epoch++
+	reused.binding.RunRef = activity.RunRef(f.s.Key(), "third-run")
+	if err = owners.add(reused); !errors.Is(err, ErrWorkDefinition) {
+		t.Fatal("execution reused by different run/epoch", err)
+	}
+	if _, exists := owners[reused.binding.RunRef]; exists {
+		t.Fatal("refused execution mutated run index")
+	}
 	controlled := owner
 	controlled.binding.Origin, controlled.binding.ExecutionRef = "", ""
 	controlled.binding.UnitRef = hint.EvalRef(f.s.Key(), "work-unit", "controlled", "another-run", "another-eval")

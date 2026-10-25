@@ -135,7 +135,7 @@ func TestWorkDefinitionControlledBehaviorExactReceivedTuple(t *testing.T) {
 }
 
 func TestWorkDefinitionProjectMembershipBehaviorAndLedger(t *testing.T) {
-	for _, name := range []string{"valid", "failed", "next-epoch", "forked-next-epoch", "wrong-run", "wrong-family", "wrong-configuration", "missing-enrollment", "wrong-execution"} {
+	for _, name := range []string{"valid", "failed", "next-epoch", "forked-next-epoch", "reused-execution-next-epoch", "distinct-executions-same-task", "wrong-run", "wrong-family", "wrong-configuration", "missing-enrollment", "wrong-execution"} {
 		t.Run(name, func(t *testing.T) {
 			s, _, request, now := project.DefinitionFixtureForExternalTest(t)
 			launch, execution := "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64)
@@ -209,7 +209,7 @@ func TestWorkDefinitionProjectMembershipBehaviorAndLedger(t *testing.T) {
 			if ledger == nil {
 				t.Fatal("missing actual written ledger")
 			}
-			if name == "valid" || name == "failed" || name == "next-epoch" || name == "forked-next-epoch" {
+			if name == "valid" || name == "failed" || name == "next-epoch" || name == "forked-next-epoch" || name == "reused-execution-next-epoch" || name == "distinct-executions-same-task" {
 				if e = epoch.Finish(s, x, ledger); e != nil {
 					t.Fatal(e)
 				}
@@ -217,15 +217,19 @@ func TestWorkDefinitionProjectMembershipBehaviorAndLedger(t *testing.T) {
 					t.Fatal(e)
 				}
 			}
-			if name == "next-epoch" || name == "forked-next-epoch" {
+			if name == "next-epoch" || name == "forked-next-epoch" || name == "reused-execution-next-epoch" || name == "distinct-executions-same-task" {
 				next, e := project.EpochOpen(s, "unrelated-project", policy, now)
 				if e != nil {
 					t.Fatal(e)
 				}
-				if _, e = next.Enroll(s, "project-task-2", "project-run-2", cfg, now); e != nil {
+				task := "project-task-2"
+				if name == "distinct-executions-same-task" {
+					task = "project-task"
+				}
+				if _, e = next.Enroll(s, task, "project-run-2", cfg, now); e != nil {
 					t.Fatal(e)
 				}
-				if name == "forked-next-epoch" {
+				if name == "forked-next-epoch" || name == "reused-execution-next-epoch" {
 					path := s.Path("state", "membership", hint.DeriveID(s.Key(), "membership-file", "unrelated-project"), "epoch-2.jsonl")
 					raw, e := os.ReadFile(path)
 					if e != nil {
@@ -238,8 +242,11 @@ func TestWorkDefinitionProjectMembershipBehaviorAndLedger(t *testing.T) {
 						if e = json.Unmarshal(line, &event); e != nil {
 							t.Fatal(e)
 						}
-						if i == 0 {
+						if i == 0 && name == "forked-next-epoch" {
 							event["predecessor_epoch_digest"] = "sha256:" + strings.Repeat("0", 64)
+						}
+						if name == "reused-execution-next-epoch" && event["kind"] == "enroll" {
+							event["execution_ref"] = x.ExecutionRef
 						}
 						event["prev_digest"] = previous
 						previous, e = hint.Digest(event)
@@ -261,7 +268,7 @@ func TestWorkDefinitionProjectMembershipBehaviorAndLedger(t *testing.T) {
 				}
 			}
 			_, e = project.WriteWorkDefinitionInputs(context.Background(), s, request, now)
-			if name == "valid" || name == "failed" || name == "next-epoch" {
+			if name == "valid" || name == "failed" || name == "next-epoch" || name == "distinct-executions-same-task" {
 				if e != nil {
 					t.Fatal("genuine SDK project tuple refused", e)
 				}
