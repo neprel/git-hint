@@ -70,14 +70,14 @@ func copyProjectionFields(in map[string][]string) map[string][]string {
 	}
 	return out
 }
-func (c *projectionCollector) freezeSnapshotPolicy(version string, pol map[string]any, allowed map[string]bool, fields map[string][]string, res int, latest []*snapshot.Local) {
+func (c *projectionCollector) freezeSnapshotPolicy(version string, pol map[string]any, allowed map[string]bool, fields map[string][]string, res int, configured []string) {
 	d, e := hint.Digest(pol)
 	if e != nil {
 		return
 	}
 	repos := map[string]bool{}
-	for _, l := range latest {
-		repos[l.Record.RepoID] = true
+	for _, repoID := range configured {
+		repos[repoID] = true
 	}
 	c.snapshotPolicy = &snapshotProjectionPolicy{namespace: c.namespace, version: version, profile: str(pol["profile"]), policyID: str(pol["policy_id"]), policyDigest: d,
 		resolution: res, repositories: repos, fields: copyProjectionFields(fields), allowed: maps.Clone(allowed)}

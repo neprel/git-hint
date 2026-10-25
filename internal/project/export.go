@@ -111,7 +111,12 @@ func buildPackage(s *store.Store, opt ExportOptions, receipt *projectionCollecto
 		latest = append(latest, l)
 	}
 	if receipt != nil {
-		receipt.freezeSnapshotPolicy(ver, pol, allowed, fields, res, latest)
+		// Scope follows configured identities, never a loaded snapshot's claims.
+		configured := make([]string, 0, len(s.Cfg.Repos))
+		for _, repo := range s.Cfg.Repos {
+			configured = append(configured, s.RepoID(repo))
+		}
+		receipt.freezeSnapshotPolicy(ver, pol, allowed, fields, res, configured)
 	}
 	if allowed["Snapshot"] {
 		payload := map[string]any{"snapshots": []any{}, "entities": []any{}, "relations": []any{}}

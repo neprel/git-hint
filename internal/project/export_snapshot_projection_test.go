@@ -327,3 +327,51 @@ func TestSnapshotProjectionOptionalFeaturesOmittedIncomplete(t *testing.T) {
 		t.Fatal("incomplete projection mutated package")
 	}
 }
+
+func TestSnapshotProjectionFrozenConfiguredScopeAfterCorruptLatest(t *testing.T) {
+	f, local, _, _ := projectionFixture(t)
+	configured := f.s.RepoID(f.s.Cfg.Repos[0])
+	foreign := strings.Repeat("f", 32)
+	original, _ := json.Marshal(local)
+	var good snapshot.Local
+	if e := json.Unmarshal(original, &good); e != nil {
+		t.Fatal(e)
+	}
+	local.Record.RepoID = foreign
+	for i := range local.Entities {
+		local.Entities[i].RepoID = foreign
+	}
+	var e error
+	local.Record.Digest, e = snapshot.Digest(local.Record, local.Entities, local.Relations)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = f.s.WriteJSON(local, "state", "snapshots", configured, local.Record.SnapshotID+".json"); e != nil {
+		t.Fatal(e)
+	}
+	before := projectionStateFiles(t, f.s.Path("state"))
+	plain, e := BuildPackage(f.s, ExportOptions{All: true, Now: memNow})
+	if e != nil {
+		t.Fatal(e)
+	}
+	pkg, receipt, e := BuildPackageWithReceipt(f.s, ExportOptions{All: true, Now: memNow})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !reflect.DeepEqual(plain, pkg) {
+		t.Fatal("configured scope fix changed ordinary package behavior")
+	}
+	if _, e = receipt.ProjectSnapshot(*local); e == nil {
+		t.Fatal("resealed foreign latest authorized a foreign projection")
+	}
+	p, e := receipt.ProjectSnapshot(good)
+	if e != nil {
+		t.Fatal("actual configured scope lost", e)
+	}
+	if state, _ := p.State(); state != "complete" || p.Metadata().Ref.RepoID != configured {
+		t.Fatal("configured identity replaced by stored foreign value")
+	}
+	if !reflect.DeepEqual(before, projectionStateFiles(t, f.s.Path("state"))) {
+		t.Fatal("projection repaired or changed stored state")
+	}
+}
