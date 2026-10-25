@@ -144,11 +144,33 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 	}
 	prov["reference_tree"] = rd
 	limit := time.Duration(t.spec.CaseSeconds) * time.Second
+	return compareFrozenIO(ctx, t, dir, prov, false, func(oracle bool, id string, repetition int) (caseRun, error) {
+		tree := candidate
+		if oracle {
+			tree = reference
+		}
+		return d.runCase(ctx, img, tree, t.spec.Entry, t.inputs[id], limit, lim)
+	})
+}
+
+// compareFrozenIO is the sole B1 reference/candidate comparison and output recipe.
+// Its executor is private runner plumbing, never a public caller-supplied source.
+func compareFrozenIO(ctx context.Context, t *ioTask, dir string, prov map[string]any, strict bool,
+	run func(oracle bool, id string, repetition int) (caseRun, error)) (float64, map[string]any, error) {
+	deadline := func() error {
+		if ctx.Err() != nil {
+			return timeoutError{"verifier"}
+		}
+		return nil
+	}
 	allNone := true // every run's networks as the engine reports them
 	expected, outputs, allNone, err := referenceExpectations(t, func(id string, repetition int) (caseRun, error) {
-		r, e := d.runCase(ctx, img, reference, t.spec.Entry, t.inputs[id], limit, lim)
+		r, e := run(true, id, repetition)
 		if de := deadline(); de != nil {
 			return r, referenceOverallDeadline{de}
+		}
+		if strict && !r.networkNone {
+			return r, errIOVerdict{"reference network not blocked"}
 		}
 		return r, e
 	})
@@ -160,12 +182,15 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 	pass := true
 	ch := sha256.New() // the captured candidate results, sealed on the host
 	for _, id := range t.spec.Cases {
-		r, err := d.runCase(ctx, img, candidate, t.spec.Entry, t.inputs[id], limit, lim)
+		r, err := run(false, id, 0)
 		if err := deadline(); err != nil {
 			return 0, prov, err
 		}
 		if err != nil {
 			return 0, prov, err // the engine failed: no verdict
+		}
+		if strict && (!r.usable() || !r.networkNone) {
+			return 0, prov, errIOVerdict{"candidate execution incomplete or network not blocked"}
 		}
 		allNone = allNone && r.networkNone
 		e := expected[id]

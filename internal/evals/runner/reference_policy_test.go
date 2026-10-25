@@ -98,6 +98,12 @@ func referencePolicySourceSet(fsys fs.FS, sources []ReferencePolicySource) error
 	if strings.Join(actual, "\x00") != strings.Join(expected, "\x00") {
 		return fmt.Errorf("runner source set mismatch: actual=%v embedded=%v", actual, expected)
 	}
+	for _, source := range sources {
+		raw, e := fs.ReadFile(fsys, source.Path)
+		if e != nil || int64(len(raw)) != source.Bytes || referenceDigest(raw) != source.Digest {
+			return fmt.Errorf("runner source bytes mismatch: %s", source.Path)
+		}
+	}
 	return nil
 }
 func TestReferencePolicyRunnerSourceSetMatchesEmbedded(t *testing.T) {
@@ -116,7 +122,11 @@ func TestReferencePolicySourceSetRejectsUnlistedAndMissingPlatformHelper(t *test
 	}
 	fixture := fstest.MapFS{}
 	for _, v := range sources {
-		fixture[v.Path] = &fstest.MapFile{Data: []byte("package runner\n")}
+		raw, e := referencePolicySources.ReadFile(v.Path)
+		if e != nil {
+			t.Fatal(e)
+		}
+		fixture[v.Path] = &fstest.MapFile{Data: raw}
 	}
 	fixture["reference_policy_catalogue.go"] = &fstest.MapFile{Data: []byte("package runner\n")}
 	fixture["irrelevant_test.go"] = &fstest.MapFile{Data: []byte("package runner\n")}

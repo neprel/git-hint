@@ -422,43 +422,14 @@ func (d *Docker) PrepareReference(ctx context.Context, taskDir string, o Referen
 		}
 		window := schedule[phaseIndex]
 		phaseIndex++
-		work := anchor.Add(time.Duration(window[0]) * time.Millisecond)
-		if earlier := time.Now().Add(duration); earlier.Before(work) {
-			work = earlier
+		audit, er := runBoundedPhase(ctx, cleanup, anchor, window, duration, p.cleanup, p.archiveCap, role, fn)
+		if audit != nil {
+			a.ScheduleDigest = referenceJSON(schedule)
+			a.Phases = append(a.Phases, *audit)
 		}
-		// Tighten all cleanup endpoints with the earlier work cap. No endpoint ever extends
-		// the complete schedule sealed before the first engine request.
-		stop := work.Add(p.cleanup / 3)
-		remove := work.Add(2 * p.cleanup / 3)
-		join := work.Add(p.cleanup)
-		x := &referencePhase{parent: cleanup, workEnd: work, stopEnd: stop, removeEnd: remove, joinEnd: join, anchor: anchor, archiveCap: p.archiveCap}
-		x.audit = ReferencePhaseAudit{Role: role, StartedMS: time.Since(anchor).Milliseconds(), WorkEndMS: work.Sub(anchor).Milliseconds(), StopEndMS: stop.Sub(anchor).Milliseconds(), RemoveEndMS: remove.Sub(anchor).Milliseconds(), JoinEndMS: join.Sub(anchor).Milliseconds()}
-		wc, cancel := context.WithDeadline(ctx, work)
-		wc = context.WithValue(wc, referencePhaseKey{}, x)
-		x.work = wc
-		if ctx.Err() != nil || !time.Now().Before(work) {
-			cancel()
-			return errReferencePrepare
-		}
-		er := fn(wc, x)
-		if wc.Err() != nil || time.Now().After(work) {
-			x.fail(errReferencePrepare)
-		}
-		if x.cid != "" && !x.removed {
-			x.ensureCleanup()
-		}
-		cancel()
-		x.audit.FinishedMS = time.Since(anchor).Milliseconds()
-		if time.Now().After(join) {
-			x.fail(errReferencePrepare)
-		}
-		a.ScheduleDigest = referenceJSON(schedule)
-		a.Phases = append(a.Phases, x.audit)
-		if er != nil || x.err != nil {
-			return errReferencePrepare
-		}
-		return nil
+		return er
 	}
+
 	var img string
 	e = phase("build", p.build, func(c context.Context, x *referencePhase) error {
 		info, e := d.cli.Info(c, client.InfoOptions{})
