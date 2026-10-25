@@ -42,6 +42,9 @@ type SuiteOptions struct {
 	// BackendCapture is the controlled research setup's explicit opt-in to the real backend
 	// captures of live attempts (never a default; the references use the store key)
 	BackendCapture *runner.SSHCapture
+	// ExpectedBackend compares the complete normal start capture before agent launch.
+	// Nil preserves existing behavior; this is metadata equality, not health/weight attestation.
+	ExpectedBackend *runner.CaptureSnapshot
 }
 
 // SuiteReport counts a suite run.
@@ -65,6 +68,15 @@ type SuiteReport struct {
 // RunSuite freezes a suite and runs bounded trials. Every attempt is recorded.
 func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersion string, o SuiteOptions, now time.Time) (SuiteReport, error) {
 	rep := SuiteReport{Outcomes: map[string]int{}}
+	if o.ExpectedBackend != nil {
+		if o.BackendCapture == nil || o.Live == nil || o.Agent != "opencode" {
+			return rep, fmt.Errorf("expected backend requires live OpenCode backend capture")
+		}
+		if _, ok := r.(*runner.Docker); !ok {
+			return rep, fmt.Errorf("expected backend requires the common Docker runner")
+		}
+		o.ExpectedBackend = o.ExpectedBackend.Copy()
+	}
 	if o.RipgrepBinary != "" && (o.StudyLaunchPolicy != runner.StudyLaunchSingleRootV1 || o.Agent != "opencode" || o.Live == nil || !o.CapturePrelaunchTree) {
 		return rep, fmt.Errorf("offline ripgrep requires the live OpenCode study runtime")
 	}
@@ -265,7 +277,7 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 					ro.Ripgrep = &runner.RipgrepSource{BinaryFile: o.RipgrepBinary}
 				}
 				if o.BackendCapture != nil {
-					ro.BackendCapture, ro.CaptureKey = o.BackendCapture, s.Key()
+					ro.BackendCapture, ro.CaptureKey, ro.ExpectedBackend = o.BackendCapture, s.Key(), o.ExpectedBackend
 				}
 			}
 			started := time.Now()

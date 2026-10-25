@@ -92,6 +92,7 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		res.err, res.final = err, true
 		return res
 	}
+	expected := o.ExpectedBackend.clone() // freeze the caller value before setup/capture
 	var cleanups []func() error
 	digest := "" // the attempt's execution digest; no agent_run is recorded without it
 	if o.Agent == "test-agent" {
@@ -101,9 +102,14 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 	// then captures the backend before the agent's launch
 	var capt *capturer
 	var startCap captureSide
+	if expected != nil {
+		startCap.status = CaptureNotAttempted
+	}
 	if transport, ref := o.captureOptions(); transport != nil && ref != nil && o.Counter.deferAssembly() {
 		capt = newCapturer(transport, ref)
-		startCap = capt.capture(ctx, o.Counter)
+		if expected == nil {
+			startCap = capt.capture(ctx, o.Counter)
+		}
 	}
 	finish := func(err error) liveResult {
 		if res.study != nil && res.study.State != "prepared" {
@@ -137,6 +143,9 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		return res
 	}
 	refuse := func(err error) liveResult { return finish(gateRefused(err)) }
+	if expected != nil && capt == nil {
+		return finish(errors.New("expected backend capture unavailable"))
+	}
 	cmd := o.agentCmd
 	env := gateEnv(o.Counter)
 	var recipe openCodeRecipe
@@ -268,7 +277,7 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 			return finish(err)
 		}
 	}
-	// the last step before the start request: the prestart intent of the caller (study launch only)
+	// The caller prestart intent follows setup and precedes the optional backend guard (study only).
 	if o.BeforeAgentStart != nil {
 		if res.study == nil || res.study.State != "prepared" {
 			return finish(errors.New("a launch hook requires a prepared study launch"))
@@ -277,6 +286,14 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 			Target: fmt.Sprint(res.agentBinary["target"]), Model: o.Live.model}
 		if err := o.BeforeAgentStart(facts); err != nil {
 			return finish(fmt.Errorf("the launch hook refused the attempt: %w", err))
+		}
+	}
+	// Guarded runs reuse the normal start capture here, after all setup/hook IO.
+	// This does not prevent a later backend change; downstream capture checks remain required.
+	if expected != nil {
+		startCap = capt.capture(ctx, o.Counter)
+		if ctx.Err() != nil || !expectedBackendMatches(expected, startCap) {
+			return finish(errors.New("expected backend start capture differs or is unavailable"))
 		}
 	}
 	runErr := runAgentEnclosed(ctx, d.cli, id, lim.agent, o.Counter, digest)

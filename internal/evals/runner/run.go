@@ -111,6 +111,9 @@ type RunOptions struct {
 	// references that replace raw backend identifiers
 	capture    captureTransport
 	captureRef func(kind, raw string) string
+	// ExpectedBackend requires an exact complete start snapshot immediately before launch.
+	// Nil preserves the existing capture behavior; it proves no health or loaded weights.
+	ExpectedBackend *CaptureSnapshot
 	// BackendCapture and CaptureKey are the explicit opt-in of the controlled research setup to
 	// the real capture transport (both needed; never a default, no CLI flag or configuration
 	// field sets them): the references replacing raw backend identifiers are derived with

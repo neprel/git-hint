@@ -23,6 +23,7 @@ import (
 // result holds the ledger as read after the attempt's teardown.
 
 type liveFakeOpts struct {
+	expectedBackend     *CaptureSnapshot
 	cutArchive          bool
 	clock               *ledgerClock
 	preexistingArtifact bool
@@ -158,7 +159,7 @@ func liveFake(t *testing.T, o liveFakeOpts) (trialResult, *Counter) {
 		os.MkdirAll(filepath.Join(dir, "agent"), 0700)
 		os.WriteFile(filepath.Join(dir, "agent", "prelaunch.tar"), []byte("foreign artifact"), 0600)
 	}
-	d.trial(ctx, task, dir, "t__1", RunOptions{CapturePrelaunchTree: o.prelaunch, Agent: "test-agent", Attempts: 1, Live: lv, Counter: c, agentCmd: []string{"test"}, testDigest: digest, capture: transportOf(o.capture), captureRef: refOf(o.capture)},
+	d.trial(ctx, task, dir, "t__1", RunOptions{ExpectedBackend: o.expectedBackend, CapturePrelaunchTree: o.prelaunch, Agent: "test-agent", Attempts: 1, Live: lv, Counter: c, agentCmd: []string{"test"}, testDigest: digest, capture: transportOf(o.capture), captureRef: refOf(o.capture)},
 		lim, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
 	var r trialResult
 	b, err := os.ReadFile(filepath.Join(dir, "result.json"))

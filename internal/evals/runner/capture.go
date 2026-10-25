@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"reflect"
 	"regexp"
 	"slices"
 	"time"
@@ -206,4 +207,23 @@ type ReportBackendCapture struct {
 	Collector map[string]string `json:"collector"`
 	Start     ReportCapture     `json:"start"`
 	End       ReportCapture     `json:"end"`
+}
+
+// Copy returns an owned snapshot, including all optional field values.
+func (s *CaptureSnapshot) Copy() *CaptureSnapshot { return s.clone() }
+
+// A guarded launch requires every allowlisted fact. These are observed metadata,
+// not health, loaded-weight, filesystem-mount or source/binary attestation.
+func completeExpectedBackend(s *CaptureSnapshot) bool {
+	if s == nil || !imageID.MatchString(s.ImageID) || !captureRefID.MatchString(s.HostRef) || !captureRefID.MatchString(s.ContainerRef) || s.StartedAt == nil || engineTime(*s.StartedAt) == nil || s.RestartCount == nil || *s.RestartCount < 0 || *s.RestartCount > 1<<53-1 {
+		return false
+	}
+	f := s.Flags
+	return f.PromptTokensDetails != nil && f.PrefixCaching != nil && f.MaxModelLen != nil && *f.MaxModelLen >= 1 && *f.MaxModelLen <= 1<<31-1 && f.ReasoningParser != nil && slices.Contains(reasoningParsers, *f.ReasoningParser) && f.ToolCallParser != nil && slices.Contains(toolCallParsers, *f.ToolCallParser) && f.ServedModelRef != nil && captureRefID.MatchString(*f.ServedModelRef)
+}
+
+var captureRefID = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+func expectedBackendMatches(expected *CaptureSnapshot, actual captureSide) bool {
+	return actual.status == CaptureComplete && completeExpectedBackend(expected) && completeExpectedBackend(actual.snap) && reflect.DeepEqual(expected, actual.snap)
 }

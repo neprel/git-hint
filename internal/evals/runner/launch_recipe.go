@@ -28,6 +28,12 @@ func (p StudyLaunchPolicy) Check() error {
 // SupportsStudyLaunchPolicy describes the runner implementation, not a prepared run.
 func (d *Docker) SupportsStudyLaunchPolicy(p StudyLaunchPolicy) bool { return p.Check() == nil }
 func (o RunOptions) checkStudyLaunch() error {
+	if o.ExpectedBackend != nil {
+		t, ref := o.captureOptions()
+		if !completeExpectedBackend(o.ExpectedBackend) || t == nil || ref == nil {
+			return errors.New("expected backend requires complete metadata and capture transport")
+		}
+	}
 	if o.Ripgrep != nil && (o.StudyLaunchPolicy != StudyLaunchSingleRootV1 || o.Ripgrep.BinaryFile == "" || o.OpenCode == nil || o.OpenCode.Version != DockerOpenCodeVersion) {
 		return errors.New("offline ripgrep requires the pinned OpenCode study runtime")
 	}
