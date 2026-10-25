@@ -1,16 +1,16 @@
 # HINT activity privacy v0.3
 
-Version0.3.0 is a draft minor schema family. It corrects the normal export of private model-ledger and membership identities. It does not change usage arithmetic.
+Version 0.3.0 is a draft minor schema family. It corrects the normal export of private model-ledger and membership identities. It does not change usage arithmetic.
 
 ## Compatibility
 
-Readers advertise supported major.minor families. A v0.3 reader accepts0.3 patch versions under the same schemas. Older0.1/0.2 schema bytes and patch behavior stay unchanged. Unsupported minor versions refuse. Evalreport versions use a separate protocol and schema namespace.
+Readers advertise supported major.minor families. A v0.3 reader accepts 0.3 patch versions under the same schemas. Older 0.1/0.2 schema bytes and patch behavior stay unchanged. Unsupported minor versions refuse. Evalreport versions use a separate protocol and schema namespace.
 
-The normal exporter selects0.3 for model-ledger or membership evidence. It never falls back to exporting their private identity fields under0.2 after a projection error. Existing local spools and runner records keep their exact original values.
+The normal exporter selects0.3 for model-ledger or membership evidence. It never falls back to exporting their private identity fields under 0.2 after a projection error. Existing local spools and runner records keep their exact original values.
 
 ## Private identity projection
 
-K is the existing project key. DeriveID and EvalRef retain the standard framing and128-bit output. Each new reference denotes minimized equality evidence, not a new physical record or a loading capability.
+K is the existing project key. DeriveID and EvalRef retain the standard framing and 128-bit output. Each new reference denotes minimized equality evidence, not a new physical record or a loading capability.
 
 | New field | Exact existing primitive and private input |
 |---|---|
