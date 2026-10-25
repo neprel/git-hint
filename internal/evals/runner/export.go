@@ -344,7 +344,7 @@ WORKDIR /app
 COPY repo/ /app/
 COPY setup.sh /opt/hint-setup.sh
 RUN sh /opt/hint-setup.sh && rm /opt/hint-setup.sh
-RUN git init -q && git add -A && git -c user.name=task -c user.email=task@example.invalid commit -qm init
+RUN git init -q && git add -A && git -c user.name=task -c user.email=task@example.invalid commit -qm init && chown -hR 65534:65534 /app
 `
 }
 

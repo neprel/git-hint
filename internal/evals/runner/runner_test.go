@@ -60,6 +60,15 @@ func TestExportLayoutAndIsolation(t *testing.T) {
 	if !strings.Contains(read("tests/Dockerfile"), "COPY . /tests") || read("tests/deps/go.mod") == "" {
 		t.Error("verifier image recipe incomplete")
 	}
+	// The live runner uses uid 65534. Git checks ownership of both the worktree
+	// and .git; overlaying candidate files alone leaves image-created .git root-owned.
+	environment := read("environment/Dockerfile")
+	if !strings.Contains(environment, "commit -qm init && chown -hR 65534:65534 /app\n") {
+		t.Error("the completed agent repository is not assigned to the live agent")
+	}
+	if strings.Contains(environment, "safe.directory") {
+		t.Error("repository ownership must not be bypassed with Git trust settings")
+	}
 	// the export is a deterministic function of the manifest
 	d1, _ := DirDigest(dir)
 	dir2 := filepath.Join(t.TempDir(), "task")

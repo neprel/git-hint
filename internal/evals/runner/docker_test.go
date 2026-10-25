@@ -184,6 +184,84 @@ func dockerOrSkip(t *testing.T) *Docker {
 	return d
 }
 
+// A real local-engine regression, without an AI agent or network: Git must work
+// as the normal agent uid while HOME stays unwritable. No image is downloaded.
+func TestDockerAgentGitOwnership(t *testing.T) {
+	if os.Getenv("HINT_DOCKER_TESTS") != "1" {
+		t.Skip("set HINT_DOCKER_TESTS=1 for the local no-model ownership check")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
+	d, err := FindDocker(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	base, err := d.cli.ImageInspect(ctx, "python:3.14.7-bookworm@sha256:bfb689a7986adc6d5f16722e06c78e755efe4062e56276715fef450cbad09436")
+	if err != nil {
+		t.Skip("the test needs the existing local Python image; it never pulls one")
+	}
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "repo"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for path, body := range map[string]string{
+		"Dockerfile": agentDockerfile(base.ID) + "RUN mkdir /locked-home && chmod 0555 /locked-home\n",
+		"setup.sh":   "#!/bin/sh\nset -eu\n",
+		"repo/a.txt": "initial\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, path), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	img, _, _, err := d.build(ctx, dir, "git-ownership-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pids := int64(64)
+	created, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{Image: img, User: "65534:65534", WorkingDir: "/app", Env: []string{"HOME=/locked-home"},
+			Cmd: []string{"/bin/sh", "-ec", `test "$(id -u)" = 65534
+test "$(stat -c '%u:%g' /app)" = 65534:65534
+test "$(stat -c '%u:%g' /app/.git)" = 65534:65534
+test ! -w "$HOME"
+git status --porcelain
+git diff --quiet
+printf 'changed\n' > a.txt
+test "$(git diff --name-only)" = a.txt`}},
+		HostConfig: &container.HostConfig{NetworkMode: "none", CapDrop: []string{"ALL"}, SecurityOpt: []string{"no-new-privileges:true"},
+			Resources: container.Resources{NanoCPUs: 1e9, Memory: 128 << 20, PidsLimit: &pids}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		cleanup, stop := context.WithTimeout(context.Background(), 30*time.Second)
+		defer stop()
+		if _, err := d.cli.ContainerRemove(cleanup, created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
+			t.Errorf("owned container cleanup: %v", err)
+		}
+	}()
+	if _, err := d.cli.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	result := d.cli.ContainerWait(ctx, created.ID, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	select {
+	case r, ok := <-result.Result:
+		if !ok {
+			t.Fatal("the container wait returned no result")
+		}
+		if r.Error != nil || r.StatusCode != 0 {
+			t.Fatalf("agent uid cannot use its Git worktree with locked HOME: exit %d, %v", r.StatusCode, r.Error)
+		}
+	case err := <-result.Error:
+		t.Fatalf("wait: %v", err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	t.Log("one no-network container: uid65534 Git status/diff/write passed with locked HOME; model requests0")
+}
+
 // syntheticTask is a task directory in the layout Export writes: environment/ (the agent
 // image), tests/ (the verifier image with the hidden check), solution/ (the reference).
 func syntheticTask(t *testing.T, solve string, agentSeconds int) string {
