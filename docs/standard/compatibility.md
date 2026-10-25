@@ -8,7 +8,7 @@
 - Before 1.0, a minor version can change fields. A reader accepts a document if it supports the document's major.minor version (`0.1`). A patch version (`0.1.x`) changes only text, examples or tests, never the schemas' accepted set.
 - A reader rejects a document of an unsupported minor version (`unsupported_version`). It does not try to read it partly.
 - Unknown fields are invalid at every level. A producer emits only the fields of the version it declares. Closed objects are a privacy property: an unknown field could carry content.
-- The CLI and the server each publish the list of `major.minor` versions they accept. Since v0.2 the list is `["0.1", "0.2"]` ([v0.2 changes](hint-data-v0.2.md)).
+- The CLI and the server each publish the list of `major.minor` versions they accept. With the v0.3 reader the list is `["0.1", "0.2", "0.3"]` ([v0.3 changes](hint-data-v0.3.md)). Earlier readers retain their advertised list.
 - Downgrade: a producer that supports a later version writes a v0.1 document by leaving out the fields that v0.1 does not define. It never maps a later field into another v0.1 field.
 - The change log is [`CHANGELOG.md`](CHANGELOG.md).
 

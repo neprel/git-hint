@@ -1,5 +1,12 @@
 # HINT data standard — change log
 
+## 0.3.0 (draft, 2026-10-25)
+
+- Normal model-ledger and membership exports replace private execution, image, launch and policy digests with project-keyed references. See [hint-data v0.3](hint-data-v0.3.md).
+- Existing v0.1/v0.2 schemas and patch compatibility stay unchanged. The unsupported-minor negative now uses0.4.0.
+- Export of a model-ledger body requires time resolution0. Truncating profiles refuse that body; aggregate or explicitly withheld bodies retain their existing policy behavior.
+- Local runner evidence and spools stay unchanged. This format establishes no runtime, calibration, source or completion authority.
+
 ## 0.2.0 (draft, 2026-10-18)
 
 - Optional `Observation.context`: a measurement of delivered context (action, stage, artifact, reference, snapshot, policy state and reference, freshness, result, UTF-8 bytes, omitted details, a labeled token estimate, `repeat_of`). It is allowed only on `DISCOVER`/`READ` observations with a tool call ID. See [hint-data v0.2](hint-data-v0.2.md).
