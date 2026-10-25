@@ -17,6 +17,67 @@ import (
 
 var errActivityPrivacy = errors.New("activity privacy projection refused")
 
+// errLedgerProfileUnsupported is deliberately static: exact nested instance timestamps
+// cannot satisfy a truncating profile. Lossy/coarse ledger support remains deferred.
+var errLedgerProfileUnsupported = errors.New("model_ledger_profile_unsupported")
+
+// activityPrivacyInputs limits dependencies to emitted rows. Only emitted membership
+// units retain their full predecessor frontier; controlled-only exports need no journal.
+func activityPrivacyInputs(all, emitted []activity.Observation) ([]activity.Observation, error) {
+	frontier := map[string]int{}
+	wanted := map[string]bool{}
+	epoch := func(o activity.Observation) (int, error) {
+		m, err := snapshot.Plain(o.Membership)
+		if err != nil {
+			return 0, errActivityPrivacy
+		}
+		events, ok := m["events"].([]any)
+		if !ok || len(events) == 0 {
+			return 0, errActivityPrivacy
+		}
+		first, ok := events[0].(map[string]any)
+		if !ok {
+			return 0, errActivityPrivacy
+		}
+		n, ok := first["epoch"].(float64)
+		if !ok || n < 1 || n > 1000 || n != float64(int(n)) {
+			return 0, errActivityPrivacy
+		}
+		return int(n), nil
+	}
+	for _, o := range emitted {
+		wanted[o.ObservationID] = true
+		if o.Membership == nil {
+			continue
+		}
+		n, err := epoch(o)
+		if err != nil {
+			return nil, err
+		}
+		if n > frontier[o.Membership.UnitRef] {
+			frontier[o.Membership.UnitRef] = n
+		}
+	}
+	out := make([]activity.Observation, 0, len(emitted))
+	for _, o := range all {
+		if wanted[o.ObservationID] {
+			out = append(out, o)
+			continue
+		}
+		if o.Membership == nil || frontier[o.Membership.UnitRef] == 0 {
+			continue
+		}
+		n, err := epoch(o)
+		if err != nil {
+			return nil, err
+		}
+		if n <= frontier[o.Membership.UnitRef] {
+			out = append(out, o)
+		}
+	}
+	return out, nil
+}
+
 // activityPrivacy owns copied wire values. Only BuildPackage constructs it from received
 // local state; no caller supplies a translation dictionary, callback, or authority flag.
 type activityPrivacy struct {

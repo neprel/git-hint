@@ -256,19 +256,32 @@ func BuildPackage(s *store.Store, opt ExportOptions) (*Package, error) {
 		if err != nil {
 			return nil, err
 		}
+		emitted := make([]activity.Observation, 0, len(obs))
+		for _, o := range obs {
+			if done[o.ObservationID] {
+				continue
+			}
+			// Ledger instance/anchor timestamps require lossless comparison. Coarse-ledger
+			// export is unsupported; never silently retain exact nested timestamps.
+			if o.ModelLedger != nil && contains(fields["Observation"], "model_ledger") && res > 0 {
+				return nil, errLedgerProfileUnsupported
+			}
+			emitted = append(emitted, o)
+		}
 		var private *activityPrivacy
 		if ver == version.ActivityPrivacyVersion {
-			private, err = newActivityPrivacy(s, obs, srcs, now)
+			inputs, selectErr := activityPrivacyInputs(obs, emitted)
+			if selectErr != nil {
+				return nil, errActivityPrivacy
+			}
+			private, err = newActivityPrivacy(s, inputs, srcs, now)
 			if err != nil {
 				return nil, errActivityPrivacy
 			}
 		}
 		var list []any
 		used := map[string]bool{}
-		for _, o := range obs {
-			if done[o.ObservationID] {
-				continue
-			}
+		for _, o := range emitted {
 			if _, ok := srcs[o.SourceID]; !ok {
 				return nil, fmt.Errorf("observation source %s is not registered; the spool is inconsistent", o.SourceID)
 			}

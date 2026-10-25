@@ -39,13 +39,15 @@ func privacySyntheticLedger(t *testing.T, f memFixture, x Execution) *activity.M
 		comps[k] = nil
 	}
 	zero := 0
+	// Explicit synthetic, non-minute-aligned instance times exercise the lossless-profile boundary.
+	started, finished := "2026-10-24T12:00:01.123Z", "2026-10-24T12:00:02.456Z"
 	snap := func() *activity.LedgerCaptureSnapshot {
-		return &activity.LedgerCaptureSnapshot{ImageID: "sha256:" + strings.Repeat("c", 64), HostRef: hint.DeriveID(f.s.Key(), "capture-host", "synthetic-host"), ContainerRef: hint.DeriveID(f.s.Key(), "capture-container", "synthetic-container")}
+		return &activity.LedgerCaptureSnapshot{StartedAt: &started, ImageID: "sha256:" + strings.Repeat("c", 64), HostRef: hint.DeriveID(f.s.Key(), "capture-host", "synthetic-host"), ContainerRef: hint.DeriveID(f.s.Key(), "capture-container", "synthetic-container")}
 	}
 	m := &activity.ModelLedger{LedgerRef: activity.LedgerRef(f.s.Key(), x.RunRef), Revision: 0, State: "incomplete", Reasons: []string{"no_requests"}, Counts: counts, Components: comps, ComponentCoverage: cov,
 		ModelCheck: "not_observed", Bypass: "enforced", Scope: "isolated_container", SealedAt: memNow.Format("2006-01-02T15:04:05Z"),
 		Binding:        activity.LedgerBinding{RunRef: x.RunRef, TaskID: x.TaskID, TaskFamilyID: activity.FamilyRef(f.s.Key(), "family"), ConfigurationDigest: f.cfg.Digest(), UnitRef: hint.EvalRef(f.s.Key(), "work-unit", memLabel), AttemptRef: x.AttemptRef, Origin: "project", ExecutionRef: x.ExecutionRef},
-		AgentRun:       &activity.LedgerAgentRun{Outcome: runner.AgentExited, ExitCode: &zero, ExecutionDigest: memExec},
+		AgentRun:       &activity.LedgerAgentRun{Outcome: runner.AgentExited, ExitCode: &zero, ExecutionDigest: memExec, EngineStartedAt: &started, EngineFinishedAt: &finished},
 		BackendCapture: &activity.LedgerBackendCapture{Method: "runner_bracket_v1", Collector: activity.LedgerCollector{Name: "hint-runner-capture", Version: "0.1.0"}, Start: activity.LedgerCapture{Status: "complete", Snapshot: snap()}, End: activity.LedgerCapture{Status: "complete", Snapshot: snap()}}}
 	if p := activity.LedgerProblems(*m); len(p) > 0 {
 		t.Fatalf("synthetic ledger inconsistent:%v", p)
@@ -330,5 +332,190 @@ func TestActivityPrivacyCopiesAndNoPartialResult(t *testing.T) {
 	}
 	if p, e := newActivityPrivacy(f.s, observations, sourcesBad, memNow); e == nil || p != nil {
 		t.Fatal("unknown local source produces partial result")
+	}
+}
+
+// AP-EC1: original independent scenario/assertions, test name only changed to avoid overlay collision.
+func TestActivityPrivacyControlledIncrementalSkipsExportedProject(t *testing.T) {
+	f := membershipFixture(t)
+	privacyActualEpoch(t, f, "already-exported")
+	old, e := BuildPackage(f.s, ExportOptions{All: true, Now: memNow})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = MarkExported(f.s, old, "file", "synthetic", memNow); e != nil {
+		t.Fatal(e)
+	}
+	observations, _, e := ReadSpool(f.s)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var diagnostic *activity.ModelLedger
+	for _, o := range observations {
+		if o.ModelLedger != nil {
+			m := *o.ModelLedger
+			diagnostic = &m
+			break
+		}
+	}
+	if diagnostic == nil {
+		t.Fatal("missing genuine fixture ledger")
+	}
+	k := f.s.Key()
+	diagnostic.Binding.RunRef = activity.RunRef(k, "synthetic-controlled-diagnostic")
+	diagnostic.Binding.TaskID = hint.DeriveID(k, "task", "synthetic-controlled-diagnostic")
+	diagnostic.Binding.UnitRef = hint.EvalRef(k, "work-unit", "synthetic-controlled-diagnostic")
+	diagnostic.Binding.AttemptRef = hint.EvalRef(k, "attempt", "synthetic-controlled-diagnostic")
+	diagnostic.Binding.Origin = ""
+	diagnostic.Binding.ExecutionRef = ""
+	diagnostic.LedgerRef = activity.LedgerRef(k, diagnostic.Binding.RunRef)
+	if len(activity.LedgerProblems(*diagnostic)) != 0 {
+		t.Fatal("diagnostic is not contract valid")
+	}
+	src := activity.LedgerSource(k, "opencode", f.cfg)
+	if e = AppendObservation(f.s, activity.LedgerObservation(k, src, *diagnostic)); e != nil {
+		t.Fatal(e)
+	}
+	before, e := BuildPackage(f.s, ExportOptions{Now: memNow})
+	if e != nil {
+		t.Fatal("positive incremental control", e)
+	}
+	if len(before.Observations) != 1 {
+		t.Fatal("package includes old project rows", len(before.Observations))
+	}
+	// That project was already exported. Its private journal is not a dependency
+	// of this new controlled-only wire package, and must not be opened again.
+	if e = os.WriteFile(f.s.Path("state", "work", workFile(f.s, memLabel)), []byte("malformed old project journal"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	after, e := BuildPackage(f.s, ExportOptions{Now: memNow})
+	if e != nil || after == nil {
+		t.Fatalf("controlled-only incremental export reads an already-exported project journal: %v", e)
+	}
+}
+
+func TestActivityPrivacyEmittedMembershipKeepsPredecessor(t *testing.T) {
+	f := membershipFixture(t)
+	privacyActualEpoch(t, f, "one")
+	first, e := BuildPackage(f.s, ExportOptions{All: true, Now: memNow})
+	if e != nil {
+		t.Fatal(e)
+	}
+	var previous map[string]any
+	for _, o := range wireObservations(activityWireDoc(t, first)) {
+		if m, ok := o.(map[string]any)["membership"].(map[string]any); ok {
+			previous = m
+		}
+	}
+	if e = MarkExported(f.s, first, "file", "synthetic", memNow); e != nil {
+		t.Fatal(e)
+	}
+	privacyActualEpoch(t, f, "two")
+	next, e := BuildPackage(f.s, ExportOptions{Now: memNow})
+	if e != nil {
+		t.Fatal(e)
+	}
+	count := 0
+	for _, o := range wireObservations(activityWireDoc(t, next)) {
+		if m, ok := o.(map[string]any)["membership"].(map[string]any); ok {
+			count++
+			events := m["events"].([]any)
+			want, _ := hint.Digest(previous)
+			if events[0].(map[string]any)["epoch"] != float64(2) || events[0].(map[string]any)["predecessor_epoch_digest"] != want {
+				t.Fatal("predecessor dependency dropped or wrong")
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatal("old membership was re-emitted")
+	}
+	all, _, e := ReadSpool(f.s)
+	if e != nil {
+		t.Fatal(e)
+	}
+	sources, e := Sources(f.s)
+	if e != nil {
+		t.Fatal(e)
+	}
+	var emitted []activity.Observation
+	for _, o := range all {
+		if o.Membership != nil && o.Membership.Events[0]["epoch"] == float64(2) {
+			emitted = append(emitted, o)
+		}
+	}
+	inputs, e := activityPrivacyInputs(all, emitted)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(inputs) != 2 {
+		t.Fatal("predecessor closure includes unrelated ledger rows or omits epoch")
+	}
+	if p, e := newActivityPrivacy(f.s, emitted, sources, memNow); e == nil || p != nil {
+		t.Fatal("missing predecessor silently accepted")
+	}
+}
+
+func TestActivityPrivacyLosslessLedgerProfileBoundary(t *testing.T) {
+	f := membershipFixture(t)
+	privacyActualEpoch(t, f, "one")
+	originalPolicy := f.s.Cfg.Policy
+	detailed, e := BuildPackage(f.s, ExportOptions{All: true, Now: memNow})
+	if e != nil || detailed == nil {
+		t.Fatal("detailed0 positive refused", e)
+	}
+	for _, raw := range wireObservations(activityWireDoc(t, detailed)) {
+		if l, ok := raw.(map[string]any)["model_ledger"].(map[string]any); ok {
+			if l["agent_run"].(map[string]any)["engine_started_at"] != "2026-10-24T12:00:01.123Z" ||
+				l["backend_capture"].(map[string]any)["start"].(map[string]any)["snapshot"].(map[string]any)["started_at"] != "2026-10-24T12:00:01.123Z" {
+				t.Fatal("detailed0 changed lossless instance times")
+			}
+		}
+	}
+	f.s.Cfg.Policy.Profile = "coarse"
+	f.s.Cfg.Policy.TimeResolutionSeconds = 60
+	if p, e := BuildPackage(f.s, ExportOptions{All: true, Now: memNow}); e == nil || p != nil || e.Error() != "model_ledger_profile_unsupported" {
+		t.Fatal("coarse ledger must refuse statically")
+	}
+	// Withholding the ledger body leaves only the ordinary outer timestamp projection.
+	fields, e := hint.RecordFieldsFor("0.3")
+	if e != nil {
+		t.Fatal(e)
+	}
+	keep := []string{}
+	for _, field := range fields["Observation"] {
+		if field != "model_ledger" {
+			keep = append(keep, field)
+		}
+	}
+	f.s.Cfg.Policy.Fields = map[string][]string{"Observation": keep}
+	withheld, e := BuildPackage(f.s, ExportOptions{All: true, Now: memNow})
+	if e != nil || withheld == nil {
+		t.Fatal("withheld ledger body incorrectly refuses", e)
+	}
+	for _, o := range wireObservations(activityWireDoc(t, withheld)) {
+		if _, present := o.(map[string]any)["model_ledger"]; present {
+			t.Fatal("withheld ledger body escaped")
+		}
+	}
+	f.s.Cfg.Policy = originalPolicy
+	f.s.Cfg.Policy.Profile = "aggregate"
+	f.s.Cfg.Policy.TimeResolutionSeconds = 60
+	aggregate, e := BuildPackage(f.s, ExportOptions{All: true, Now: memNow})
+	if e != nil || aggregate == nil {
+		t.Fatal("aggregate legitimate package refused", e)
+	}
+	for _, d := range aggregate.Docs {
+		if d.Type == "activity_stream" {
+			t.Fatal("aggregate emitted observations")
+		}
+	}
+	f.s.Cfg.Policy = originalPolicy
+	if e = MarkExported(f.s, detailed, "file", "synthetic", memNow); e != nil {
+		t.Fatal(e)
+	}
+	f.s.Cfg.Policy.Profile = "coarse"
+	f.s.Cfg.Policy.TimeResolutionSeconds = 60
+	if p, e := BuildPackage(f.s, ExportOptions{Now: memNow}); e != nil || p == nil {
+		t.Fatal("already exported ledgers triggered profile refusal", e)
 	}
 }
