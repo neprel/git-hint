@@ -89,7 +89,17 @@ func (l *Library) checkCachedObject(ctx context.Context, path string, want []byt
 		}
 		for i, name := range names {
 			current, e := root.Lstat(name)
-			if e != nil || !sameCachedInfo(infos[i], current) {
+			if e != nil {
+				return ErrCorrupt
+			}
+			stable := sameCachedInfo(infos[i], current)
+			if i < len(names)-1 {
+				// Another writer may add a sibling without replacing this
+				// directory. Its identity/type/mode must still match; the
+				// immutable leaf retains every strict content-metadata check.
+				stable = sameCachedAncestor(infos[i], current)
+			}
+			if !stable {
 				return ErrCorrupt
 			}
 		}
@@ -113,6 +123,10 @@ func (l *Library) checkCachedObject(ctx context.Context, path string, want []byt
 		return false, err
 	}
 	return false, nil
+}
+
+func sameCachedAncestor(a, b fs.FileInfo) bool {
+	return a != nil && b != nil && a.IsDir() && b.IsDir() && os.SameFile(a, b) && a.Mode() == b.Mode()
 }
 
 func sameCachedInfo(a, b fs.FileInfo) bool {

@@ -222,3 +222,142 @@ func TestCancelledCallerCannotAcceptCacheHitOrRepairDamage(t *testing.T) {
 		})
 	}
 }
+
+// Two real library handles publish different objects through the ordinary writer.
+// The existing afterOpen seam fixes the interleaving without sleeps or retries.
+func TestCachedUnrelatedWriterPreservesLeafHitAndRepair(t *testing.T) {
+	for _, damaged := range []bool{false, true} {
+		t.Run(map[bool]string{false: "hit", true: "repair"}[damaged], func(t *testing.T) {
+			s := project(t)
+			a, b := Open(s, 0), Open(s, 0)
+			want := []byte("synthetic immutable cached leaf")
+			digest := Digest(want)
+			path := cachedPath(t, a, want)
+			initial := want
+			if damaged {
+				initial = []byte("damaged regular leaf")
+			}
+			if e := os.WriteFile(path, initial, 0600); e != nil {
+				t.Fatal(e)
+			}
+			ancestor := filepath.Dir(filepath.Dir(path))
+			before, e := os.Stat(ancestor)
+			if e != nil {
+				t.Fatal(e)
+			}
+			leafBefore, e := os.Stat(path)
+			if e != nil {
+				t.Fatal(e)
+			}
+			other := []byte("synthetic distinct cached leaf")
+			if Digest(other)[7:9] == digest[7:9] {
+				t.Fatal("synthetic fixture bucket collision")
+			}
+			dispatched := false
+			same, e := a.checkCachedObject(context.Background(), path, want, func() {
+				dispatched = true
+				if _, e := b.PutObject(other); e != nil {
+					t.Fatal(e)
+				}
+				leafAfter, e := os.Stat(path)
+				if e != nil {
+					t.Fatal(e)
+				}
+				if !sameCachedInfo(leafBefore, leafAfter) {
+					t.Fatal("unrelated writer changed leaf identity")
+				}
+			})
+			after, se := os.Stat(ancestor)
+			if se != nil {
+				t.Fatal(se)
+			}
+			if !dispatched || !os.SameFile(before, after) || before.Mode() != after.Mode() || sameCachedInfo(before, after) {
+				t.Fatal("probe did not isolate mutable directory metadata")
+			}
+			if e != nil || same == damaged {
+				t.Fatalf("unrelated writer invalidated cache: hit=%t damaged=%t err=%v", same, damaged, e)
+			}
+			if damaged {
+				if _, e := os.Lstat(path); !errors.Is(e, os.ErrNotExist) {
+					t.Fatal("stable damaged leaf not removed", e)
+				}
+				if d, e := a.PutObject(want); e != nil || d != digest {
+					t.Fatal("repair publication", e)
+				}
+			}
+			got, e := a.GetObject(digest)
+			if e != nil || !bytes.Equal(got, want) {
+				t.Fatal("immutable cached leaf bytes", e)
+			}
+			got, e = b.GetObject(Digest(other))
+			if e != nil || !bytes.Equal(got, other) {
+				t.Fatal("unrelated published object changed", e)
+			}
+		})
+	}
+}
+
+func TestCachedAncestorReplacementAndModeRefuse(t *testing.T) {
+	for _, kind := range []string{"replacement_same_leaf", "symlink_same_leaf", "mode"} {
+		t.Run(kind, func(t *testing.T) {
+			l := Open(project(t), 0)
+			want := []byte("synthetic cached ancestor check")
+			path := cachedPath(t, l, want)
+			if e := os.WriteFile(path, want, 0600); e != nil {
+				t.Fatal(e)
+			}
+			parent := filepath.Dir(path)
+			held := parent + "-held"
+			leafBefore, e := os.Stat(path)
+			if e != nil {
+				t.Fatal(e)
+			}
+			same, e := l.checkCachedObject(context.Background(), path, want, func() {
+				switch kind {
+				case "mode":
+					if e := os.Chmod(parent, 0755); e != nil {
+						t.Fatal(e)
+					}
+				case "replacement_same_leaf":
+					if e := os.Rename(parent, held); e != nil {
+						t.Fatal(e)
+					}
+					if e := os.Mkdir(parent, 0700); e != nil {
+						t.Fatal(e)
+					}
+					// Preserve the exact leaf inode/bytes: the parent check must refuse.
+					if e := os.Link(filepath.Join(held, filepath.Base(path)), path); e != nil {
+						t.Fatal(e)
+					}
+				case "symlink_same_leaf":
+					if e := os.Rename(parent, held); e != nil {
+						t.Fatal(e)
+					}
+					if e := os.Symlink(filepath.Base(held), parent); e != nil {
+						t.Fatal(e)
+					}
+				}
+				leafAfter, e := os.Stat(path)
+				if e != nil {
+					t.Fatal(e)
+				}
+				if !sameCachedInfo(leafBefore, leafAfter) {
+					t.Fatal("fixture changed immutable leaf")
+				}
+			})
+			if e == nil || same {
+				t.Fatal("changed parent accepted")
+			}
+			got, se := os.ReadFile(path)
+			if se != nil || !bytes.Equal(got, want) {
+				t.Fatal("refusal changed cached bytes", se)
+			}
+			if kind == "symlink_same_leaf" {
+				info, se := os.Lstat(parent)
+				if se != nil || info.Mode()&os.ModeSymlink == 0 {
+					t.Fatal("refusal changed parent link", se)
+				}
+			}
+		})
+	}
+}
