@@ -280,6 +280,10 @@ func buildPackage(s *store.Store, opt ExportOptions, receipt *projectionCollecto
 			}
 			emitted = append(emitted, o)
 		}
+		// Local membership correspondence captures native facts before privacy projection.
+		for _, o := range emitted {
+			receipt.captureMembershipNative(o, srcs[o.SourceID], res > 0)
+		}
 		var private *activityPrivacy
 		if ver == version.ActivityPrivacyVersion {
 			inputs, selectErr := activityPrivacyInputs(obs, emitted)

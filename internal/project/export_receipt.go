@@ -1,7 +1,8 @@
 package project
 
 // Local factual correspondence only. No authority, enrollment, capture attestation,
-// key, raw execution/image value, source bytes or public wire field is added.
+// key, path, source bytes or public wire field is added. Native membership policy/
+// gate/launch/execution metadata is PRIVATE local-only correspondence.
 import (
 	"crypto/sha256"
 	"encoding/hex"
@@ -42,10 +43,12 @@ type LedgerProjection struct {
 // LocalProjectionReceipt is constructed only by the normal package builder.
 // Its rows are immutable through public accessors. It has no JSON wire form.
 type LocalProjectionReceipt struct {
-	namespace      string
-	state, reason  string
-	rows           []LedgerProjection
-	snapshotPolicy *snapshotProjectionPolicy
+	namespace                         string
+	state, reason                     string
+	rows                              []LedgerProjection
+	memberships                       []MembershipProjection
+	membershipState, membershipReason string
+	snapshotPolicy                    *snapshotProjectionPolicy
 }
 
 func (r *LocalProjectionReceipt) Namespace() string {
@@ -87,14 +90,20 @@ func BuildPackageWithReceipt(s *store.Store, opt ExportOptions) (*Package, *Loca
 }
 
 type projectionCollector struct {
-	namespace      string
-	rows           []LedgerProjection
-	failed         string
-	sawActivity    bool
-	snapshotPolicy *snapshotProjectionPolicy
+	namespace             string
+	rows                  []LedgerProjection
+	failed                string
+	sawActivity           bool
+	snapshotPolicy        *snapshotProjectionPolicy
+	membershipRows        []MembershipProjection
+	membershipBodies      map[string]map[string]any
+	membershipFailed      string
+	membershipNativeBytes int
+	membershipEventCount  int
 }
 
 func (c *projectionCollector) capture(o activity.Observation, src activity.Source, final map[string]any) {
+	c.bindMembershipFinal(o, final)
 	if c == nil || o.ModelLedger == nil || c.failed != "" {
 		return
 	}
@@ -153,6 +162,7 @@ func (c *projectionCollector) seal(doc Doc) {
 	sources, _ := body["sources"].([]any)
 	sha := sha256.Sum256(doc.Raw)
 	rawDigest := "sha256:" + hex.EncodeToString(sha[:])
+	c.sealMemberships(doc, body, rawDigest)
 	for i := range c.rows {
 		r := &c.rows[i]
 		r.DocumentID = doc.ID
@@ -224,7 +234,13 @@ func (c *projectionCollector) seal(doc Doc) {
 		r.State, r.Reason = "complete", ""
 	}
 }
-func (c *projectionCollector) finish() *LocalProjectionReceipt {
+func (c *projectionCollector) finish() (receipt *LocalProjectionReceipt) {
+	defer func() {
+		if receipt != nil {
+			receipt.memberships, receipt.membershipState, receipt.membershipReason = c.finishMemberships()
+		}
+	}()
+
 	if c.failed != "" {
 		return &LocalProjectionReceipt{namespace: c.namespace, snapshotPolicy: c.snapshotPolicy, state: "unavailable", reason: c.failed}
 	}
