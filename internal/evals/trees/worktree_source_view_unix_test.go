@@ -5,6 +5,7 @@ package trees
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,45 @@ import (
 	"github.com/neprel/git-hint/internal/testkit"
 	"golang.org/x/sys/unix"
 )
+
+// sourceViewDomain isolates this fixture from other packages' os.TempDir churn.
+// One trees test process owns the package cwd during the fixture. Its ancestors
+// must remain stable; this does not relax the production reader's identity checks.
+func sourceViewDomain(t *testing.T) string {
+	t.Helper()
+	cwd, e := os.Getwd()
+	if e != nil {
+		t.Fatal(e)
+	}
+	cwd, e = filepath.EvalSymlinks(cwd)
+	if e != nil {
+		t.Fatal(e)
+	}
+	domain, e := os.MkdirTemp(cwd, ".source-view-fixture-")
+	if e != nil {
+		t.Fatal(e)
+	}
+	owned, e := os.Lstat(domain)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !owned.IsDir() || owned.Mode().Perm() != 0700 {
+		t.Fatal("owned source fixture mode")
+	}
+	t.Cleanup(func() {
+		if e := removeOwnedSourceDomain(domain, owned); e != nil {
+			t.Error("owned source fixture cleanup refused")
+		}
+	})
+	return domain
+}
+func removeOwnedSourceDomain(domain string, owned os.FileInfo) error {
+	actual, e := os.Lstat(domain)
+	if e != nil || owned == nil || !actual.IsDir() || !os.SameFile(owned, actual) {
+		return errors.New("owned_source_fixture_changed")
+	}
+	return os.RemoveAll(domain)
+}
 
 func sourceViewFixture(t *testing.T) (*SelectedSourceView, string) {
 	t.Helper()
@@ -38,9 +78,15 @@ func sourceViewFixture(t *testing.T) (*SelectedSourceView, string) {
 			os.Unsetenv(key)
 		}
 	}
-	root := canonicalDir(t)
-	home := canonicalDir(t)
-	xdg := canonicalDir(t)
+	domain := sourceViewDomain(t)
+	for _, name := range []string{"root", "home", "xdg", "keys"} {
+		if e := os.Mkdir(filepath.Join(domain, name), 0700); e != nil {
+			t.Fatal(e)
+		}
+	}
+	root := filepath.Join(domain, "root")
+	home := filepath.Join(domain, "home")
+	xdg := filepath.Join(domain, "xdg")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	testkit.Git(t, root, "init", "-q")
@@ -52,7 +98,7 @@ func sourceViewFixture(t *testing.T) (*SelectedSourceView, string) {
 	if e := os.Remove(filepath.Join(root, "gone")); e != nil {
 		t.Fatal(e)
 	}
-	t.Setenv("HINT_KEY_DIR", t.TempDir())
+	t.Setenv("HINT_KEY_DIR", filepath.Join(domain, "keys"))
 	syntheticStore, _, e := store.Init(root, store.InitOptions{})
 	if e != nil {
 		t.Fatal(e)
@@ -452,5 +498,105 @@ func TestSourceViewObjectAlternatesActualAbsentFacts(t *testing.T) {
 		if !reflect.DeepEqual(found, map[string]bool{"alternates": true, "http-alternates": true}) {
 			t.Fatal("missing required alternate absence")
 		}
+	}
+}
+
+func TestSourceViewFixtureCleanupRejectsReplacement(t *testing.T) {
+	domain := sourceViewDomain(t)
+	owned, e := os.Lstat(domain)
+	if e != nil {
+		t.Fatal(e)
+	}
+	held := domain + "-held"
+	if e := os.Rename(domain, held); e != nil {
+		t.Fatal(e)
+	}
+	// This test owns both nodes, but the cleanup helper owns only the original.
+	defer func() {
+		if e := os.RemoveAll(domain); e != nil {
+			t.Error("replacement cleanup")
+		}
+		if e := os.Rename(held, domain); e != nil {
+			t.Error("original fixture restore")
+		}
+	}()
+	if e := os.Mkdir(domain, 0700); e != nil {
+		t.Fatal(e)
+	}
+	sentinel := filepath.Join(domain, "replacement-sentinel")
+	if e := os.WriteFile(sentinel, []byte("synthetic replacement"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e := removeOwnedSourceDomain(domain, owned); e == nil {
+		t.Fatal("replacement fixture cleanup admitted")
+	}
+	if raw, e := os.ReadFile(sentinel); e != nil || string(raw) != "synthetic replacement" {
+		t.Fatal("replacement deleted")
+	}
+}
+
+func TestSourceViewControlledSharedAncestorMutation(t *testing.T) {
+	v, _ := sourceViewFixture(t)
+	shared := filepath.Dir(v.home)
+	var beforeFact, afterFact SourceFact
+	var beforeAncestor, afterAncestor fileIdentity
+	observed := false
+	v.session.hooks.afterInventory = func() {
+		var e error
+		beforeFact, _, e = v.meta(v.session.ctx, "global_config", filepath.Join(v.home, ".gitconfig"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		first, e := openWorktreeRoot(shared, true)
+		if e != nil {
+			t.Fatal(e)
+		}
+		beforeAncestor = first.identity
+		if e := first.closeErr(); e != nil {
+			t.Fatal(e)
+		}
+		marker := filepath.Join(shared, "owned-ancestor-change")
+		if e := os.Mkdir(marker, 0700); e != nil {
+			t.Fatal(e)
+		}
+		owned, e := os.Lstat(marker)
+		if e != nil {
+			t.Fatal(e)
+		}
+		t.Cleanup(func() {
+			if e := removeOwnedSourceDomain(marker, owned); e != nil {
+				t.Error("owned marker cleanup refused")
+			}
+		})
+		second, e := openWorktreeRoot(shared, true)
+		if e != nil {
+			t.Fatal(e)
+		}
+		afterAncestor = second.identity
+		if e := second.closeErr(); e != nil {
+			t.Fatal(e)
+		}
+		afterFact, _, e = v.meta(v.session.ctx, "global_config", filepath.Join(v.home, ".gitconfig"))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if beforeFact.State != "observed_absent" || afterFact.State != "observed_absent" || beforeFact.AbsenceIdentity == afterFact.AbsenceIdentity {
+			t.Fatal("controlled absence identity did not change")
+		}
+		equalExceptIdentity := beforeFact
+		equalExceptIdentity.AbsenceIdentity = afterFact.AbsenceIdentity
+		if equalExceptIdentity != afterFact {
+			t.Fatal("another source fact field changed")
+		}
+		if !sameNode(beforeAncestor, afterAncestor) || beforeAncestor == afterAncestor {
+			t.Fatal("controlled ancestor metadata change missing")
+		}
+		t.Logf("controlled role=global_config field=absence_identity before=%s after=%s", beforeFact.AbsenceIdentity, afterFact.AbsenceIdentity)
+		t.Logf("controlled ancestor before=%+v after=%+v", beforeAncestor, afterAncestor)
+		observed = true
+	}
+	c, e := v.Capture(context.Background())
+	if e == nil || c != nil || !observed || v.checkPhase != "after_inventory_compare" {
+		t.Fatalf("controlled mutation refusal missing: observed=%t phase=%s", observed, v.checkPhase)
 	}
 }
