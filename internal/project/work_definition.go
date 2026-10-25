@@ -21,6 +21,7 @@ import (
 	"github.com/neprel/git-hint/internal/activity"
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/qualify"
+	"github.com/neprel/git-hint/internal/evals/runjournal"
 	"github.com/neprel/git-hint/internal/hint"
 	"github.com/neprel/git-hint/internal/snapshot"
 	"github.com/neprel/git-hint/internal/store"
@@ -45,6 +46,7 @@ func definitionSourceIdentity() string {
 		b, _ := definitionSources.ReadFile(n)
 		h.Write(b)
 	}
+	h.Write([]byte(runjournal.SourceIdentity()))
 	return fmt.Sprintf("sha256:%x", h.Sum(nil))
 }
 func definitionProblem(ctx context.Context, code string) error {

@@ -38,7 +38,7 @@ Store binding includes the observed canonical root node, root location, key iden
 
 ## Create, replay, and exact reload
 
-Creation inspects current received local work journals, membership records, sources, spool, activity batches, and controlled-run index under one nonblocking state lock. Existing work for the requested unit, orphaned or conflicting ownership, corrupt present history, and unsupported history shapes refuse creation. Default-path absence can pass only as explicitly inspected absence. It does not establish absence of deleted, unreceived, or outside work.
+Creation inspects current received local work journals, membership records, sources, spool, activity batches, and controlled-run index under one nonblocking state lock. The neutral `runjournal.Parse` reader checks exact controlled-run bytes against their filename, explicit manifest/member/unit fields, planned unit inventory, derived ownership, configuration, and complete revision chain. It uses the existing work-unit revision schema. Missing eligibility fields never default to known absence. A flag alone never establishes eligibility or authority. Failed terminal attempts remain in received history; missing task ownership refuses. Valid unrelated controlled journals can pass. Distinct runs can retain the same validated objective task; the parser does not declare those runs independent. Existing work for the requested unit, orphaned or conflicting ownership, corrupt present history, and unsupported history shapes refuse creation. Default-path absence can pass only as explicitly inspected absence. It does not establish absence of deleted, unreceived, or outside work.
 
 An identical create replay returns the original reference only after the same current-history checks. Changed inputs refuse replay. A later work start therefore blocks create replay. Exact reload remains readable after that start: it checks frozen input consistency, not current eligibility or prospective order. Reload never recertifies a start. Missing original qualification objects refuse reload; copied record objects do not replace that source.
 
@@ -52,9 +52,9 @@ Each operation uses one caller deadline capped at 30 seconds. Nested qualificati
 
 ## Retention and lock ownership
 
-Strong-reference deletion planning for these new records is not implemented. `Prune`, `Forget`, `Purge`, and `CollectGarbage` refuse destructive work whenever the definition-record path exists or cannot be inspected safely. An empty directory, corrupt file, or symlink also refuses. The guard executes before deletion.
+Strong-reference deletion planning for these new records is not implemented. `Prune`, `Forget`, `Purge`, `DeleteIndex`, and `CollectGarbage` refuse destructive work whenever the definition-record path exists or cannot be inspected safely. An empty directory, corrupt file, or symlink also refuses. The guard executes before deletion.
 
-Each destructive public entry takes the same nonblocking state lock as the writer. Private garbage collection does not reacquire it. The existing ordinary callers enter without ownership: CLI collect releases its lock before `AfterCollect`; MCP collect does the same; pipeline `Run` calls pruning without a state lock; CLI evaluation forgetting also enters unlocked. Standalone library operations follow that boundary. Concurrent ownership returns `store.ErrBusy`; no caller infers ownership from that error. Ordinary pipeline pruning still succeeds when no definition path exists.
+Each destructive public entry takes the same nonblocking state lock as the writer. Private index deletion and garbage collection do not reacquire it. The existing ordinary callers enter without ownership: CLI collect releases its lock before `AfterCollect`; MCP collect does the same; pipeline `Run` calls pruning without a state lock; CLI evaluation forgetting also enters unlocked. Standalone library operations follow that boundary. Concurrent ownership returns `store.ErrBusy`; no caller infers ownership from that error. Ordinary pipeline pruning still succeeds when no definition path exists.
 
 The finite production caller map is:
 
@@ -63,10 +63,10 @@ The finite production caller map is:
 | `internal/cli/cli.go`, collect | deferred `evalPass` → `AfterCollect` | explicit unlock before scheduling |
 | `internal/mcpserver/tools.go`, collect | `AfterCollect` | explicit unlock before call |
 | `internal/evals/pipeline/pipeline.go`, `Run` | `Library.Prune` | no state lock |
-| `internal/evals/pipeline/pipeline.go`, session pruning | `Library.CollectGarbage` | no state lock |
+| `internal/evals/pipeline/pipeline.go`, session pruning | `Library.DeleteIndex`, then `Library.CollectGarbage` | no state lock |
 | `internal/cli/eval.go`, evaluation forgetting | `Library.Forget` or `Library.Purge` | no state lock |
 
-Standalone destructive APIs use a fixed ten-second safety-inspection context, then attempt lock acquisition without waiting. Their private garbage collector reuses that ownership. No destructive caller joins or bypasses another caller's lock.
+Standalone destructive APIs use a fixed ten-second safety-inspection context, then attempt lock acquisition without waiting. Their private helpers reuse that ownership. The session pruning path cannot delete an index before the definition barrier. No destructive caller joins or bypasses another caller's lock.
 
 ## Unimplemented authority
 

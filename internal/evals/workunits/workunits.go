@@ -19,60 +19,18 @@ import (
 
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/report"
+	"github.com/neprel/git-hint/internal/evals/runjournal"
 	"github.com/neprel/git-hint/internal/evals/runner"
 	"github.com/neprel/git-hint/internal/hint"
 	projectstate "github.com/neprel/git-hint/internal/project"
 	"github.com/neprel/git-hint/internal/store"
 )
 
-// Member is one frozen suite member of a run.
-type Member struct {
-	Eval           string `json:"eval"`
-	EvalDigest     string `json:"eval_digest"`
-	Baseline       string `json:"baseline"`
-	BaselineDigest string `json:"baseline_digest"`
-	Objective      string `json:"objective"`
-	TaskFamily     string `json:"task_family"`
-	Eligible       bool   `json:"eligible"` // a refactor eval, or a feature eval with a B1 (cli-file-v1) declaration, run by a live agent
-	// Plan is the frozen plan binding of a refactor variant member (nil: unbound)
-	Plan map[string]any `json:"plan,omitempty"`
-}
-
-// Manifest is the immutable plan of one run, written before the first attempt.
-type Manifest struct {
-	RunID         string   `json:"run_id"`
-	Suite         string   `json:"suite"`
-	Agent         string   `json:"agent"`
-	AgentVersion  string   `json:"agent_version"`
-	Arm           string   `json:"arm"`
-	Attempts      int      `json:"attempts"`
-	RunnerVersion string   `json:"runner_version"`
-	ModelLabel    string   `json:"model_label"`
-	LaunchDigest  string   `json:"launch_digest"`
-	Harness       string   `json:"harness,omitempty"` // hint-docker; empty only in stored manifests of former Harbor runs
-	MaxRequests   int      `json:"max_requests"`
-	MaxSeconds    int      `json:"max_seconds"`
-	Members       []Member `json:"members"`
-	CreatedAt     string   `json:"created_at"`
-}
-
-// Unit is the journal of one controlled unit.
-type Unit struct {
-	Eval      string           `json:"eval"`
-	UnitRef   string           `json:"unit_ref"`
-	Scope     map[string]any   `json:"scope"`
-	State     string           `json:"state"`
-	Attempts  []map[string]any `json:"attempts"`
-	Trials    []string         `json:"trials"` // recorded trial names (deduplication)
-	Revisions []map[string]any `json:"revisions"`
-	Reported  []string         `json:"reported,omitempty"`
-}
-
-// Run is the stored manifest with its units.
-type Run struct {
-	Manifest Manifest `json:"manifest"`
-	Units    []*Unit  `json:"units"`
-}
+// Neutral aliases preserve the existing producer API and JSON bytes.
+type Member = runjournal.Member
+type Manifest = runjournal.Manifest
+type Unit = runjournal.Unit
+type Run = runjournal.Run
 
 var ErrRunExists = errors.New("the run manifest exists already")
 
@@ -131,7 +89,7 @@ func Start(s *store.Store, l *library.Library, m Manifest, now time.Time) error 
 			"eval_ref": ref("eval", mb.Eval), "baseline_ref": ref("eval", mb.Baseline), "arm": m.Arm, "planned_attempts": m.Attempts}
 		u := &Unit{Eval: mb.Eval, UnitRef: ref("work-unit", "controlled", m.RunID, mb.Eval), Scope: plain(scope).(map[string]any), State: "open",
 			Attempts: []map[string]any{}, Trials: []string{}}
-		if err := u.revise(); err != nil {
+		if err := u.Revise(); err != nil {
 			return err
 		}
 		r.Units = append(r.Units, u)
@@ -190,7 +148,7 @@ func Record(s *store.Store, l *library.Library, runID, eval, name string) error 
 	if len(u.Attempts) == r.Manifest.Attempts {
 		u.State = "closed" // every planned attempt has a terminal record
 	}
-	if err := u.revise(); err != nil {
+	if err := u.Revise(); err != nil {
 		return err
 	}
 	return s.WriteJSON(r, "state", "evals", "work", runFile(runID))
@@ -199,25 +157,7 @@ func Record(s *store.Store, l *library.Library, runID, eval, name string) error 
 // ScopeConfiguration is the canonical configuration of a controlled run (the scope of each of
 // its units, and the configuration its model ledgers are bound to).
 func ScopeConfiguration(key []byte, m Manifest) map[string]any {
-	ref := func(kind string, parts ...string) string { return hint.EvalRef(key, kind, parts...) }
-	limit := func(v int) map[string]any {
-		if v >= 1 {
-			return map[string]any{"state": "known", "value": v}
-		}
-		return map[string]any{"state": "unknown"}
-	}
-	harness := m.Harness
-	if harness == "" {
-		harness = "harbor"
-	}
-	return map[string]any{
-		"agent":          map[string]any{"name": m.Agent, "version": version(m.AgentVersion)},
-		"model":          map[string]any{"state": "known", "ref": ref("model", m.ModelLabel), "provenance": "launch_intent"},
-		"harness":        map[string]any{"kind": harness, "version": version(m.RunnerVersion)},
-		"context_policy": map[string]any{"state": "disabled"}, // HINT delivers no managed context in eval trials yet
-		"config_refs":    map[string]any{"state": "known", "refs": []any{ref("observed-config", "setting_override", m.LaunchDigest)}},
-		"budget":         map[string]any{"max_requests": limit(m.MaxRequests), "max_seconds": limit(m.MaxSeconds)},
-	}
+	return runjournal.ScopeConfiguration(key, m)
 }
 
 // attempt is the report form of one terminal trial (CU3/CU4).
@@ -299,33 +239,6 @@ func attempt(s *store.Store, run, eval, name string, t, ev map[string]any) map[s
 		"application_change_set": nil, "usage": usage, "usage_provenance": prov, "coverage": map[string]any{"tasks": 1, "tasks_with_complete_usage": complete},
 		"trial_ref": tr, "trial_outcome": outcome, "model_check": check, "ordinal": int(num(t["attempt"])),
 		"checks": map[string]any{"mandatory": len(mandatory), "present": present, "passed": passed}, "qualification": nullable(qual)}).(map[string]any)
-}
-
-// revise appends a revision when the reported form changed (state or attempts).
-func (u *Unit) revise() error {
-	scopeDigest, err := hint.Digest(plain(u.Scope))
-	if err != nil {
-		return err
-	}
-	var prev any
-	if n := len(u.Revisions); n > 0 {
-		last := u.Revisions[n-1]
-		b1, _ := json.Marshal(last["attempts"])
-		b2, _ := json.Marshal(plain(u.Attempts))
-		if last["state"] == u.State && string(b1) == string(b2) {
-			return nil
-		}
-		prev = last["revision_digest"]
-	}
-	r := map[string]any{"unit_ref": u.UnitRef, "origin": "controlled", "scope": u.Scope, "scope_digest": scopeDigest, "revision": len(u.Revisions) + 1,
-		"predecessor": prev, "state": u.State, "attempts": u.Attempts, "declared_by": "user"}
-	d, err := hint.Digest(plain(r))
-	if err != nil {
-		return err
-	}
-	r["revision_digest"] = d
-	u.Revisions = append(u.Revisions, plain(r).(map[string]any))
-	return nil
 }
 
 // Unreported returns the journaled revisions not yet sent, in run and unit order.

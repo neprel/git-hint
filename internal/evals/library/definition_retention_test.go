@@ -18,6 +18,9 @@ func TestDefinitionRetentionGuardBlocksEveryDestructiveEntry(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
+			if e = l.PutIndex("opencode/kept", map[string]string{"source": d}); e != nil {
+				t.Fatal(e)
+			}
 			p := s.Path("state", WorkDefinitionStateDir)
 			switch kind {
 			case "directory":
@@ -27,9 +30,13 @@ func TestDefinitionRetentionGuardBlocksEveryDestructiveEntry(t *testing.T) {
 			case "link":
 				os.Symlink(t.TempDir(), p)
 			}
-			for _, action := range []func() error{func() error { _, e := l.Prune(time.Now(), 1); return e }, func() error { _, e := l.Forget([]string{"anything"}); return e }, func() error { _, e := l.Purge(); return e }, func() error { _, e := l.CollectGarbage(); return e }} {
+			for _, action := range []func() error{func() error { _, e := l.Prune(time.Now(), 1); return e }, func() error { _, e := l.Forget([]string{"anything"}); return e }, func() error { _, e := l.Purge(); return e }, func() error { _, e := l.CollectGarbage(); return e }, func() error { return l.DeleteIndex("opencode/kept") }} {
 				if e = action(); !errors.Is(e, ErrDefinitionReferences) {
 					t.Fatal("destructive action did not refuse", e)
+				}
+				var index map[string]string
+				if e = l.Index("opencode/kept", &index); e != nil {
+					t.Fatal("index deleted before retention guard", e)
 				}
 				if _, e = l.GetObject(d); e != nil {
 					t.Fatal("referent deleted", e)
@@ -43,6 +50,9 @@ func TestDefinitionWriterAndDestructorUseSameNonblockingBoundary(t *testing.T) {
 	l := Open(s, 0)
 	d, e := l.PutObject([]byte("not yet referenced"))
 	if e != nil {
+		t.Fatal(e)
+	}
+	if e = l.PutIndex("opencode/kept", map[string]string{"source": d}); e != nil {
 		t.Fatal(e)
 	}
 	lock, e := s.TryLockStateContext(context.Background())
@@ -62,7 +72,17 @@ func TestDefinitionWriterAndDestructorUseSameNonblockingBoundary(t *testing.T) {
 	if _, e = l.GetObject(d); e != nil {
 		t.Fatal("busy destructor deleted bytes")
 	}
+	if e = Open(s, 0).DeleteIndex("opencode/kept"); !errors.Is(e, store.ErrBusy) {
+		t.Fatal("index destructor missed common lock", e)
+	}
+	var index map[string]string
+	if e = l.Index("opencode/kept", &index); e != nil {
+		t.Fatal("busy index destructor deleted bytes", e)
+	}
 	lock.Unlock()
+	if e = l.DeleteIndex("opencode/kept"); e != nil {
+		t.Fatal("ordinary index deletion refused", e)
+	}
 	if n, e := l.CollectGarbage(); e != nil || n != 1 {
 		t.Fatal("ordinary unowned garbage collection no longer works", n, e)
 	}

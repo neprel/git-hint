@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -369,6 +370,34 @@ func TestWorkDefinitionAllowsUnrelatedCleanUnitAndRefusesMissingStoredFacts(t *t
 				}
 			} else if !errors.Is(e, ErrWorkDefinition) {
 				t.Fatal("missing/invalid stored input accepted", e)
+			}
+		})
+	}
+}
+
+// DefinitionFixtureForExternalTest permits genuine controlled producer tests without
+// a project -> workunits production import cycle. It adds no production API.
+func DefinitionFixtureForExternalTest(t *testing.T) (*store.Store, *library.Library, DefinitionRequest, time.Time) {
+	f := definitionFixtureNew(t)
+	return f.s, f.l, f.request, f.now
+}
+
+func TestWorkDefinitionRejectsOriginalMalformedControlledHistory(t *testing.T) {
+	for _, raw := range []string{`{"units":[null]}`, `{"units":[{}]}`, `{"units":[],"manifest":{"run_id":"wrong"}}`} {
+		t.Run(raw, func(t *testing.T) {
+			f := definitionFixtureNew(t)
+			p := f.s.Path("state", "evals", "work", "jb-0000000000000042.json")
+			if e := os.MkdirAll(filepath.Dir(p), 0700); e != nil {
+				t.Fatal(e)
+			}
+			if e := os.WriteFile(p, []byte(raw), 0600); e != nil {
+				t.Fatal(e)
+			}
+			if _, e := WriteWorkDefinitionInputs(context.Background(), f.s, f.request, f.now); !errors.Is(e, ErrWorkDefinition) {
+				t.Fatal("malformed controlled history admitted", e)
+			}
+			if _, e := os.Lstat(f.s.Path("state", library.WorkDefinitionStateDir)); !os.IsNotExist(e) {
+				t.Fatal("definition reserved before history refusal", e)
 			}
 		})
 	}

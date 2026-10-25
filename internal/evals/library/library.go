@@ -432,6 +432,21 @@ func (l *Library) Indexes(group string) ([]string, error) {
 // DeleteIndex removes one index record (objects it alone named go at the next garbage
 // collection).
 func (l *Library) DeleteIndex(name string) error {
+	lock, e := l.destructiveStateLock()
+	if e != nil {
+		return e
+	}
+	defer lock.Unlock()
+	if e = l.definitionRetentionProblem(); e != nil {
+		return e
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.deleteIndex(name)
+}
+
+// deleteIndex requires the common state lock, definition barrier and library mutex.
+func (l *Library) deleteIndex(name string) error {
 	if !indexName.MatchString(name) || strings.Contains(name, "..") {
 		return fmt.Errorf("invalid index name %q", name)
 	}

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/neprel/git-hint/internal/activity"
+	"github.com/neprel/git-hint/internal/evals/runjournal"
 	"github.com/neprel/git-hint/internal/hint"
 )
 
@@ -298,27 +299,7 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 	if e != nil {
 		return nil, e
 	}
-	var hasUnit func(any) bool
-	hasUnit = func(v any) bool {
-		switch x := v.(type) {
-		case map[string]any:
-			for k, y := range x {
-				if (k == "unit_ref" || k == "work_unit_ref") && y == unit {
-					return true
-				}
-				if hasUnit(y) {
-					return true
-				}
-			}
-		case []any:
-			for _, y := range x {
-				if hasUnit(y) {
-					return true
-				}
-			}
-		}
-		return false
-	}
+	controlledOwners := map[string]string{}
 	for _, entry := range es {
 		if !entry.Type().IsRegular() || filepath.Ext(entry.Name()) != ".json" {
 			return nil, ErrWorkDefinition
@@ -327,14 +308,18 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 		if e != nil {
 			return nil, e
 		}
-		var v map[string]any
-		if definitionDecode(raw, &v) != nil || v == nil || hasUnit(v) {
+		received, e := runjournal.Parse(r.ctx, raw, entry.Name(), r.s.Key())
+		if e != nil {
 			return nil, ErrWorkDefinition
 		}
-		if _, ok := v["units"].([]any); !ok {
-			return nil, ErrWorkDefinition
+		for identity, owner := range received.Ownership() {
+			if identity == unit || units[identity] != nil || tasks[identity] != "" || (controlledOwners[identity] != "" && controlledOwners[identity] != owner) {
+				return nil, ErrWorkDefinition
+			}
+			controlledOwners[identity] = owner
 		}
 	}
+
 	sort.Strings(absent)
 	if r.ctx.Err() != nil {
 		return nil, r.ctx.Err()
