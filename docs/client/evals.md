@@ -131,6 +131,19 @@ correctness. The inputs stay on your machine and never reach the agent.
 
 ## Measuring agents
 
+Run pending qualification once in the foreground, without a model:
+
+```sh
+git hint eval qualify
+```
+
+The execution policy must allow container runs. Qualification retains the existing
+trial and phase limits. One original 600-second work deadline leaves 60 seconds
+for existing cleanup, within a 660-second total context. Interruptions or late
+completion return an error. Results already stored remain available. This uses
+cooperative cancellation; it does not install an OS process watchdog. Background
+qualification uses the same bounded worker.
+
 ```sh
 git hint eval run --agent oracle          # check the setup without a model
 git hint eval run --attempts 3            # OpenCode with the local model of the policy

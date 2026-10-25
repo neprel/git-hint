@@ -104,8 +104,12 @@ func (c *controlledEvalRun) apply(o *pipeline.SuiteOptions, key []byte) error {
 // existing runner's bounded teardown and proxy close a 300-second allowance.
 // Synchronous filesystem/SDK calls are cooperative, not an OS process watchdog.
 func controlledEvalContext(entered time.Time) (context.Context, context.Context, context.CancelFunc) {
+	return evalContext(entered, controlledRunTotal, controlledRunCleanup)
+}
+
+func evalContext(entered time.Time, bound, cleanup time.Duration) (context.Context, context.Context, context.CancelFunc) {
 	parent, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	total, cancelTotal := context.WithDeadline(parent, entered.Add(controlledRunTotal))
-	work, cancelWork := context.WithDeadline(total, entered.Add(controlledRunTotal-controlledRunCleanup))
+	total, cancelTotal := context.WithDeadline(parent, entered.Add(bound))
+	work, cancelWork := context.WithDeadline(total, entered.Add(bound-cleanup))
 	return work, total, func() { cancelWork(); cancelTotal(); stop() }
 }

@@ -47,6 +47,7 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
   git hint eval map ID [--apply FILE]
                                      print the requirement mapping file of an eval; --apply
                                      checks your edited file and stores a new version
+  git hint eval qualify              qualify pending evals in the foreground (no model)
   git hint eval run [ID...] [--agent opencode|oracle|nop] [--attempts N] [--arm ARM]
                                      freeze a suite of validated evals and run bounded trials
   git hint eval run ID --backend-expect FILE --study-launch single-root-v1
@@ -107,7 +108,7 @@ func cmdEval(e *Env, args []string) int {
 		return evalUnpack(e, args[1:])
 	case "declare-io":
 		return evalDeclareIO(e, args[1:])
-	case "__qualify":
+	case "qualify", "__qualify":
 		return evalWorker(e, args[1:])
 	case "help", "-h", "--help":
 		evalUsage(e)
@@ -523,13 +524,25 @@ func evalPass(e *Env, s *store.Store) {
 }
 
 // evalWorker qualifies pending evals within the policy budget; one worker per project.
-func evalWorker(e *Env, _ []string) int {
+func evalWorker(e *Env, args []string) int {
+	ctx, total, cancel := evalContext(time.Now(), 660*time.Second, 60*time.Second)
+	defer cancel()
+	fs := flags(e, "eval qualify", "qualifies pending evals in containers; follows the execution policy; no model requests")
+	if fs.Parse(args) != nil || fs.NArg() != 0 {
+		return 2
+	}
 	s, err := open(e)
 	if err != nil {
 		return fail(e, err)
 	}
 	if err := pipeline.CheckRunner(s.Cfg.Evals); err != nil { // before the lock file
 		return fail(e, err)
+	}
+	if err := s.Cfg.Evals.Check(evals.OpExecute, ""); err != nil {
+		return fail(e, err)
+	}
+	if ctx.Err() != nil {
+		return fail(e, ctx.Err())
 	}
 	lockp := s.Path("state", "evals", "worker.lock")
 	if err := s.CheckPath(lockp); err != nil {
@@ -545,7 +558,7 @@ func evalWorker(e *Env, _ []string) int {
 		fmt.Fprintln(e.Stdout, "another qualification worker runs; nothing to do")
 		return 0
 	}
-	h, _, closeRunner, err := pipeline.SelectRunner(context.Background(), s.Cfg.Evals)
+	h, _, closeRunner, err := pipeline.SelectRunner(ctx, s.Cfg.Evals)
 	if err != nil {
 		var u = runner.ErrUnavailable
 		if errors.Is(err, u) {
@@ -554,9 +567,21 @@ func evalWorker(e *Env, _ []string) int {
 		}
 		return fail(e, err)
 	}
-	defer closeRunner()
-	rep := pipeline.Qualify(context.Background(), s, h, e.Now())
+	defer func() {
+		if closeRunner != nil {
+			closeRunner()
+		}
+	}()
+	rep := pipeline.Qualify(ctx, s, h, e.Now())
+	closeRunner()
+	closeRunner = nil
+	if total.Err() != nil || ctx.Err() != nil {
+		return fail(e, errors.New("qualification exceeded its original deadline or was interrupted; recorded results remain stored"))
+	}
 	fmt.Fprintf(e.Stdout, "%s qualified %d (trials %d) states %v %s %s\n", e.Now().UTC().Format("2006-01-02T15:04:05Z"), rep.Qualified, rep.Trials, rep.States, rep.Blocked, rep.Stopped)
+	if total.Err() != nil || ctx.Err() != nil {
+		return 1
+	}
 	return 0
 }
 
