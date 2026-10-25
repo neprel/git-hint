@@ -143,3 +143,106 @@ func TestSaveSnapshotReturnsTheSameRevisionAfterACrashBeforeLatest(t *testing.T)
 		t.Fatal("latest pointer not completed", e)
 	}
 }
+
+// plantedNext collects a change, rolls latest back to a and returns paths plus the stored next record.
+func plantedNext(t *testing.T) (memFixture, *snapshot.Local, string, string, snapshot.Local) {
+	t.Helper()
+	f, a, _, _ := projectionFixture(t)
+	repo := f.s.RepoID(f.s.Cfg.Repos[0])
+	source := filepath.Join(f.s.RepoRoot(f.s.Cfg.Repos[0]), "main.go")
+	original, _ := os.ReadFile(source)
+	if e := os.WriteFile(source, append(append([]byte(nil), original...), []byte("\n// reseal\n")...), 0600); e != nil {
+		t.Fatal(e)
+	}
+	next := chainCollect(t, f, time.Second, false)
+	nextPath := f.s.Path("state", "snapshots", repo, next.Record.SnapshotID+".json")
+	latestPath := f.s.Path("state", "snapshots", repo, "latest.json")
+	if e := f.s.WriteJSON(latestRef{a.Record.SnapshotID}, "state", "snapshots", repo, "latest.json"); e != nil {
+		t.Fatal(e)
+	}
+	var stored snapshot.Local
+	if e := f.s.ReadJSON(&stored, "state", "snapshots", repo, next.Record.SnapshotID+".json"); e != nil {
+		t.Fatal(e)
+	}
+	return f, next, nextPath, latestPath, stored
+}
+
+func refusesUnchanged(t *testing.T, f memFixture, nextPath, latestPath string) {
+	t.Helper()
+	before, _ := os.ReadFile(nextPath)
+	latest, _ := os.ReadFile(latestPath)
+	if _, e := Collect(f.s, CollectOptions{Now: func() time.Time { return memNow.Add(3 * time.Second) }}); !errors.Is(e, ErrSnapshotConflict) {
+		t.Fatal("altered stored snapshot adopted", e)
+	}
+	if after, _ := os.ReadFile(nextPath); !bytes.Equal(after, before) {
+		t.Fatal("stored record changed")
+	}
+	if after, _ := os.ReadFile(latestPath); !bytes.Equal(after, latest) {
+		t.Fatal("latest moved on a conflict")
+	}
+}
+
+func TestSaveSnapshotRefusesResealedGraphUnderTheSameInputs(t *testing.T) {
+	f, _, nextPath, latestPath, stored := plantedNext(t)
+	stored.Entities[0].Stability = stored.Entities[0].Stability + "-altered"
+	var err error
+	if stored.Record.Digest, err = snapshot.Digest(stored.Record, stored.Entities, stored.Relations); err != nil {
+		t.Fatal(err)
+	}
+	if e := f.s.WriteJSON(&stored, "state", "snapshots", stored.Record.RepoID, stored.Record.SnapshotID+".json"); e != nil {
+		t.Fatal(e)
+	}
+	refusesUnchanged(t, f, nextPath, latestPath)
+}
+
+func TestSaveSnapshotRefusesResealedPrivateIndex(t *testing.T) {
+	f, _, nextPath, latestPath, stored := plantedNext(t)
+	id := stored.Entities[0].ID
+	ix := stored.Index[id]
+	ix.Hash, ix.Path = "altered-hash", "altered/path.go"
+	stored.Index[id] = ix
+	if e := f.s.WriteJSON(&stored, "state", "snapshots", stored.Record.RepoID, stored.Record.SnapshotID+".json"); e != nil {
+		t.Fatal(e)
+	}
+	refusesUnchanged(t, f, nextPath, latestPath)
+}
+
+func TestSaveSnapshotRefusesAnInvalidStoredCaptureTime(t *testing.T) {
+	f, _, nextPath, latestPath, stored := plantedNext(t)
+	stored.Record.CapturedAt = "2026-10-24T12:30:01+02:00"
+	var err error
+	if stored.Record.Digest, err = snapshot.Digest(stored.Record, stored.Entities, stored.Relations); err != nil {
+		t.Fatal(err)
+	}
+	if e := f.s.WriteJSON(&stored, "state", "snapshots", stored.Record.RepoID, stored.Record.SnapshotID+".json"); e != nil {
+		t.Fatal(e)
+	}
+	refusesUnchanged(t, f, nextPath, latestPath)
+}
+
+func TestSaveSnapshotNeverFollowsASymlinkedSnapshotPath(t *testing.T) {
+	f, _, nextPath, latestPath, _ := plantedNext(t)
+	foreign := filepath.Join(t.TempDir(), "foreign.json")
+	if e := os.WriteFile(foreign, []byte("{}"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Remove(nextPath); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Symlink(foreign, nextPath); e != nil {
+		t.Fatal(e)
+	}
+	latest, _ := os.ReadFile(latestPath)
+	if _, e := Collect(f.s, CollectOptions{Now: func() time.Time { return memNow.Add(3 * time.Second) }}); e == nil {
+		t.Fatal("a symlinked snapshot path was accepted")
+	}
+	if b, _ := os.ReadFile(foreign); string(b) != "{}" {
+		t.Fatal("foreign target changed")
+	}
+	if fi, e := os.Lstat(nextPath); e != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("symlink replaced")
+	}
+	if after, _ := os.ReadFile(latestPath); !bytes.Equal(after, latest) {
+		t.Fatal("latest moved")
+	}
+}

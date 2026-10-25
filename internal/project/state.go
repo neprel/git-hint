@@ -5,13 +5,14 @@ package project
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
-	"slices"
 	"sort"
+	"time"
 
 	"github.com/neprel/git-hint/internal/activity"
 	"github.com/neprel/git-hint/internal/snapshot"
@@ -46,22 +47,31 @@ func LoadSnapshot(s *store.Store, repoID, snapID string) (*snapshot.Local, error
 	if err := s.ReadJSON(&l, "state", "snapshots", repoID, snapID+".json"); err != nil {
 		return nil, err
 	}
-	// restore the local fields that the exported form does not carry
+	restoreLocalFields(&l)
+	return &l, nil
+}
+
+// restoreLocalFields restores the local entity fields that the exported form does not carry.
+func restoreLocalFields(l *snapshot.Local) {
 	for i := range l.Entities {
 		ix := l.Index[l.Entities[i].ID]
 		l.Entities[i].Path, l.Entities[i].Name, l.Entities[i].Line, l.Entities[i].Hash = ix.Path, ix.Name, ix.Line, ix.Hash
 	}
-	return &l, nil
 }
 
 // ErrSnapshotConflict reports a stored snapshot with the same ID but other build inputs.
 var ErrSnapshotConflict = errors.New("a different snapshot is already stored under this snapshot ID")
 
-// saveSnapshot stores a new snapshot and then moves the latest pointer to it. A stored
-// snapshot is never overwritten. The same bytes are idempotent. A stored record with the
-// same ID, repository, state key and parents is the same revision built earlier (for
-// example before a crash ahead of the latest pointer); it is returned unchanged. Any other
-// record under the ID refuses before the latest pointer changes.
+// snapshotMetadataAllowance bounds the stored copy of a same-revision snapshot: only the
+// capture time (fixed length), the digest (fixed length) and the scan-effort counters may
+// differ from the fresh build.
+const snapshotMetadataAllowance = 4096
+
+// saveSnapshot stores a new snapshot once and then moves the latest pointer to it. It uses
+// the confined no-follow create-once primitive, so a stored snapshot is never overwritten.
+// Equal stored bytes are idempotent. A stored record that is a valid earlier build of the
+// same scan result (for example before a crash ahead of the latest pointer) is returned
+// unchanged. Any other stored record or path refuses before the latest pointer changes.
 func saveSnapshot(s *store.Store, l *snapshot.Local) (*snapshot.Local, error) {
 	repo, id := l.Record.RepoID, l.Record.SnapshotID
 	b, err := json.MarshalIndent(l, "", "  ")
@@ -69,20 +79,25 @@ func saveSnapshot(s *store.Store, l *snapshot.Local) (*snapshot.Local, error) {
 		return nil, err
 	}
 	b = append(b, '\n')
-	stored, err := os.ReadFile(s.Path("state", "snapshots", repo, id+".json"))
+	ctx, elem := context.Background(), []string{"state", "snapshots", repo, id + ".json"}
+	limit := int64(len(b)) + snapshotMetadataAllowance
+	err = s.WriteStateImmutableContext(ctx, b, limit, elem...)
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		if err := s.WriteState(b, "state", "snapshots", repo, id+".json"); err != nil {
-			return nil, err
+	case err == nil:
+	case errors.Is(err, fs.ErrExist):
+		stored, err := s.ReadStateBounded(ctx, limit, elem...)
+		if err != nil {
+			return nil, errors.Join(ErrSnapshotConflict, err)
 		}
-	case err != nil:
+		if !bytes.Equal(stored, b) {
+			old, ok := sameRevision(stored, l)
+			if !ok {
+				return nil, ErrSnapshotConflict
+			}
+			l = old
+		}
+	default:
 		return nil, err
-	case !bytes.Equal(stored, b):
-		old, err := LoadSnapshot(s, repo, id)
-		if err != nil || !sameRevision(old, l) {
-			return nil, ErrSnapshotConflict
-		}
-		l = old
 	}
 	if err := s.WriteJSON(latestRef{id}, "state", "snapshots", repo, "latest.json"); err != nil {
 		return nil, err
@@ -90,14 +105,33 @@ func saveSnapshot(s *store.Store, l *snapshot.Local) (*snapshot.Local, error) {
 	return l, nil
 }
 
-// sameRevision reports whether a stored record is a valid earlier build of the same inputs.
-func sameRevision(old, cur *snapshot.Local) bool {
-	if old.Record.SnapshotID != cur.Record.SnapshotID || old.Record.RepoID != cur.Record.RepoID || old.StateKey != cur.StateKey ||
-		!slices.Equal(old.Record.ParentSnapshotIDs, cur.Record.ParentSnapshotIDs) {
-		return false
+// sameRevision returns the stored record when it is a valid earlier build of exactly the
+// same scan result: its capture time is a valid UTC second, its digest matches its records,
+// and after replacing only the capture time, the digest and the scan-effort counters
+// (parsed, reused) with the fresh values, the whole stored record equals the fresh build,
+// including the private index and the ambiguity map.
+func sameRevision(stored []byte, cur *snapshot.Local) (*snapshot.Local, bool) {
+	var old snapshot.Local
+	if json.Unmarshal(stored, &old) != nil {
+		return nil, false
 	}
-	d, err := snapshot.Digest(old.Record, old.Entities, old.Relations)
-	return err == nil && d == old.Record.Digest
+	at, err := time.Parse(time.RFC3339, old.Record.CapturedAt)
+	if err != nil || at.IsZero() || at.UTC().Format(time.RFC3339) != old.Record.CapturedAt {
+		return nil, false
+	}
+	if d, err := snapshot.Digest(old.Record, old.Entities, old.Relations); err != nil || d != old.Record.Digest {
+		return nil, false
+	}
+	norm := old
+	norm.Record.CapturedAt, norm.Record.Digest = cur.Record.CapturedAt, cur.Record.Digest
+	norm.Stats.Parsed, norm.Stats.Reused = cur.Stats.Parsed, cur.Stats.Reused
+	got, err1 := json.Marshal(norm)
+	want, err2 := json.Marshal(cur)
+	if err1 != nil || err2 != nil || !bytes.Equal(got, want) {
+		return nil, false
+	}
+	restoreLocalFields(&old)
+	return &old, true
 }
 
 // AppendObservation adds one observation to the spool.
