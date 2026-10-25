@@ -355,15 +355,31 @@ func resolve(p string) string {
 	if err != nil {
 		return filepath.Clean(p)
 	}
+	resolved, err := resolvePrefix(abs, true)
+	if err != nil {
+		return abs
+	}
+	return resolved
+}
+
+// resolveExistingPrefix shares resolve's alias rules but does not hide errors
+// other than missing suffix components. Legacy resolve retains its fallback.
+func resolveExistingPrefix(abs string) (string, error) {
+	return resolvePrefix(abs, false)
+}
+
+func resolvePrefix(abs string, legacyFallback bool) (string, error) {
 	rest := ""
 	cur := abs
 	for {
 		if ev, err := filepath.EvalSymlinks(cur); err == nil {
-			return filepath.Join(ev, rest)
+			return filepath.Join(ev, rest), nil
+		} else if !legacyFallback && !errors.Is(err, os.ErrNotExist) {
+			return "", err
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
-			return abs
+			return "", os.ErrNotExist
 		}
 		rest = filepath.Join(filepath.Base(cur), rest)
 		cur = parent

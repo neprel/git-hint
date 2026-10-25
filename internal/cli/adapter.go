@@ -270,22 +270,18 @@ func cleanAbs(p string) string {
 }
 
 // resolver maps an absolute path to a file ID when the path lies in a configured
-// repository. Both the configured and the symlink-resolved roots are checked.
+// repository. The shared repository path resolver handles root aliases.
 func resolver(s *store.Store) activity.Resolver {
 	type root struct{ dir, id string }
 	var roots []root
 	for _, r := range s.Cfg.Repos {
 		id := s.RepoID(r)
-		d := cleanAbs(s.RepoRoot(r))
-		roots = append(roots, root{d, id})
-		if ev, err := filepath.EvalSymlinks(d); err == nil && filepath.ToSlash(ev) != d {
-			roots = append(roots, root{filepath.ToSlash(ev), id})
-		}
+		roots = append(roots, root{s.RepoRoot(r), id})
 	}
 	return func(abs string) (string, bool) {
 		for _, r := range roots {
-			if rel, ok := strings.CutPrefix(abs, r.dir+"/"); ok && rel != "" && !strings.HasPrefix(rel, ".hint/") {
-				return hint.FileID(s.Key(), r.id, rel), true
+			if path, err := store.RepositoryPath(r.dir, abs); err == nil {
+				return hint.FileID(s.Key(), r.id, path.Relative), true
 			}
 		}
 		return "", false

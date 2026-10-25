@@ -1034,21 +1034,19 @@ func prepareVariants(e *Env, s *store.Store, arm string, ids, with []string, pla
 				return nil, false, fmt.Errorf("the repository %s of %s is not in this project", repoName, ref)
 			}
 			for _, w := range with {
-				abs, _ := filepath.Abs(w)
-				rel, err := filepath.Rel(root, abs)
-				fi, serr := os.Lstat(abs)
-				if err != nil || strings.HasPrefix(rel, "..") || serr != nil || !fi.Mode().IsRegular() {
+				path, err := store.RepositoryPath(root, w)
+				if err != nil || !path.Present || !path.Mode.IsRegular() {
 					return nil, false, fmt.Errorf("%s is not a regular file inside the repository %s", w, repoName)
 				}
-				data, err := os.ReadFile(abs)
+				data, err := os.ReadFile(path.Resolved)
 				if err != nil {
 					return nil, false, err
 				}
 				mode := "100644"
-				if fi.Mode()&0o111 != 0 {
+				if path.Mode&0o111 != 0 {
 					mode = "100755"
 				}
-				in.Context = append(in.Context, pipeline.ContextFile{Path: filepath.ToSlash(rel), Data: data, Mode: mode})
+				in.Context = append(in.Context, pipeline.ContextFile{Path: path.Relative, Data: data, Mode: mode})
 			}
 		}
 		v, err := pipeline.MakeVariant(l, ref, in, e.Now())
