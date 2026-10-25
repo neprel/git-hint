@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -37,14 +38,17 @@ func referenceBridgeIdentity() string {
 	return referenceBridgeIdentityFrom(referencePreparationSources)
 }
 func referenceBridgeIdentityFrom(sources fs.FS) string {
-	names := []string{"reference_preparation.go", "reference_preparation_records.go", "reference_preparation_unix.go", "reference_preparation_other.go", "prework_acceptance.go"}
+	names, e := referenceBridgeSourceNames(sources)
+	if e != nil || len(names) == 0 {
+		return ""
+	}
 	values := []string{ReferencePreparationVersion, preworkAcceptanceVersion}
 	for _, name := range names {
 		raw, e := fs.ReadFile(sources, name)
 		if e != nil {
 			return ""
 		}
-		values = append(values, library.Digest(raw))
+		values = append(values, name, library.Digest(raw))
 	}
 	values = append(values, definitionSourceIdentity(), store.BoundedStateSourceIdentity(), qualify.QualifiedInputSourceIdentity())
 	digest, e := hint.Digest(values)
@@ -52,6 +56,25 @@ func referenceBridgeIdentityFrom(sources fs.FS) string {
 		return ""
 	}
 	return digest
+}
+func referenceBridgeSourceNames(fsys fs.FS) ([]string, error) {
+	entries, e := fs.ReadDir(fsys, ".")
+	if e != nil {
+		return nil, e
+	}
+	out := []string{}
+	for _, entry := range entries {
+		n := entry.Name()
+		if (!strings.HasPrefix(n, "reference_preparation") && !strings.HasPrefix(n, "prework_acceptance")) || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		if !entry.Type().IsRegular() {
+			return nil, fs.ErrInvalid
+		}
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 func referenceRefused(code string) error {
 	return fmt.Errorf("%w: %s", ErrReferencePreparation, code)

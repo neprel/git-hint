@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -77,34 +76,15 @@ func TestPreworkReferenceWrapperRetainsEveryTypedBinding(t *testing.T) {
 
 // A build-time guard of the declared owned source families, not a runtime trust
 // lookup and not a claim about the whole transitive compiled project closure.
-func preworkDeclaredSourceSet(fsys fs.FS) ([]string, error) {
-	entries, e := fs.ReadDir(fsys, ".")
-	if e != nil {
-		return nil, e
-	}
-	out := []string{}
-	for _, entry := range entries {
-		n := entry.Name()
-		if (!strings.HasPrefix(n, "reference_preparation") && !strings.HasPrefix(n, "prework_acceptance")) || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
-			continue
-		}
-		if !entry.Type().IsRegular() {
-			return nil, fs.ErrInvalid
-		}
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out, nil
-}
 func TestPreworkDeclaredSourceSetAndVersionIdentity(t *testing.T) {
 	if preworkAcceptanceVersion != "project-prework-acceptance-v1" {
 		t.Fatal("unreviewed checkpoint version")
 	}
-	actual, e := preworkDeclaredSourceSet(os.DirFS("."))
+	actual, e := referenceBridgeSourceNames(os.DirFS("."))
 	if e != nil {
 		t.Fatal(e)
 	}
-	embedded, e := preworkDeclaredSourceSet(referencePreparationSources)
+	embedded, e := referenceBridgeSourceNames(referencePreparationSources)
 	if e != nil || !reflect.DeepEqual(actual, embedded) {
 		t.Fatal("declared source omission", actual, embedded, e)
 	}
@@ -126,16 +106,16 @@ func TestPreworkDeclaredSourceSetAndVersionIdentity(t *testing.T) {
 		t.Fatal("helper bytes missing from identity")
 	}
 	delete(fixture, "prework_acceptance.go")
-	if referenceBridgeIdentityFrom(fixture) != "" {
-		t.Fatal("missing helper accepted by identity")
+	if referenceBridgeIdentityFrom(fixture) == original {
+		t.Fatal("missing source membership did not change identity")
 	}
-	missing, _ := preworkDeclaredSourceSet(fixture)
+	missing, _ := referenceBridgeSourceNames(fixture)
 	if reflect.DeepEqual(missing, actual) {
 		t.Fatal("omitted helper escaped source-set guard")
 	}
 	fixture["prework_acceptance.go"] = &fstest.MapFile{Data: helper}
 	fixture["prework_acceptance_unlisted.go"] = &fstest.MapFile{Data: []byte("package project\n")}
-	added, _ := preworkDeclaredSourceSet(fixture)
+	added, _ := referenceBridgeSourceNames(fixture)
 	if reflect.DeepEqual(added, embedded) {
 		t.Fatal("unlisted compiled helper escaped source-set guard")
 	}
@@ -199,5 +179,49 @@ func TestPreworkNeutralCoreShapeRemainsClosed(t *testing.T) {
 		if actual.Name != want.name || actual.Type != want.typ || actual.IsExported() {
 			t.Fatal("typed immutable binding drift", actual.Name)
 		}
+	}
+}
+
+// PW-1: adding a file to BOTH the directory family and embedded family cannot
+// leave its bytes outside the identity. Both views use the ONE production recipe.
+func TestPreworkAddedEmbeddedFamilyBytesAndNamesBindIdentity(t *testing.T) {
+	names, e := referenceBridgeSourceNames(referencePreparationSources)
+	if e != nil {
+		t.Fatal(e)
+	}
+	directory := fstest.MapFS{}
+	embedded := fstest.MapFS{}
+	for _, name := range names {
+		raw, e := fs.ReadFile(referencePreparationSources, name)
+		if e != nil {
+			t.Fatal(e)
+		}
+		directory[name] = &fstest.MapFile{Data: raw}
+		embedded[name] = &fstest.MapFile{Data: append([]byte(nil), raw...)}
+	}
+	base := referenceBridgeIdentityFrom(embedded)
+	const extra = "reference_preparation_extra.go"
+	directory[extra] = &fstest.MapFile{Data: []byte("package project\nconst extraRule=1\n")}
+	embedded[extra] = &fstest.MapFile{Data: append([]byte(nil), directory[extra].Data...)}
+	dirNames, e := referenceBridgeSourceNames(directory)
+	if e != nil {
+		t.Fatal(e)
+	}
+	embedNames, e := referenceBridgeSourceNames(embedded)
+	if e != nil || !reflect.DeepEqual(dirNames, embedNames) {
+		t.Fatal("both source sets must match", e)
+	}
+	first := referenceBridgeIdentityFrom(embedded)
+	if first == "" || first == base {
+		t.Fatal("added embedded membership is unbound")
+	}
+	embedded[extra] = &fstest.MapFile{Data: []byte("package project\nconst extraRule=2\n")}
+	if changed := referenceBridgeIdentityFrom(embedded); changed == "" || changed == first {
+		t.Fatal("PW-1: added embedded file bytes are unbound")
+	}
+	delete(embedded, extra)
+	embedded["reference_preparation_renamed.go"] = directory[extra]
+	if referenceBridgeIdentityFrom(embedded) == first {
+		t.Fatal("source filename membership is unbound")
 	}
 }
