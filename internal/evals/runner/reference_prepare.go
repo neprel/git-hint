@@ -91,7 +91,15 @@ type referencePhase struct {
 	removed                                      bool
 	cleaning                                     bool
 	work                                         context.Context
+	candidateTerminal                            *candidateTerminalEvidence
 	cleanup                                      func()
+}
+
+// Only a complete strict candidate execution can create this private evidence.
+// It binds observed wait facts; it never permits an arbitrary nonzero status.
+type candidateTerminalEvidence struct {
+	container, image, command string
+	status                    int64
 }
 
 func referencePhaseFrom(ctx context.Context) *referencePhase {
@@ -218,6 +226,9 @@ func (d *Docker) removeForPhase(ctx context.Context, id string) {
 	ins, e := d.cli.ContainerInspect(c, id, client.ContainerInspectOptions{})
 	if e == nil && ins.Container.State != nil {
 		if ins.Container.State.Running {
+			if p.candidateTerminal != nil {
+				p.fail(errReferencePrepare)
+			}
 			seconds := 1
 			_, e = d.cli.ContainerStop(c, id, client.ContainerStopOptions{Timeout: &seconds})
 			if e != nil {
@@ -247,10 +258,14 @@ func (d *Docker) removeForPhase(ctx context.Context, id string) {
 			if ins.Container.Config == nil || referenceJSON(ins.Container.Config.Cmd) != p.audit.CommandDigest || ins.Container.Image != p.audit.ImageID {
 				p.fail(errReferencePrepare)
 			}
-			p.audit.ExitStatus = int64(ins.Container.State.ExitCode)
-			if ins.Container.State.ExitCode != 0 {
+			if expected := p.candidateTerminal; expected != nil {
+				if !p.audit.Started || !p.audit.WaitObserved || expected.container != p.cid || expected.container != ins.Container.ID || referenceDigest([]byte(expected.container)) != p.audit.ContainerRef || expected.image != p.audit.ImageID || expected.command != p.audit.CommandDigest || expected.status != p.audit.ExitStatus || expected.status != int64(ins.Container.State.ExitCode) {
+					p.fail(errReferencePrepare)
+				}
+			} else if ins.Container.State.ExitCode != 0 {
 				p.fail(errReferencePrepare)
 			}
+			p.audit.ExitStatus = int64(ins.Container.State.ExitCode)
 		} else {
 			p.fail(errReferencePrepare)
 		}

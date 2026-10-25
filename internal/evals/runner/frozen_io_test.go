@@ -94,13 +94,16 @@ func frozenFixture(t *testing.T) (*ioTask, taskLimits, frozenIORequest, *frozenV
 }
 
 func TestFrozenIOActualSharedCoreAndLifecycle(t *testing.T) {
-	for _, mode := range []string{"", "disagree"} {
+	for _, mode := range []string{"", "disagree", "equal-artifacts"} {
 		t.Run(mode, func(t *testing.T) {
 			d, f := referenceEngine(t, mode)
 			iot, lim, req, p := frozenFixture(t)
+			if mode == "equal-artifacts" {
+				req.candidate = req.reference
+			}
 			reward, prov, a, e := d.verifyFrozenIO(context.Background(), iot, lim, req, p)
 			wantState, wantReward, wantCheck := "finite_equivalence_observed", 1.0, "PASS"
-			if mode != "" {
+			if mode == "disagree" {
 				wantState, wantReward, wantCheck = "finite_difference_observed", 0.0, "FAIL"
 			}
 			if e != nil || reward != wantReward || a.State != wantState || a.Authority != "unknown" || len(a.Phases) != 3 {
@@ -118,7 +121,7 @@ func TestFrozenIOActualSharedCoreAndLifecycle(t *testing.T) {
 			if f.Creates != 3 || f.Builds != 0 || len(f.Copied) != 3 || len(f.Removed) != 3 {
 				t.Fatal("wrong physical population", f.Creates, f.Builds, len(f.Copied), len(f.Removed))
 			}
-			if !bytes.Equal(f.Copied[0], f.Copied[1]) || bytes.Equal(f.Copied[0], f.Copied[2]) {
+			if !bytes.Equal(f.Copied[0], f.Copied[1]) || (bytes.Equal(f.Copied[0], f.Copied[2]) != (mode == "equal-artifacts")) {
 				t.Fatal("actual/reference artifact substitution")
 			}
 			for _, phase := range a.Phases {
@@ -267,6 +270,41 @@ func TestFrozenIOUnusableCandidateIsUnknownButLegacyFails(t *testing.T) {
 				} else if e != nil || (kind != "network" && reward != 0) {
 					t.Fatal("legacy classification changed", reward, e)
 				}
+			}
+		})
+	}
+}
+
+func TestFrozenIOCandidateTerminalWaitInspectBinding(t *testing.T) {
+	for _, mode := range []string{"exit", "wait_exit", "inspect_exit", "running_after_wait", "reference_exit"} {
+		t.Run(mode, func(t *testing.T) {
+			fakeMode := ""
+			if mode == "reference_exit" {
+				fakeMode = "exit"
+			}
+			d, f := referenceEngine(t, fakeMode)
+			iot, lim, req, p := frozenFixture(t)
+			if mode != "reference_exit" {
+				f.BeforeCreate = func(bool) {
+					f.Mu.Lock()
+					defer f.Mu.Unlock()
+					if f.Creates == 2 {
+						f.Mode = mode
+					}
+				}
+			}
+			reward, prov, a, e := d.verifyFrozenIO(context.Background(), iot, lim, req, p)
+			if mode == "exit" {
+				if e != nil || reward != 0 || a.State != "finite_difference_observed" || len(a.Phases) != 3 || a.Phases[2].ExitStatus != 3 {
+					t.Fatal("complete candidate exit lost", reward, prov, a, e)
+				}
+			} else if e == nil || a.State != "unknown" {
+				t.Fatal("inconsistent or reference exit admitted", reward, prov, a, e)
+			}
+			f.Mu.Lock()
+			defer f.Mu.Unlock()
+			if len(f.Removed) != f.Creates {
+				t.Fatal("terminal path lost cleanup", f.Creates, len(f.Removed))
 			}
 		})
 	}

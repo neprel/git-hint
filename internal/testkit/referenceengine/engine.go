@@ -131,6 +131,7 @@ func Start(t *testing.T, Mode string, listener net.Listener) (*client.Client, *S
 		c := f.Cfg[id]
 		Removed := f.Removed[id]
 		Running := f.Running[id]
+		caseStarts := f.CaseStarts
 		f.Mu.Unlock()
 		switch {
 		case strings.HasSuffix(path, "/json"):
@@ -152,7 +153,14 @@ func Start(t *testing.T, Mode string, listener net.Listener) (*client.Client, *S
 			if Mode == "network" {
 				host = map[string]any{"NetworkMode": "bridge", "SecurityOpt": []string{"no-new-privileges:true"}}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"Id": id, "Image": c.Image, "Config": map[string]any{"Cmd": c.Cmd}, "HostConfig": host, "State": map[string]any{"Running": Running, "ExitCode": 0}, "NetworkSettings": map[string]any{"Networks": map[string]any{"none": map[string]any{}}}, "Mounts": []any{}})
+			exitStatus := 0
+			if Mode == "exit" || Mode == "inspect_exit" {
+				exitStatus = 3
+			}
+			if Mode == "running_after_wait" && caseStarts >= 3 {
+				Running = true
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"Id": id, "Image": c.Image, "Config": map[string]any{"Cmd": c.Cmd}, "HostConfig": host, "State": map[string]any{"Running": Running, "ExitCode": exitStatus}, "NetworkSettings": map[string]any{"Networks": map[string]any{"none": map[string]any{}}}, "Mounts": []any{}})
 		case r.Method == "DELETE":
 			if Mode == "remove_late" {
 				<-r.Context().Done()
@@ -197,7 +205,7 @@ func Start(t *testing.T, Mode string, listener net.Listener) (*client.Client, *S
 			f.Running[id] = false
 			f.Mu.Unlock()
 			status := 0
-			if Mode == "exit" {
+			if Mode == "exit" || Mode == "wait_exit" {
 				status = 3
 			}
 			fmt.Fprintf(w, `{"StatusCode":%d,"Error":null}`, status)

@@ -111,6 +111,12 @@ func (d *Docker) verifyFrozenIO(parent context.Context, t *ioTask, lim taskLimit
 			if !r.usable() || !r.networkNone {
 				return errReferencePrepare
 			}
+			if !oracle {
+				if !x.audit.Started || !x.audit.WaitObserved || x.audit.ExitStatus != r.status {
+					return errReferencePrepare
+				}
+				x.candidateTerminal = &candidateTerminalEvidence{x.cid, x.audit.ImageID, x.audit.CommandDigest, r.status}
+			}
 			return nil
 		})
 		if audit != nil {

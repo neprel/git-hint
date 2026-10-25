@@ -12,6 +12,13 @@ returns no verdict for incomplete input/output, timeout, missing network isolati
 uncertain cleanup or a late return. An observed finite output/status difference
 remains a failed comparison, not an unknown observation.
 
+A complete strict candidate may exit nonzero. Its actual wait result must agree
+with the final non-running inspection for the same container, image and command.
+Confirmed removal and every resource/network/deadline check still apply. A
+wait/inspect mismatch or running state after confirmed wait leaves no verdict.
+Reference/setup phases still require exit zero. Equal reference/actual artifact
+bytes remain valid inputs, including a legitimate no-change comparison.
+
 The strict primitive accepts only private runner artifact descriptors and a private
 purpose-specific policy checkpoint. No production code issues that checkpoint.
 Nil/unissued policy refuses before file/engine IO. There is no public raw-path API,
