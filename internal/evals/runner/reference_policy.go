@@ -51,7 +51,10 @@ type ReferencePreparationPolicyInfo struct {
 	BundleDigest, CatalogueDigest, EndpointDigest, SocketIdentityDigest string
 	EngineRef, EngineVersion, EngineOS, EngineArchitecture, APIVersion  string
 	Bounds                                                              ReferencePolicyBounds
-	Sources, Dependencies                                               []ReferencePolicySource
+	Sources                                                             []ReferencePolicySource
+	// Dependencies are exact declared source/module pins, not a complete transitive
+	// compiled-source closure or source-to-binary attestation.
+	Dependencies []ReferencePolicySource
 }
 type referenceSocketPin struct {
 	Size, MTimeSec, MTimeNS, CTimeSec, CTimeNS int64
@@ -95,9 +98,11 @@ func referenceEntryDigest(p referencePolicyEntry) string {
 	}{ReferencePreparationPolicyVersion, p.ID, p.BundleDigest, referenceDigest(catalogue), p.Endpoint, p.Socket, p.EngineRef, p.EngineVersion, p.EngineOS, p.EngineArchitecture, p.APIVersion, referenceBounds(p.Procedure)})
 }
 
-// SourceBundle covers procedure code, declared transitive source/module pins and the
-// actual Go toolchain/platform. Catalogue data is a separate identity, avoiding a
-// self-hash cycle when a future entry pins this code bundle. Neither is attestation.
+// SourceBundle covers embedded runner Go sources and the exact declared source/module
+// pins, plus the actual Go toolchain/platform. The source-set guard includes both
+// platform variants. These pins do not establish a complete transitive compiled-source
+// closure or source-to-binary correspondence. Catalogue data is separately bound to
+// avoid a self-hash cycle; none of these identities is attestation.
 func referenceBundleIdentity() (string, []ReferencePolicySource, []ReferencePolicySource, error) {
 	entries, e := referencePolicySources.ReadDir(".")
 	if e != nil {
