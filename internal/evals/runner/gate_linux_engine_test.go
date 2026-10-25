@@ -31,6 +31,14 @@ func TestProbeGateFromLinuxCaller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	priorContainers, err := d.cli.ContainerList(ctx, client.ContainerListOptions{All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	knownContainers := map[string]bool{}
+	for _, c := range priorContainers.Items {
+		knownContainers[c.ID] = true
+	}
 	known := map[string]bool{}
 	for _, n := range before.Items {
 		known[n.ID] = true
@@ -47,6 +55,15 @@ func TestProbeGateFromLinuxCaller(t *testing.T) {
 	for _, n := range after.Items {
 		if !known[n.ID] && n.Labels["hint"] == "q4" {
 			t.Errorf("new probe network remains: %s", n.ID)
+		}
+	}
+	remaining, err := d.cli.ContainerList(clean, client.ContainerListOptions{All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range remaining.Items {
+		if !knownContainers[c.ID] && c.ImageID == p.Image {
+			t.Errorf("new probe container remains: %s", c.ID)
 		}
 	}
 	if !p.OK || len(p.Checks) < 20 {
