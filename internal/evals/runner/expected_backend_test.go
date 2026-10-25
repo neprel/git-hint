@@ -256,3 +256,45 @@ func TestExpectedBackendSetupFailureKeepsStartNotAttempted(t *testing.T) {
 		t.Fatal("setup failure fabricated a start capture")
 	}
 }
+
+func TestExpectedBackendGuardPrecedesLaunchIntentHook(t *testing.T) {
+	f := &fakeTransport{answers: []fakeAnswer{{raw: raw()}, {raw: raw()}}}
+	hooks := 0
+	r, c, st := studyFake(t, studyFakeOptions{expectedBackend: expectedFixture(t), capture: f, hook: func(LaunchFacts) error {
+		hooks++
+		if f.calls != 1 {
+			t.Error("hook preceded completed start capture")
+		}
+		return nil
+	}})
+	if hooks != 1 || st.starts != 1 || c.Requests() != 1 || studyReceipt(t, r).State != "prepared" {
+		t.Fatal("positive guard/hook ordering", hooks, st.starts, c.Requests())
+	}
+}
+
+func TestExpectedBackendRefusalNeverCallsLaunchIntentHook(t *testing.T) {
+	for _, name := range []string{"mismatch", "missing", "error", "late"} {
+		t.Run(name, func(t *testing.T) {
+			actual := raw()
+			f := &fakeTransport{answers: []fakeAnswer{{raw: actual}, {raw: actual}}}
+			o := studyFakeOptions{expectedBackend: expectedFixture(t), capture: f}
+			switch name {
+			case "mismatch":
+				f.answers[0].raw.Container += "changed"
+			case "missing":
+				f.answers[0].raw.StartedAt = ""
+			case "error":
+				f.answers[0].err = errors.New("synthetic backend error")
+			case "late":
+				f.answers[0].lateBy = 60 * time.Millisecond
+				o.cancelAfter = 30 * time.Millisecond
+			}
+			hooks := 0
+			o.hook = func(LaunchFacts) error { hooks++; return nil }
+			r, c, st := studyFake(t, o)
+			if hooks != 0 || st.starts != 0 || c.Requests() != 0 || r.ExceptionInfo == nil {
+				t.Fatal("backend refusal recorded launch intent", hooks, st.starts, c.Requests())
+			}
+		})
+	}
+}

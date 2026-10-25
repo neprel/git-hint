@@ -24,6 +24,9 @@ import (
 )
 
 type studyFakeOptions struct {
+	expectedBackend                                       *CaptureSnapshot
+	capture                                               *fakeTransport
+	cancelAfter                                           time.Duration
 	preexisting, ambiguous, ancestor, launcher, inventory string
 	loader, mismatch                                      bool
 	hook                                                  func(LaunchFacts) error
@@ -353,7 +356,14 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 	if o.ripgrepFile != "" {
 		opts.Ripgrep = &RipgrepSource{BinaryFile: o.ripgrepFile}
 	}
-	d.trial(context.Background(), task, st.dir, "t__1", opts, taskLimits{agent: time.Second, verifier: time.Second, cpus: 1, memoryMB: 128}, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
+	opts.ExpectedBackend, opts.capture, opts.captureRef = o.expectedBackend, transportOf(o.capture), refOf(o.capture)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if o.cancelAfter > 0 {
+		timer := time.AfterFunc(o.cancelAfter, cancel)
+		defer timer.Stop()
+	}
+	d.trial(ctx, task, st.dir, "t__1", opts, taskLimits{agent: time.Second, verifier: time.Second, cpus: 1, memoryMB: 128}, images{agent: fakeGateID, verifier: fakeGateID}, nil, nil)
 	var result trialResult
 	raw, err := os.ReadFile(filepath.Join(st.dir, "result.json"))
 	if err != nil || json.Unmarshal(raw, &result) != nil {

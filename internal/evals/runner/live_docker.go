@@ -277,7 +277,15 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 			return finish(err)
 		}
 	}
-	// The caller prestart intent follows setup and precedes the optional backend guard (study only).
+	// Guarded runs reuse the normal start capture here, after setup and before caller intent.
+	// This does not prevent a later backend change; downstream capture checks remain required.
+	if expected != nil {
+		startCap = capt.capture(ctx, o.Counter)
+		if ctx.Err() != nil || !expectedBackendMatches(expected, startCap) {
+			return finish(errors.New("expected backend start capture differs or is unavailable"))
+		}
+	}
+	// The last step before start: caller intent follows every prestart check (study only).
 	if o.BeforeAgentStart != nil {
 		if res.study == nil || res.study.State != "prepared" {
 			return finish(errors.New("a launch hook requires a prepared study launch"))
@@ -286,14 +294,6 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 			Target: fmt.Sprint(res.agentBinary["target"]), Model: o.Live.model}
 		if err := o.BeforeAgentStart(facts); err != nil {
 			return finish(fmt.Errorf("the launch hook refused the attempt: %w", err))
-		}
-	}
-	// Guarded runs reuse the normal start capture here, after all setup/hook IO.
-	// This does not prevent a later backend change; downstream capture checks remain required.
-	if expected != nil {
-		startCap = capt.capture(ctx, o.Counter)
-		if ctx.Err() != nil || !expectedBackendMatches(expected, startCap) {
-			return finish(errors.New("expected backend start capture differs or is unavailable"))
 		}
 	}
 	runErr := runAgentEnclosed(ctx, d.cli, id, lim.agent, o.Counter, digest)
