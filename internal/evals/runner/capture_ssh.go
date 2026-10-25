@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"regexp"
 	"slices"
@@ -58,6 +59,14 @@ func (s *SSHCapture) argv() []string {
 
 func runSSH(ctx context.Context, argv []string, stdin []byte, stdout io.Writer) error {
 	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	// SSH needs the existing user configuration/search path and optional agent socket.
+	// Never inherit model/provider credentials, proxies or arbitrary caller variables.
+	c.Env = make([]string, 0, 3)
+	for _, name := range []string{"HOME", "PATH", "SSH_AUTH_SOCK"} {
+		if value, ok := os.LookupEnv(name); ok {
+			c.Env = append(c.Env, name+"="+value)
+		}
+	}
 	c.Stdin, c.Stdout, c.Stderr = bytes.NewReader(stdin), stdout, io.Discard // stderr is never recorded
 	c.WaitDelay = captureWaitDelay
 	return c.Run()

@@ -401,3 +401,69 @@ func TestSSHCaptureZeroAndLiteralNeverRun(t *testing.T) {
 		}
 	}
 }
+
+// An env child exercises the real exec path without SSH, sockets or a network.
+func TestRunSSHChildEnvironmentAllowlist(t *testing.T) {
+	envProgram, e := exec.LookPath("env")
+	if e != nil {
+		t.Fatal("synthetic env child unavailable")
+	}
+	allowed := map[string]string{"HOME": t.TempDir(), "PATH": "/synthetic/search/path", "SSH_AUTH_SOCK": "/synthetic/auth.sock"}
+	for k, v := range allowed {
+		t.Setenv(k, v)
+	}
+	for _, k := range []string{"HINT_LOCAL_MODEL_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AWS_SECRET_ACCESS_KEY", "HF_TOKEN", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "OPENCODE_CONFIG_CONTENT", "SSH_ASKPASS", "EXTRA_UNLISTED"} {
+		t.Setenv(k, "synthetic-secret-never-in-child")
+	}
+	var out limitedBuffer
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if e = runSSH(ctx, []string{envProgram}, nil, &out); e != nil {
+		t.Fatal("synthetic child failed")
+	}
+	got := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSuffix(out.buf.String(), "\n"), "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			t.Fatal("unexpected synthetic environment output")
+		}
+		if _, exists := got[k]; exists {
+			t.Fatal("duplicate synthetic environment name")
+		}
+		got[k] = v
+	}
+	if len(got) != len(allowed) {
+		t.Fatal("unlisted environment reached child")
+	}
+	for k, v := range allowed {
+		if got[k] != v {
+			t.Fatalf("allowed environment not preserved: %s", k)
+		}
+	}
+	if bytes.Contains(out.buf.Bytes(), []byte("synthetic-secret-never-in-child")) {
+		t.Fatal("synthetic credential reached child")
+	}
+}
+
+func TestRunSSHMissingAllowedEnvironmentDoesNotInherit(t *testing.T) {
+	envProgram, e := exec.LookPath("env")
+	if e != nil {
+		t.Fatal("synthetic env child unavailable")
+	}
+	for _, k := range []string{"HOME", "PATH", "SSH_AUTH_SOCK"} {
+		t.Setenv(k, "temporary")
+		if e = os.Unsetenv(k); e != nil {
+			t.Fatal(e)
+		}
+	}
+	t.Setenv("OPENAI_API_KEY", "synthetic-secret-never-in-child")
+	var out limitedBuffer
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if e = runSSH(ctx, []string{envProgram}, nil, &out); e != nil {
+		t.Fatal("synthetic child failed")
+	}
+	if out.buf.Len() != 0 {
+		t.Fatal("empty allowlist inherited parent environment")
+	}
+}
