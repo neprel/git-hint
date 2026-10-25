@@ -90,7 +90,7 @@ func firstActivity(t *testing.T, dir string) string {
 }
 
 // ledgerRecords are the ledger USAGE records of the exported activity document, which must be a
-// valid draft v0.2 document.
+// valid keyed v0.3 document.
 func ledgerRecords(t *testing.T, dir string) []map[string]any {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(dir, firstActivity(t, dir)))
@@ -101,8 +101,15 @@ func ledgerRecords(t *testing.T, dir string) []map[string]any {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if doc["hint_version"] != "0.2.0" {
+	if doc["hint_version"] != "0.3.0" {
 		t.Fatalf("version %v", doc["hint_version"])
+	}
+	for _, raw := range doc["sources"].([]any) {
+		src := raw.(map[string]any)
+		adapter := src["adapter"].(map[string]any)
+		if adapter["name"] == "hint-model-ledger" && adapter["version"] != "0.3.0" {
+			t.Fatal("export used the legacy ledger source version")
+		}
 	}
 	if fs := hint.Check(doc, nil); len(fs) > 0 {
 		t.Fatalf("semantic: %v", fs)
