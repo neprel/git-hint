@@ -119,3 +119,48 @@ validation must separately reuse the existing config parser/tree encoder plus a
 closed StateObject (Head/Branch/Facts) decoder against the bounded actual bytes.
 Those codecs are not implemented here. Their names do not grant producer or
 transaction authority; their exact APIs still need review.
+
+## LOCAL v1 wire and raw-object consistency
+
+`EncodeSelectedSourcePair` emits four canonical envelopes in `SelectedSourceWire`.
+`DecodeSelectedSourcePair` returns a private copied `DecodedSelectedSourcePair`.
+The exact envelopes are `{kind,receipt}` with kinds `git-selected-receipt-wire-v1`
+and `git-source-receipt-wire-v1`. Existing Go JSON member names are LOCAL v1 wire
+names. Explicit reviewed field lists cover every receipt/fact/stage/limits member;
+a shape-drift guard refuses changes until a wire-version review. Every member is
+required and non-null, including `Indexed=false`, empty strings and empty arrays.
+Duplicate/case-variant/unknown members, trailing values, noninteger counters, and
+invalid types refuse without partial output or raw error values.
+
+Consumer projection bounds are 8 MiB per envelope (32 MiB total), JSON depth16 and
+250,000 value nodes/envelope. These are not new reader-capture limits: an oversized
+projection can refuse without implying corrupted source. `Receipts()` returns deep
+copies. There is no capture-origin, clock-origin, authority, start or handoff token.
+
+`ObjectRefs()` returns the copied sorted exact raw-reference plan. `ValidateObjects`
+requires exactly that byte map, at most22,054 objects/128 MiB distinct bytes.
+Per-object caps are at most8 MiB; raw config query bytes are at most4 MiB; known
+source-file sizes retain the existing1 MiB source limit. Deduplicated role aliases
+intersect caps and must agree on exact known sizes. A known-empty object has a read
+cap of at least1 but exact expected size0; a one-byte replacement refuses. No
+method opens a file, Git process, store, URL, scanner or callback.
+
+Every referenced raw byte object gets the existing SHA-256 and size checks. Tree
+bytes equal the existing tree encoder projection, including empty `files:null`.
+State bytes retain the producer's exact `json.Marshal{Head,Branch,Facts}` encoding,
+with the same fact array and supported branch/ref shape. Head is40hex for exact
+SourceView v1: born-empty means an empty selected tree at a real `--allow-empty`
+commit, not unborn HEAD. Detached Branch is empty and has no optional loose-ref
+fact. The shared state encoder preserves nil/empty byte distinctions even where
+the supported source profile does not emit a nil fact array.
+
+Config query bytes use the SAME existing NUL parser/profile as the producer;
+file-origin scope must match an observed-present source fact. The validator does
+not implement Git config evaluation or binary index/packed-ref/ref parsing. It
+cannot prove query values derive from raw config files, or CLI Head/Branch values
+from raw Git files. Those file bytes get hash/size consistency only. Private raw
+paths, inode/absence claims, actual environment/executable selection and source
+origin remain unproved. Supplied consistent maps never mint source authority.
+
+These codecs add no source transaction, policy registry, retention edge, original
+start or durable acceptance/handoff treatment. Those producers remain held.

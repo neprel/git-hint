@@ -328,7 +328,19 @@ func parseConfig(b []byte) ([]configTuple, error) {
 	}
 	return rows, nil
 }
+
+type sourceConfigProfile struct {
+	root, gitdir string
+	candidates   []string
+}
+
 func (v *SelectedSourceView) originPath(origin string) (string, error) {
+	return (sourceConfigProfile{v.root, v.gitdir, v.candidates}).originPath(origin)
+}
+func (v *SelectedSourceView) validateConfig(rows []configTuple) error {
+	return (sourceConfigProfile{v.root, v.gitdir, v.candidates}).validateConfig(rows)
+}
+func (v sourceConfigProfile) originPath(origin string) (string, error) {
 	if !strings.HasPrefix(origin, "file:") {
 		return "", sourceProblem()
 	}
@@ -349,7 +361,7 @@ func (v *SelectedSourceView) originPath(origin string) (string, error) {
 	}
 	return "", sourceProblem()
 }
-func (v *SelectedSourceView) validateConfig(rows []configTuple) error {
+func (v sourceConfigProfile) validateConfig(rows []configTuple) error {
 	command := []configTuple{}
 	for _, r := range rows {
 		lower := strings.ToLower(r.Key)
@@ -660,10 +672,7 @@ func (v *SelectedSourceView) Capture(ctx context.Context) (*SelectedSourceViewCa
 	if e != nil {
 		return fail(e)
 	}
-	stateRaw, e := json.Marshal(struct {
-		Head, Branch string
-		Facts        []SourceFact
-	}{v.after.Head, v.after.Branch, v.after.Facts})
+	stateRaw, e := sourceStateBytes(v.after.Head, v.after.Branch, v.after.Facts)
 	if e != nil {
 		return fail(e)
 	}
@@ -760,4 +769,13 @@ func sourceFactsDigest(facts []SourceFact) string {
 		Domain string
 		Facts  []SourceFact
 	}{SourceViewVersion, facts})
+}
+
+type sourceStateObject struct {
+	Head, Branch string
+	Facts        []SourceFact
+}
+
+func sourceStateBytes(head, branch string, facts []SourceFact) ([]byte, error) {
+	return json.Marshal(sourceStateObject{head, branch, facts})
 }
