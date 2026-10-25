@@ -173,18 +173,7 @@ func (s *SelectedSourceSession) Capture(caller context.Context) (*SelectedCaptur
 	}
 	r.value.TreeDigest = digest
 	sort.Slice(r.value.Selected, func(i, j int) bool { return r.value.Selected[i].Path < r.value.Selected[j].Path })
-	facts := make([]selectedContentFact, len(r.value.Selected))
-	for i, v := range r.value.Selected {
-		facts[i] = selectedContentFact{v.Path, v.State, v.Mode, v.ObjectDigest, v.Size, v.Indexed}
-	}
-	r.value.SelectedInventoryDigest = receiptDigest(struct {
-		Domain string
-		Facts  []selectedContentFact
-	}{"git-selected-inventory-v1", facts})
-	r.value.StageInventoryDigest = receiptDigest(struct {
-		Domain string
-		Facts  []IndexStageFact
-	}{"git-selected-stage-inventory-v1", r.value.Stages})
+	r.value.SelectedInventoryDigest, r.value.StageInventoryDigest = selectedReceiptDigests(r.value)
 	if e = ctx.Err(); e != nil {
 		return fail(e)
 	}
@@ -308,3 +297,19 @@ func (r *receiptCapture) present(p string, e worktreeEntry, digest string) {
 }
 
 // No source/config resolver or public serialization is implied by these local values.
+
+func selectedReceiptDigests(r SelectedReceipt) (inventory, stage string) {
+	facts := make([]selectedContentFact, len(r.Selected))
+	for i, v := range r.Selected {
+		facts[i] = selectedContentFact{v.Path, v.State, v.Mode, v.ObjectDigest, v.Size, v.Indexed}
+	}
+	inventory = receiptDigest(struct {
+		Domain string
+		Facts  []selectedContentFact
+	}{"git-selected-inventory-v1", facts})
+	stage = receiptDigest(struct {
+		Domain string
+		Facts  []IndexStageFact
+	}{"git-selected-stage-inventory-v1", r.Stages})
+	return inventory, stage
+}

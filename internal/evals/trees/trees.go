@@ -102,11 +102,15 @@ func putTree(l *library.Library, files []File) (string, error) {
 }
 func putTreeContext(ctx context.Context, l *library.Library, files []File) (string, error) {
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-	b, err := json.Marshal(Tree{TreeVersion: 1, Files: files})
+	b, err := treeManifestBytes(files)
 	if err != nil {
 		return "", err
 	}
 	return l.PutObjectContext(ctx, b)
+}
+
+func treeManifestBytes(files []File) ([]byte, error) {
+	return json.Marshal(Tree{TreeVersion: 1, Files: files})
 }
 
 // Load reads a tree manifest.

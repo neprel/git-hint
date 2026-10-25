@@ -87,3 +87,35 @@ unselected, special, external, or outside-HINT work. Git may omit untracked FIFO
 Strict ancestor identities can conservatively refuse after unrelated directory
 metadata changes. Failed captures can leave unreferenced immutable objects; this
 slice supplies no retention implementation.
+
+## Pure receipt consumers
+
+`ResolveStrictCaptureLimits` delegates to the existing strict normalizer.
+`ValidateSelectedSourcePair(limits, selectedA, selectedB, sourceA, sourceB)` checks
+bounded structural/semantic consistency without IO. Explicit normalized limits
+also apply to tighter policies. Index modes need not equal unstaged worktree modes.
+It supports genuine empty and indexed-absent results. The helper bounds raw strings
+at8 MiB per receipt and its pure ignore-chain projection at8 MiB; this consumer
+bound does not add a source-capture projection cap. The shared projection now
+checks its existing1,024-entry cap during insertion as well as at return.
+
+The helper checks declared paths/stages/facts, counts, byte totals, semantic/tree
+projections, version/profile, counter relations and ordering within the private
+reader clock scope. It cannot prove a clock origin, capture origin, authority,
+actual environment selection or referenced raw object bytes. A future producer
+still needs a reviewed closed wire codec with required/non-null fields, plus
+bounded raw config/state/tree/content object verification through existing reader
+and parser recipes. No transaction, late-commit witness, start, retention or
+catalogue protocol is implemented by these helpers.
+
+The accompanying private empty-chain copy normalization preserves non-nil empty
+slices for the existing repeat comparison. It permits the current reader's born-
+empty two-pass case while still refusing an empty-to-nonempty ignore-chain change.
+It changes no selected/source facts, encoded bytes, limits or absence authority.
+
+The missing codec seam is a future pure `DecodeSelectedSourcePair` for four closed,
+required/non-null receipt envelopes before this typed validator. Referenced-object
+validation must separately reuse the existing config parser/tree encoder plus a
+closed StateObject (Head/Branch/Facts) decoder against the bounded actual bytes.
+Those codecs are not implemented here. Their names do not grant producer or
+transaction authority; their exact APIs still need review.

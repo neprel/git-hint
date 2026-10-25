@@ -549,27 +549,9 @@ func (v *SelectedSourceView) afterInventory(ctx context.Context, paths []string,
 			return sourceProblem()
 		}
 	}
-	chainSet := map[string]bool{}
-	for _, p := range paths {
-		if !validPath(p) {
-			return sourceProblem()
-		}
-		dir := filepath.Dir(filepath.FromSlash(p))
-		for {
-			chainSet[filepath.Join(v.root, dir, ".gitignore")] = true
-			if dir == "." {
-				break
-			}
-			dir = filepath.Dir(dir)
-		}
-	}
-	chain := make([]string, 0, len(chainSet))
-	for p := range chainSet {
-		chain = append(chain, p)
-	}
-	sort.Strings(chain)
-	if len(chain) > 1024 {
-		return sourceProblem()
+	chain, e := selectedIgnoreChain(v.root, paths, 0)
+	if e != nil {
+		return e
 	}
 	if v.pass == 1 && !reflect.DeepEqual(chain, v.firstChain) {
 		return sourceProblem()
@@ -701,10 +683,7 @@ func (v *SelectedSourceView) Capture(ctx context.Context) (*SelectedSourceViewCa
 	if v.pass == 1 {
 		timing = "observed_before_selection"
 	}
-	sourceDigest := receiptDigest(struct {
-		Domain string
-		Facts  []SourceFact
-	}{SourceViewVersion, v.after.Facts})
+	sourceDigest := sourceFactsDigest(v.after.Facts)
 	receipt := SourceViewReceipt{Version: SourceViewVersion, Authority: "unknown", State: "observed_source_inputs", ChainTiming: timing, Pass: r.Pass, InvocationIdentity: v.invocation.Identity(), ExecutableDigest: exe, ExecutableNode: node, CandidatePaths: append([]string(nil), v.candidates...), ConfigObject: cfg, StateObject: state, SourceDigest: sourceDigest, SelectedInventoryDigest: r.SelectedInventoryDigest, StageInventoryDigest: r.StageInventoryDigest, TreeDigest: r.TreeDigest, Facts: append([]SourceFact(nil), v.after.Facts...), SourceQueryAttempts: v.queries, SourceStdoutBytes: v.stdout, SourceStderrBytes: v.stderr, TotalDispatchAttempts: stats.Dispatches, PersistenceGuardAttempts: stats.Dispatches - v.queries, ExecutableReads: stats.ExecutableReads, ExecutableReadBytes: stats.ExecutableBytes, GuardStdoutBytes: stats.StdoutBytes - v.stdout, GuardStderrBytes: stats.StderrBytes - v.stderr, MetadataReads: v.reads[v.pass], MetadataBytes: v.readBytes[v.pass], BeginOffsetNS: r.BeginOffsetNS, EndOffsetNS: time.Since(v.session.anchor).Nanoseconds()}
 	if receipt.EndOffsetNS > int64(strictCaptureSeconds) {
 		return fail(context.DeadlineExceeded)
@@ -714,7 +693,7 @@ func (v *SelectedSourceView) Capture(ctx context.Context) (*SelectedSourceViewCa
 		v.firstSnapshot = &snapshot
 		copy := r
 		v.firstSelected = &copy
-		v.firstChain = append([]string(nil), v.chain...)
+		v.firstChain = append([]string{}, v.chain...)
 	}
 	v.pass++
 	return &SelectedSourceViewCapture{selected: selected, sources: receipt}, nil
@@ -737,4 +716,48 @@ func (v *SelectedSourceView) Close() error {
 		}
 	}
 	return e
+}
+
+func selectedIgnoreChain(root string, paths []string, maxBytes int64) ([]string, error) {
+	chainSet := map[string]bool{}
+	var used int64
+	for _, p := range paths {
+		if !validPath(p) {
+			return nil, sourceProblem()
+		}
+		dir := filepath.Dir(filepath.FromSlash(p))
+		for {
+			name := filepath.Join(root, dir, ".gitignore")
+			if !chainSet[name] {
+				used += int64(len(name))
+				if maxBytes > 0 && used > maxBytes {
+					return nil, sourceProblem()
+				}
+				chainSet[name] = true
+				if len(chainSet) > 1024 {
+					return nil, sourceProblem()
+				}
+			}
+			if dir == "." {
+				break
+			}
+			dir = filepath.Dir(dir)
+		}
+	}
+	chain := make([]string, 0, len(chainSet))
+	for p := range chainSet {
+		chain = append(chain, p)
+	}
+	sort.Strings(chain)
+	if len(chain) > 1024 {
+		return nil, sourceProblem()
+	}
+	return chain, nil
+}
+
+func sourceFactsDigest(facts []SourceFact) string {
+	return receiptDigest(struct {
+		Domain string
+		Facts  []SourceFact
+	}{SourceViewVersion, facts})
 }
