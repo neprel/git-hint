@@ -66,6 +66,12 @@ func findDockerWithOptions(ctx context.Context, opts ...client.Opt) (*Docker, er
 	v, err := cli.ServerVersion(ctx, client.ServerVersionOptions{})
 	if err != nil {
 		_ = cli.Close()
+		// The pinned SDK replaces permission causes with this fixed connection error.
+		// Return a static diagnostic without exposing the SDK's local endpoint text.
+		if errors.Is(err, fs.ErrPermission) || (client.IsErrConnectionFailed(err) &&
+			strings.HasPrefix(err.Error(), "permission denied while trying to connect to the docker API at ")) {
+			return nil, fmt.Errorf("%w: permission denied connecting to the Docker engine", ErrUnavailable)
+		}
 		return nil, fmt.Errorf("%w: the Docker engine is not running or not reachable", ErrUnavailable)
 	}
 	return &Docker{cli: cli, Version: v.Version}, nil
