@@ -49,19 +49,28 @@ var (
 )
 
 func readBackendInstance(path string) (backendInstance, []byte, error) {
-	var in backendInstance
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return in, nil, errors.New("the backend instance file is not readable")
+		return backendInstance{}, nil, errors.New("the backend instance file is not readable")
 	}
+	in, err := parseBackendInstance(b)
+	if err != nil {
+		return backendInstance{}, nil, err
+	}
+	return in, b, nil
+}
+
+// parseBackendInstance checks bytes that the caller read once (the checks of readBackendInstance).
+func parseBackendInstance(b []byte) (backendInstance, error) {
+	var in backendInstance
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
 	var extra json.RawMessage
 	if !uniqueMembers(b) || d.Decode(&in) != nil || d.Decode(&extra) != io.EOF || !profilePattern.MatchString(in.ProfileID) || !digestPattern.MatchString(in.WeightsID) ||
 		!digestPattern.MatchString(in.ImageID) || !validTime(in.StartedAt) || in.RestartCount == nil || *in.RestartCount < 0 {
-		return backendInstance{}, nil, errors.New("the backend instance file is not usable")
+		return backendInstance{}, errors.New("the backend instance file is not usable")
 	}
-	return in, b, nil
+	return in, nil
 }
 
 // validTime is an RFC 3339 timestamp that names an actual instant.
@@ -268,4 +277,39 @@ func TestBackendRecordReviewRegressions(t *testing.T) {
 	if _, err := backendRecord(s, m.RunID, expect, instance); err == nil {
 		t.Error("a repeated expect member was accepted")
 	}
+}
+
+// The path reader and the byte parser are one check: equal results, errors and returned bytes.
+func TestBackendInstanceParserMatchesPathReader(t *testing.T) {
+	dir := t.TempDir()
+	valid := `{"profile_id":"example-profile","weights_id":"sha256:` + strings.Repeat("b", 64) + `","image_id":"sha256:` + strings.Repeat("e", 64) +
+		`","started_at":"2026-01-02T03:04:05.000000006Z","restart_count":0}`
+	cases := []string{valid,
+		strings.Replace(valid, `"restart_count":0`, `"restart_count":-1`, 1),
+		strings.Replace(valid, `"restart_count":0`, `"restart_count":null`, 1),
+		strings.Replace(valid, `"profile_id":"example-profile"`, `"profile_id":"a","profile_id":"b"`, 1),
+		strings.Replace(valid, `"started_at":"2026-01-02T03:04:05.000000006Z"`, `"started_at":"2026-02-30T00:00:00Z"`, 1),
+		strings.Replace(valid, `}`, `,"extra":1}`, 1),
+		valid + " {}", "", "null"}
+	for i, c := range cases {
+		path := filepath.Join(dir, strconv.Itoa(i))
+		os.WriteFile(path, []byte(c), 0o600)
+		in, raw, perr := readBackendInstance(path)
+		bin, berr := parseBackendInstance([]byte(c))
+		if (perr == nil) != (berr == nil) || !sameBackendInstance(in, bin) || (perr == nil && string(raw) != c) || (perr != nil && (raw != nil || perr.Error() != berr.Error())) {
+			t.Fatalf("case %d: path %v %v, bytes %v %v", i, in, perr, bin, berr)
+		}
+		if (i == 0) != (perr == nil) {
+			t.Fatalf("case %d: unexpected result %v", i, perr)
+		}
+	}
+	if _, raw, err := readBackendInstance(filepath.Join(dir, "missing")); err == nil || raw != nil || err.Error() != "the backend instance file is not readable" {
+		t.Fatal("a missing file was not refused as unreadable")
+	}
+}
+
+func sameBackendInstance(a, b backendInstance) bool {
+	ra, rb := a.RestartCount, b.RestartCount
+	a.RestartCount, b.RestartCount = nil, nil
+	return a == b && (ra == nil) == (rb == nil) && (ra == nil || *ra == *rb)
 }
