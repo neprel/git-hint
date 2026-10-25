@@ -20,6 +20,7 @@ func openWorktreeRoot(root string, strict bool) (*worktreeRoot, error) {
 	return &worktreeRoot{root}, nil
 }
 func (s *worktreeRoot) close()                             {}
+func (s *worktreeRoot) closeErr() error                    { return nil }
 func (s *worktreeRoot) gitDirectory() (string, []*os.File) { return s.root, nil }
 func (s *worktreeRoot) verify() error                      { return nil }
 func (s *worktreeRoot) read(ctx context.Context, p string, limit int64, strict bool, hooks readHooks) (worktreeEntry, error) {
@@ -75,3 +76,5 @@ func (s *worktreeRoot) read(ctx context.Context, p string, limit int64, strict b
 	}
 	return out, nil
 }
+
+func (s *worktreeRoot) receiptRootIdentity() string { return "" }

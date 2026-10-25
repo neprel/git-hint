@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/readgit"
@@ -73,6 +74,11 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 		return "", e
 	}
 	defer source.close()
+	return captureWorktreeSource(ctx, l, source, lim, strict, nil)
+}
+
+// The sole selection/read/store loop. Legacy callers do not collect receipts.
+func captureWorktreeSource(ctx context.Context, l *library.Library, source *worktreeRoot, lim Limits, strict bool, receipt *receiptCapture) (string, error) {
 	cap := legacyInventoryBytes
 	if strict {
 		cap = strictInventoryBytes
@@ -84,6 +90,14 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 	sub, e := source.git(ctx, cap, "ls-files", "-z", "--stage")
 	if e != nil && strict {
 		return "", unsupported("inventory_unavailable", "the bounded Git stage inventory failed")
+	}
+	if receipt != nil {
+		if e := receipt.selection(out, lim.MaxFiles); e != nil {
+			return "", e
+		}
+		if e := receipt.stages(sub); e != nil {
+			return "", e
+		}
 	}
 	if e == nil {
 		for _, rec := range bytes.Split(sub, []byte{0}) {
@@ -100,6 +114,11 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 	}
 	if strict && len(sub) > 0 && sub[len(sub)-1] != 0 {
 		return "", unsupported("inventory_unavailable", "the Git stage inventory is incomplete")
+	}
+	if receipt != nil {
+		if receipt.afterInventory != nil {
+			receipt.afterInventory()
+		}
 	}
 	var files []File
 	var total int64
@@ -119,6 +138,9 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 			return "", unsupported("binary_too_large", "the inventory exceeds the path count limit")
 		}
 		seen[p] = true
+		if receipt != nil && !utf8.ValidString(p) {
+			return "", receiptProblem("receipt_path_invalid")
+		}
 		if strict && strictProtectedPath(p) {
 			return "", unsupported("protected_path", "the inventory names a protected source path")
 		}
@@ -127,11 +149,22 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 		if remaining < bound {
 			bound = remaining
 		}
-		entry, e := source.read(ctx, p, bound, strict, readHooks{})
+		hooks := readHooks{}
+		if receipt != nil {
+			hooks = receipt.readHooks
+			hooks.observe = true
+		}
+		entry, e := source.read(ctx, p, bound, strict, hooks)
 		if e != nil {
 			return "", e
 		}
 		if entry.absent || entry.skip {
+			if receipt != nil {
+				if entry.skip {
+					return "", unsupported("receipt_invalid", "strict source skipped an entry")
+				}
+				receipt.absent(p, entry.absenceIdentity)
+			}
 			continue
 		}
 		if bytes.HasPrefix(entry.data, lfsPointer) {
@@ -149,6 +182,9 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 			return "", e
 		}
 		files = append(files, File{Path: p, Mode: entry.mode, Size: int64(len(entry.data)), Digest: d})
+		if receipt != nil {
+			receipt.present(p, entry, d)
+		}
 	}
 	if e = source.verify(); e != nil {
 		return "", e
@@ -166,11 +202,15 @@ func captureWorktree(ctx context.Context, l *library.Library, root string, lim L
 	return digest, nil
 }
 
-type readHooks struct{ beforeOpen, afterOpen, afterRead func() }
+type readHooks struct {
+	beforeOpen, afterOpen, afterRead, beforeAbsenceVerify func()
+	observe                                               bool
+}
 type worktreeEntry struct {
-	data         []byte
-	mode         string
-	absent, skip bool
+	data                          []byte
+	mode                          string
+	absent, skip                  bool
+	pathIdentity, absenceIdentity string
 }
 
 // readRegular is the one bounded same-descriptor content core. Platform source readers

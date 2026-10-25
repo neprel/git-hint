@@ -5,8 +5,10 @@ package trees
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -76,7 +78,8 @@ func openWorktreeRoot(root string, strict bool) (*worktreeRoot, error) {
 	}
 	return &worktreeRoot{root: root, anchor: f, strict: strict, identity: id}, nil
 }
-func (s *worktreeRoot) close()                             { _ = s.anchor.Close() }
+func (s *worktreeRoot) close()                             { _ = s.closeErr() }
+func (s *worktreeRoot) closeErr() error                    { return s.anchor.Close() }
 func (s *worktreeRoot) gitDirectory() (string, []*os.File) { return s.root, nil }
 func (s *worktreeRoot) verify() error {
 	other, e := openWorktreeRoot(s.root, s.strict)
@@ -90,33 +93,43 @@ func (s *worktreeRoot) verify() error {
 	return nil
 }
 func (s *worktreeRoot) boundParent(p string) (*os.File, string, []fileIdentity, error) {
+	f, name, parents, _, e := s.boundParentSource(p, false)
+	return f, name, parents, e
+}
+
+// One descriptor-relative ancestry resolver; missing-parent receipts use the same walk.
+func (s *worktreeRoot) boundParentSource(p string, allowMissing bool) (*os.File, string, []fileIdentity, string, error) {
 	if !validPath(p) {
-		return nil, "", nil, unsupported("baseline_missing", "invalid worktree path")
+		return nil, "", nil, "", unsupported("baseline_missing", "invalid worktree path")
 	}
 	fd, e := unix.Dup(int(s.anchor.Fd()))
 	if e != nil {
-		return nil, "", nil, e
+		return nil, "", nil, "", e
 	}
 	parts := strings.Split(p, "/")
 	chain := []fileIdentity{s.identity}
-	for _, part := range parts[:len(parts)-1] {
+	for i, part := range parts[:len(parts)-1] {
 		next, err := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-		_ = unix.Close(fd)
 		if err != nil {
-			if errors.Is(err, unix.ENOENT) {
-				return nil, "", nil, err
+			if allowMissing && errors.Is(err, unix.ENOENT) {
+				return os.NewFile(uintptr(fd), "worktree-parent"), part, chain, strings.Join(parts[i:], "/"), nil
 			}
-			return nil, "", nil, unsupported("source_changed", "a worktree ancestor is unavailable or unsafe")
+			_ = unix.Close(fd)
+			if errors.Is(err, unix.ENOENT) {
+				return nil, "", nil, "", err
+			}
+			return nil, "", nil, "", unsupported("source_changed", "a worktree ancestor is unavailable or unsafe")
 		}
+		_ = unix.Close(fd)
 		fd = next
 		id, e := statFD(fd)
 		if e != nil {
 			_ = unix.Close(fd)
-			return nil, "", nil, e
+			return nil, "", nil, "", e
 		}
 		chain = append(chain, id)
 	}
-	return os.NewFile(uintptr(fd), "worktree-parent"), parts[len(parts)-1], chain, nil
+	return os.NewFile(uintptr(fd), "worktree-parent"), parts[len(parts)-1], chain, parts[len(parts)-1], nil
 }
 func sameParents(a, b []fileIdentity) bool {
 	if len(a) != len(b) {
@@ -147,6 +160,12 @@ func (s *worktreeRoot) read(ctx context.Context, p string, limit int64, strict b
 	parent, name, parents, e := s.boundParent(p)
 	if errors.Is(e, unix.ENOENT) {
 		out.absent = true
+		if hooks.observe {
+			out.absenceIdentity, e = s.observeAbsence(ctx, p, hooks)
+			if e != nil {
+				return worktreeEntry{}, e
+			}
+		}
 		return out, nil
 	}
 	if e != nil {
@@ -157,6 +176,12 @@ func (s *worktreeRoot) read(ctx context.Context, p string, limit int64, strict b
 	before, e := statAt(pfd, name)
 	if errors.Is(e, unix.ENOENT) {
 		out.absent = true
+		if hooks.observe {
+			out.absenceIdentity, e = s.observeAbsence(ctx, p, hooks)
+			if e != nil {
+				return worktreeEntry{}, e
+			}
+		}
 		return out, nil
 	}
 	if e != nil {
@@ -235,5 +260,68 @@ func (s *worktreeRoot) read(ctx context.Context, p string, limit int64, strict b
 		out.mode = "100755"
 	}
 	out.data = data
+	if hooks.observe {
+		out.pathIdentity = unixIdentityDigest("unix-read-path-v1", end, endParents)
+	}
 	return out, nil
+}
+
+// Identities are local observations, not ownership/trust assertions. Decimal strings
+// preserve exact platform integers through canonical JSON; uid/gid are not observed.
+func unixIdentityDigest(domain string, id fileIdentity, parents []fileIdentity) string {
+	tuple := func(v fileIdentity) []string {
+		return []string{fmt.Sprint(v.dev), fmt.Sprint(v.ino), fmt.Sprint(v.mode), fmt.Sprint(v.size), fmt.Sprint(v.mtimeSec), fmt.Sprint(v.mtimeNsec), fmt.Sprint(v.ctimeSec), fmt.Sprint(v.ctimeNsec)}
+	}
+	chain := make([][]string, len(parents))
+	for i, p := range parents {
+		chain[i] = tuple(p)
+	}
+	return receiptDigest(struct {
+		Domain  string
+		Node    []string
+		Parents [][]string
+	}{domain, tuple(id), chain})
+}
+func (s *worktreeRoot) receiptRootIdentity() string {
+	return unixIdentityDigest("unix-root-node-v1", s.identity, nil)
+}
+
+func (s *worktreeRoot) observeAbsence(ctx context.Context, p string, hooks readHooks) (string, error) {
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	parent, name, chain, suffix, e := s.boundParentSource(p, true)
+	if e != nil {
+		return "", e
+	}
+	defer parent.Close()
+	before, e := statFD(int(parent.Fd()))
+	if e != nil {
+		return "", e
+	}
+	if _, e = statAt(int(parent.Fd()), name); !errors.Is(e, unix.ENOENT) {
+		return "", unsupported("source_changed", "absence is not observed")
+	}
+	if hooks.beforeAbsenceVerify != nil {
+		hooks.beforeAbsenceVerify()
+	}
+	other, otherName, endChain, endSuffix, e := s.boundParentSource(p, true)
+	if e != nil {
+		return "", e
+	}
+	defer other.Close()
+	after, e := statFD(int(other.Fd()))
+	if e != nil || before != after || name != otherName || suffix != endSuffix || !reflect.DeepEqual(chain, endChain) {
+		return "", unsupported("source_changed", "the absent source ancestry changed")
+	}
+	if _, e = statAt(int(other.Fd()), otherName); !errors.Is(e, unix.ENOENT) {
+		return "", unsupported("source_changed", "the absent source appeared")
+	}
+	if e = s.verify(); e != nil {
+		return "", e
+	}
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	return receiptDigest(struct{ Domain, Parent, MissingSuffix string }{"unix-absence-v1", unixIdentityDigest("unix-absence-parent-v1", after, endChain), suffix}), nil
 }
