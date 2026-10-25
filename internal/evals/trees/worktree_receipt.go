@@ -100,7 +100,7 @@ func OpenSelectedSourceSession(parent context.Context, l *library.Library, root 
 		return nil, receiptProblem("receipt_request_invalid")
 	}
 	anchor := time.Now()
-	ctx, cancel := context.WithTimeout(parent, strictCaptureSeconds)
+	ctx, cancel := context.WithDeadline(parent, anchor.Add(strictCaptureSeconds))
 	if e := ctx.Err(); e != nil {
 		cancel()
 		return nil, e
@@ -230,7 +230,13 @@ type selectedContentFact struct {
 	Size               int64
 	Indexed            bool
 }
+type captureSourceObserver interface {
+	beforeInventory(context.Context) error
+	afterInventory(context.Context, []string, []IndexStageFact) error
+	afterContent(context.Context, SelectedReceipt) error
+}
 type receiptCapture struct {
+	observer       captureSourceObserver
 	value          SelectedReceipt
 	indexed        map[string]bool
 	afterInventory func()

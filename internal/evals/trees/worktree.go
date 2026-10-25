@@ -83,6 +83,11 @@ func captureWorktreeSource(ctx context.Context, l *library.Library, source *work
 	if strict {
 		cap = strictInventoryBytes
 	}
+	if receipt != nil && receipt.observer != nil {
+		if e := receipt.observer.beforeInventory(ctx); e != nil {
+			return "", e
+		}
+	}
 	out, e := source.git(ctx, cap, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate")
 	if e != nil {
 		return "", unsupported("inventory_unavailable", "the bounded Git inventory failed")
@@ -118,6 +123,17 @@ func captureWorktreeSource(ctx context.Context, l *library.Library, source *work
 	if receipt != nil {
 		if receipt.afterInventory != nil {
 			receipt.afterInventory()
+		}
+		if receipt.observer != nil {
+			paths := make([]string, 0, len(receipt.indexed))
+			for _, p := range bytes.Split(out, []byte{0}) {
+				if len(p) > 0 {
+					paths = append(paths, string(p))
+				}
+			}
+			if e := receipt.observer.afterInventory(ctx, paths, append([]IndexStageFact(nil), receipt.value.Stages...)); e != nil {
+				return "", e
+			}
 		}
 	}
 	var files []File
@@ -184,6 +200,11 @@ func captureWorktreeSource(ctx context.Context, l *library.Library, source *work
 		files = append(files, File{Path: p, Mode: entry.mode, Size: int64(len(entry.data)), Digest: d})
 		if receipt != nil {
 			receipt.present(p, entry, d)
+		}
+	}
+	if receipt != nil && receipt.observer != nil {
+		if e := receipt.observer.afterContent(ctx, receipt.value); e != nil {
+			return "", e
 		}
 	}
 	if e = source.verify(); e != nil {
@@ -259,14 +280,24 @@ func (s *worktreeRoot) git(ctx context.Context, limit int64, args ...string) ([]
 		return nil, e
 	}
 	dir, _ := s.gitDirectory()
-	out, e := readgit.Output(ctx, dir, limit, args...)
-	if e != nil {
+	var out []byte
+	var e error
+	observer, _ := ctx.Value(sourceViewDispatchKey{}).(sourceViewDispatcher)
+	if observer != nil {
+		out, e = observer.sourceOutput(ctx, dir, limit, args...)
+	} else {
+		out, e = readgit.Output(ctx, dir, limit, args...)
+	}
+	if e != nil && !(observer != nil && readgit.ExitOne(e)) {
 		return nil, unsupported("inventory_unavailable", "the bounded Git command failed")
 	}
-	if e = s.verify(); e != nil {
-		return nil, e
+	if verifyErr := s.verify(); verifyErr != nil {
+		return nil, verifyErr
 	}
-	return out, nil
+	// Only typed source queries distinguish a complete nonmatch (exit 1).
+	// Each source caller must explicitly admit that outcome. Legacy callers
+	// retain the original fail-closed error mapping.
+	return out, e
 }
 
 var stageObjectHash = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)

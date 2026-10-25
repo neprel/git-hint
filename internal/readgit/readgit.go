@@ -58,10 +58,12 @@ type boundedOutput struct {
 	cap      int64
 	over     bool
 	complete bool
+	observed int64
 	cancel   context.CancelFunc
 }
 
 func (w *boundedOutput) Write(p []byte) (int, error) {
+	w.observed += int64(len(p))
 	if int64(w.b.Len()+len(p)) > w.cap {
 		w.over = true
 		w.cancel()
@@ -98,6 +100,19 @@ func (w *boundedOutput) ReadFrom(r io.Reader) (int64, error) {
 // Exit 1 is exposed for check-ignore's deliberate nonmatch semantics; every other error,
 // timeout, bound or incomplete stream discards output rather than accepting a prefix.
 func Output(parent context.Context, root string, limit int64, args ...string) ([]byte, error) {
+	return output(parent, root, limit, sourceInvocationFrom(parent), args...)
+}
+
+// OutputWithSourceInvocation uses the same bounded/complete-stream core. Its caller
+// owns source-file/executable observations; the invocation freezes only the dispatch
+// path and environment. This API creates no source or executable authority.
+func OutputWithSourceInvocation(parent context.Context, invocation *SourceInvocation, root string, limit int64, args ...string) ([]byte, error) {
+	if invocation == nil || invocation.path == "" {
+		return nil, errors.New("git_source_invocation_invalid")
+	}
+	return output(parent, root, limit, invocation, args...)
+}
+func output(parent context.Context, root string, limit int64, invocation *SourceInvocation, args ...string) ([]byte, error) {
 	ctx, done := Guard(parent)
 	defer done()
 	if ctx.Err() != nil {
@@ -106,13 +121,28 @@ func Output(parent context.Context, root string, limit int64, args ...string) ([
 	if limit < 1 {
 		return nil, errors.New("git_output_limit")
 	}
+	if invocation != nil {
+		if e := invocation.admit(ctx); e != nil {
+			return nil, e
+		}
+	}
 	child, cancel := context.WithCancel(ctx)
 	defer cancel()
 	out := &boundedOutput{cap: limit, cancel: cancel}
 	stderr := &boundedOutput{cap: MaxStderr, cancel: cancel}
-	cmd := Command(child, root, args...)
+	var cmd *exec.Cmd
+	if invocation == nil {
+		cmd = Command(child, root, args...)
+	} else {
+		cmd = exec.CommandContext(child, invocation.path, Args(root, args...)...)
+		cmd.Env = append([]string(nil), invocation.env...)
+		cmd.WaitDelay = time.Second
+	}
 	cmd.Stdout, cmd.Stderr = out, stderr
 	err := cmd.Run()
+	if invocation != nil {
+		invocation.recordOutput(out.observed, stderr.observed)
+	}
 	if out.over || stderr.over {
 		return nil, errors.New("git_output_limit")
 	}
