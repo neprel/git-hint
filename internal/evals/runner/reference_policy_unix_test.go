@@ -86,9 +86,9 @@ func TestReferencePolicyUnixPositiveAndCopiedInfo(t *testing.T) {
 	}
 	// Poisoned values are synthetic; this path must not consult them or contact them.
 	envEntry, envFake, envListener := policyUnixFixture(t, "")
-	envFake.mu.Lock()
-	envFake.infoID = "environment-engine"
-	envFake.mu.Unlock()
+	envFake.Mu.Lock()
+	envFake.InfoID = "environment-engine"
+	envFake.Mu.Unlock()
 	t.Setenv("DOCKER_HOST", "unix://"+envEntry.Endpoint)
 	t.Setenv("DOCKER_TLS_VERIFY", "1")
 	t.Setenv("DOCKER_CERT_PATH", "/no-synthetic-cert")
@@ -104,16 +104,16 @@ func TestReferencePolicyUnixPositiveAndCopiedInfo(t *testing.T) {
 	if e != nil || a.State != "prepared_reference_observed" || a.Authority != "unknown" {
 		t.Fatal(a, e)
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
+	f.Mu.Lock()
+	defer f.Mu.Unlock()
 	if envListener.accepted.Load() != 0 {
 		t.Fatal("policy consulted environment endpoint")
 	}
 	if a.InstalledPolicy != ref || a.PolicyBundleDigest != two.BundleDigest || a.PolicyCatalogueDigest != two.CatalogueDigest || a.PolicyDigest == ref.PolicyDigest {
 		t.Fatal("installed/procedure policy domains conflated", a)
 	}
-	if f.builds != 1 || f.creates != 5 {
-		t.Fatal("existing preparation path changed", f.builds, f.creates)
+	if f.Builds != 1 || f.Creates != 5 {
+		t.Fatal("existing preparation path changed", f.Builds, f.Creates)
 	}
 }
 func TestReferencePolicyDefaultMakesNoUnixConnection(t *testing.T) {
@@ -165,9 +165,9 @@ func TestReferencePolicyUnixRejectsPinsAndEngine(t *testing.T) {
 					t.Fatal("preflight mismatch dialled")
 				}
 			}
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			if f.builds != 0 || f.creates != 0 {
+			f.Mu.Lock()
+			defer f.Mu.Unlock()
+			if f.Builds != 0 || f.Creates != 0 {
 				t.Fatal("preflight executed work")
 			}
 		})
@@ -182,9 +182,9 @@ func TestReferencePolicyPrepareRechecksBindingAndEngine(t *testing.T) {
 	}
 	defer d.Close()
 	task, opts := referenceTaskOptions(t)
-	f.mu.Lock()
-	f.infoID = "changed-engine"
-	f.mu.Unlock()
+	f.Mu.Lock()
+	f.InfoID = "changed-engine"
+	f.Mu.Unlock()
 	a, e := d.PrepareReferenceForPolicy(context.Background(), task, ReferencePolicyPrepareRequest{ref, opts.OutputDir, opts.Expected})
 	if e == nil || a.State != "unknown" {
 		t.Fatal(a, e)
@@ -192,9 +192,9 @@ func TestReferencePolicyPrepareRechecksBindingAndEngine(t *testing.T) {
 	if _, e = os.Stat(opts.OutputDir); !os.IsNotExist(e) {
 		t.Fatal("output created before failed recheck")
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.builds != 0 || f.creates != 0 {
+	f.Mu.Lock()
+	defer f.Mu.Unlock()
+	if f.Builds != 0 || f.Creates != 0 {
 		t.Fatal("changed engine executed")
 	}
 }
@@ -230,10 +230,10 @@ func TestReferencePolicyWrapperBudgetIncludesEngineRecheck(t *testing.T) {
 	if e == nil || a.State != "unknown" {
 		t.Fatal("recheck got fresh operation budget", a, e)
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.builds != 0 || f.creates != 0 {
-		t.Fatal("capacity counted after recheck as fresh", f.builds, f.creates)
+	f.Mu.Lock()
+	defer f.Mu.Unlock()
+	if f.Builds != 0 || f.Creates != 0 {
+		t.Fatal("capacity counted after recheck as fresh", f.Builds, f.Creates)
 	}
 }
 func TestReferencePolicyLegacyFindDockerStillUsesEnvironment(t *testing.T) {
@@ -271,9 +271,9 @@ func TestReferencePolicyOpenUsesEarlierCallerBudget(t *testing.T) {
 	if time.Since(start) > time.Second || !errors.Is(e, ErrReferencePreparationPolicy) {
 		t.Fatal("constructor renewed budget", e)
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.builds != 0 || f.creates != 0 {
+	f.Mu.Lock()
+	defer f.Mu.Unlock()
+	if f.Builds != 0 || f.Creates != 0 {
 		t.Fatal("constructor executed work")
 	}
 }

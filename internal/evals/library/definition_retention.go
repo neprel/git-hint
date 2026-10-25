@@ -12,17 +12,18 @@ import (
 // WorkDefinitionStateDir contains local immutable definition records. No public
 // export/source authority is implied. Retention has no reviewed strong edges yet.
 const WorkDefinitionStateDir = "work-definitions"
+const ReferencePreparationStateDir = "reference-preparations"
 
 var ErrDefinitionReferences = errors.New("destructive retention refused: unmapped work-definition references")
 
 func (l *Library) definitionRetentionProblem() error {
-	_, e := os.Lstat(l.s.Path("state", WorkDefinitionStateDir))
-	if os.IsNotExist(e) {
-		return nil
+	for _, dir := range []string{WorkDefinitionStateDir, ReferencePreparationStateDir} {
+		_, e := os.Lstat(l.s.Path("state", dir))
+		if !os.IsNotExist(e) {
+			return ErrDefinitionReferences
+		}
 	}
-	// Existence, unreadable/special/empty directories and errors all refuse. Never
-	// enumerate/delete referents before the new reference mapping receives review.
-	return ErrDefinitionReferences
+	return nil
 }
 
 func (l *Library) destructiveStateLock() (*store.Lock, error) {

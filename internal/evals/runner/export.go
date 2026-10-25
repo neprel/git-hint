@@ -12,6 +12,7 @@ package runner
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/neprel/git-hint/internal/evals/iodecl"
 	"github.com/neprel/git-hint/internal/evals/library"
@@ -51,6 +53,60 @@ type Task struct {
 
 // Export writes the task directory of one eval version into dir (empty or absent).
 func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Task, error) {
+	return exportTask(l, rec, dir, s, nil)
+}
+
+// ExportBounded shares the exact exporter. It bounds original source-object
+// reads only. Generated private-directory rereads retain the existing cooperative
+// context/no-outside-writer assumption; this is not an adversarial whole-IO bound.
+func ExportBounded(parent context.Context, l *library.Library, rec map[string]any, dir string, s Settings) (*Task, error) {
+	if parent == nil || l == nil || parent.Err() != nil {
+		return nil, errors.New("bounded_export_context")
+	}
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	b := &exportObjectBudget{ctx: ctx}
+	task, e := exportTask(l, rec, dir, s, b)
+	if e != nil || ctx.Err() != nil {
+		return nil, errors.New("bounded_export_refused")
+	}
+	return task, nil
+}
+
+type exportObjectBudget struct {
+	ctx   context.Context
+	used  int64
+	parts int
+}
+
+func (b *exportObjectBudget) read(l *library.Library, part, digest string) ([]byte, error) {
+	cap := int64(32 << 20)
+	switch part {
+	case "instruction", "setup":
+		cap = 1 << 20
+	case "base_archive", "verifier", "reference":
+	default:
+		return nil, errors.New("bounded_export_part")
+	}
+	if b.ctx.Err() != nil || b.parts >= 5 || b.used >= 128<<20 {
+		return nil, errors.New("bounded_export_limit")
+	}
+	b.parts++
+	if left := int64(128<<20) - b.used; left < cap {
+		cap = left
+	}
+	raw, e := l.ResolveBoundedRead(b.ctx, "object", digest, cap)
+	if e != nil {
+		return nil, errors.New("bounded_export_source")
+	}
+	b.used += int64(len(raw))
+	return raw, nil
+}
+func exportTask(l *library.Library, rec map[string]any, dir string, s Settings, budget *exportObjectBudget) (*Task, error) {
+	if budget != nil && budget.ctx.Err() != nil {
+		return nil, errors.New("bounded_export_context")
+	}
+
 	if s.AgentSeconds <= 0 {
 		s = DefaultSettings
 	}
@@ -73,6 +129,9 @@ func Export(l *library.Library, rec map[string]any, dir string, s Settings) (*Ta
 	t.Canary = "hint-canary-" + sum([]byte(evalID + "@" + fmt.Sprint(version)))[:32]
 	get := func(part, digest string) ([]byte, error) {
 		t.Inputs[part] = digest
+		if budget != nil {
+			return budget.read(l, part, digest)
+		}
 		return l.GetObject(digest)
 	}
 	instr, err := get("instruction", str(rec["instruction"]))
