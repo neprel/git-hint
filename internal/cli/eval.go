@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,6 +53,8 @@ of agent setup. After 'eval on', collect builds and qualifies evals automaticall
                                      the same tasks with added context files, or on your
                                      refactored code; each variant is qualified first
   git hint eval compare [SUITE]      raw results per arm and agent (every attempt counts)
+  git hint eval compare --received FILE
+                                     observed canonical usage from a saved server response
   git hint eval report [-o FILE] [--send] [--yes]
                                      minimized results of new trials (no task content);
                                      --send uploads them when the policy allows result export
@@ -318,7 +321,7 @@ func state(p *evals.Policy) string {
 }
 
 // valueFlags take a separate value token (`-o FILE`).
-var valueFlags = map[string]bool{"-work-unit": true, "--work-unit": true, "-plan": true, "--plan": true, "-from": true, "--from": true, "-family": true, "--family": true, "-outcome": true, "--outcome": true, "-with": true, "--with": true, "-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
+var valueFlags = map[string]bool{"-received": true, "--received": true, "-work-unit": true, "--work-unit": true, "-plan": true, "--plan": true, "-from": true, "--from": true, "-family": true, "--family": true, "-outcome": true, "--outcome": true, "-with": true, "--with": true, "-server": true, "--server": true, "-o": true, "--o": true, "-agent": true, "--agent": true, "-attempts": true, "--attempts": true, "-arm": true, "--arm": true, "-apply": true, "--apply": true}
 
 // flagsFirst moves flag tokens (with their values) before positional ones, so
 // `eval show ID --text` and `eval pack ID -o FILE` work.
@@ -645,10 +648,23 @@ func evalRun(e *Env, args []string) int {
 
 func evalCompare(e *Env, args []string) int {
 	args = flagsFirst(args)
-	fs := flags(e, "eval compare", "reads local trial records; no network")
+	fs := flags(e, "eval compare", "reads local trial records or a saved response; no network")
 	asJSON := fs.Bool("json", false, "print as JSON")
+	received := fs.String("received", "", "read a saved eval-comparisons response (no network or store access)")
 	if fs.Parse(args) != nil || fs.NArg() > 1 {
 		return 2
+	}
+	fromReceived := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "received" {
+			fromReceived = true
+		}
+	})
+	if fromReceived {
+		if *received == "" || fs.NArg() != 0 || *asJSON {
+			return fail(e, errors.New("--received requires one file and cannot use SUITE or --json"))
+		}
+		return evalCompareReceived(e, *received)
 	}
 	s, err := open(e)
 	if err != nil {
