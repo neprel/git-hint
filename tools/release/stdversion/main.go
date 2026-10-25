@@ -1,5 +1,5 @@
 // Command stdversion prints the baseline HINT data standard version of the client and, on a
-// second line, the draft version it writes only with draft fields (release tool).
+// second line, the highest conditional draft version it writes (release tool).
 package main
 
 import (
@@ -8,4 +8,4 @@ import (
 	"github.com/neprel/git-hint/internal/version"
 )
 
-func main() { fmt.Printf("%s\n%s\n", version.SpecVersion, version.DraftVersion) }
+func main() { fmt.Printf("%s\n%s\n", version.SpecVersion, version.LatestDraftVersion) }

@@ -26,16 +26,33 @@ var (
 const SpecVersion = "0.1.0"
 
 // DraftVersion is the draft standard version that the client writes only for a package that
-// holds at least one of DraftFields. The draft is not stable and can change before a release.
+// holds earlier draft fields without model-ledger or membership evidence. The draft is not stable and can change before a release.
 const DraftVersion = "0.2.0"
 
 // ActivityPrivacyVersion writes keyed model-ledger and membership evidence.
 const ActivityPrivacyVersion = "0.3.0"
 
-// DraftFields are the draft v0.2 parts whose presence makes an exported package v0.2.
+// LatestDraftVersion is the highest conditional writer version advertised by this build.
+// DraftVersion remains the writer selection for the earlier draft fields.
+const LatestDraftVersion = ActivityPrivacyVersion
+
+// DraftCondition describes conditional package selection, not a release or trust claim.
+type DraftCondition struct {
+	Version string   `json:"version"`
+	Fields  []string `json:"fields"`
+}
+
+func draftConditions() []DraftCondition {
+	return []DraftCondition{
+		{Version: DraftVersion, Fields: append([]string(nil), DraftFields...)},
+		{Version: ActivityPrivacyVersion, Fields: []string{"keyed model ledger (model_ledger)", "keyed project membership (membership)"}},
+	}
+}
+
+// DraftFields describe the earlier conditional draft fields; privacy evidence takes precedence.
 var DraftFields = []string{"observation context measurement", "declared task family", "source configuration",
 	"model call (MODEL_CALL, request_kind, correlation.call_ref)", "collector closure (collection)", "usage normalization",
-	"declared plan application", "model ledger (model_ledger, correlation.run_ref)"}
+	"declared plan application", "run correlation (correlation.run_ref)"}
 
 // standardVersion is the SemVer pattern of the HINT data standard (common.schema.json).
 var standardVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|dev)(\.(0|[1-9][0-9]*))?)?$`)
@@ -45,20 +62,22 @@ var Supported = []string{"0.1", "0.2", "0.3"}
 
 // Build describes the running binary.
 type Build struct {
-	Version       string   `json:"version"`
-	Commit        string   `json:"commit"`
-	Date          string   `json:"date"`
-	Modified      bool     `json:"modified,omitempty"`
-	Source        string   `json:"metadata_source"`
-	ModuleVersion string   `json:"module_version,omitempty"`
-	GoVersion     string   `json:"go_version"`
-	OS            string   `json:"os"`
-	Arch          string   `json:"arch"`
-	CGO           bool     `json:"cgo"`
-	Standard      string   `json:"standard_version"`      // baseline version written
-	Draft         string   `json:"standard_draft_writes"` // written only with a draft field
-	DraftFields   []string `json:"standard_draft_fields"` // the draft fields that make a package v0.2
-	ReadsMinors   []string `json:"standard_reads"`
+	Version         string           `json:"version"`
+	Commit          string           `json:"commit"`
+	Date            string           `json:"date"`
+	Modified        bool             `json:"modified,omitempty"`
+	Source          string           `json:"metadata_source"`
+	ModuleVersion   string           `json:"module_version,omitempty"`
+	GoVersion       string           `json:"go_version"`
+	OS              string           `json:"os"`
+	Arch            string           `json:"arch"`
+	CGO             bool             `json:"cgo"`
+	Standard        string           `json:"standard_version"`      // baseline version written
+	Draft           string           `json:"standard_draft_writes"` // highest conditional draft writer
+	DraftFields     []string         `json:"standard_draft_fields"` // all conditional draft field groups
+	Writes          []string         `json:"standard_writes"`
+	DraftConditions []DraftCondition `json:"standard_draft_conditions"`
+	ReadsMinors     []string         `json:"standard_reads"`
 }
 
 // Source describes where the metadata of a build comes from.
@@ -78,7 +97,10 @@ func Info() Build {
 
 func info(bi *debug.BuildInfo) Build {
 	b := Build{Version: Version, Commit: Commit, Date: Date, GoVersion: runtime.Version(), OS: runtime.GOOS,
-		Arch: runtime.GOARCH, Standard: SpecVersion, Draft: DraftVersion, DraftFields: DraftFields, ReadsMinors: Supported}
+		Arch: runtime.GOARCH, Standard: SpecVersion, Draft: LatestDraftVersion, ReadsMinors: append([]string(nil), Supported...), Writes: []string{SpecVersion, DraftVersion, ActivityPrivacyVersion}, DraftConditions: draftConditions()}
+	for _, c := range b.DraftConditions {
+		b.DraftFields = append(b.DraftFields, c.Fields...)
+	}
 	switch {
 	case Commit != "":
 		b.Source = SourceRelease

@@ -13,7 +13,7 @@ func TestVersionAndCapabilities(t *testing.T) {
 	dir := t.TempDir()
 	for _, args := range [][]string{{"--version"}, {"version"}} {
 		r := must(t, run(t, dir, "", args...))
-		if !strings.HasPrefix(r.stdout, "git-hint "+version.Version+" (HINT data standard "+version.SpecVersion+"; draft "+version.DraftVersion+" only with draft fields)") {
+		if !strings.HasPrefix(r.stdout, "git-hint "+version.Version+" (HINT data standard "+version.SpecVersion+"; latest draft "+version.LatestDraftVersion+" only with matching fields)") {
 			t.Fatalf("%v: %q", args, r.stdout)
 		}
 	}
@@ -24,6 +24,9 @@ func TestVersionAndCapabilities(t *testing.T) {
 	var c Capabilities
 	if err := json.Unmarshal([]byte(must(t, run(t, dir, "", "version", "--capabilities", "--json")).stdout), &c); err != nil {
 		t.Fatal(err)
+	}
+	if b.Draft != "0.3.0" || strings.Join(b.Writes, ",") != "0.1.0,0.2.0,0.3.0" || len(b.DraftConditions) != 2 || c.Build.Draft != "0.3.0" || strings.Join(c.Build.Writes, ",") != "0.1.0,0.2.0,0.3.0" {
+		t.Fatalf("writer metadata: %+v %+v", b, c.Build)
 	}
 	if len(c.MCP.Tools) != len(mcpserver.ToolNames) || len(c.MCP.ProtocolVersions) == 0 || c.MCP.Transport != "stdio" {
 		t.Fatalf("mcp: %+v", c.MCP)
@@ -38,7 +41,7 @@ func TestVersionAndCapabilities(t *testing.T) {
 		t.Fatalf("optional tools: %+v", c.OptionalTools)
 	}
 	txt := must(t, run(t, dir, "", "version", "--capabilities")).stdout
-	for _, want := range []string{"embedded grammars: none", "optional scip-go:", "adapter OpenCode: available"} {
+	for _, want := range []string{"embedded grammars: none", "optional scip-go:", "adapter OpenCode: available", "standard writes 0.1.0, 0.2.0, 0.3.0", "conditional draft 0.2.0:", "conditional draft 0.3.0:", "keyed model ledger or membership selects 0.3.0"} {
 		if !strings.Contains(txt, want) {
 			t.Errorf("capabilities text lacks %q", want)
 		}

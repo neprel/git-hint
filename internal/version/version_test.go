@@ -67,3 +67,30 @@ func TestStandardVersionMatchesSchema(t *testing.T) {
 		t.Fatalf("pattern %q differs from the schema %q", standardVersion, s.Defs["SemVer"].Pattern)
 	}
 }
+
+func TestConditionalWriterMetadata(t *testing.T) {
+	b := info(nil)
+	raw, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if string(wire["standard_draft_writes"]) != `"0.3.0"` || string(wire["standard_writes"]) != `["0.1.0","0.2.0","0.3.0"]` || string(wire["standard_reads"]) != `["0.1","0.2","0.3"]` {
+		t.Fatalf("metadata %s", raw)
+	}
+	const conditions = `[{"version":"0.2.0","fields":["observation context measurement","declared task family","source configuration","model call (MODEL_CALL, request_kind, correlation.call_ref)","collector closure (collection)","usage normalization","declared plan application","run correlation (correlation.run_ref)"]},{"version":"0.3.0","fields":["keyed model ledger (model_ledger)","keyed project membership (membership)"]}]`
+	if string(wire["standard_draft_conditions"]) != conditions {
+		t.Fatalf("conditions %s", wire["standard_draft_conditions"])
+	}
+	if DraftVersion != "0.2.0" || SpecVersion != "0.1.0" || Version != "0.1.0-dev" {
+		t.Fatal("writer or client constants changed")
+	}
+	b.DraftConditions[0].Fields[0] = "changed"
+	b.ReadsMinors[0] = "changed"
+	if next := info(nil); next.DraftConditions[0].Fields[0] != "observation context measurement" || next.ReadsMinors[0] != "0.1" {
+		t.Fatal("metadata aliases shared state")
+	}
+}
