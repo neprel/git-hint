@@ -37,12 +37,12 @@ const definitionEntriesMax = 1024
 
 var ErrWorkDefinition = errors.New("work definition inputs refused")
 
-//go:embed work_definition.go work_definition_history.go
+//go:embed work_definition.go work_definition_history.go work_definition_ownership.go
 var definitionSources embed.FS
 
 func definitionSourceIdentity() string {
 	h := sha256.New()
-	for _, n := range []string{"work_definition.go", "work_definition_history.go"} {
+	for _, n := range []string{"work_definition.go", "work_definition_history.go", "work_definition_ownership.go"} {
 		b, _ := definitionSources.ReadFile(n)
 		h.Write(b)
 	}

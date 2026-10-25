@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/neprel/git-hint/internal/activity"
@@ -19,6 +21,8 @@ import (
 
 func definitionHistory(r *definitionStateRead, label, unit string) ([]string, error) {
 	absent := []string{}
+	runOwners := definitionRunOwners{}
+	membershipOwners := definitionMembershipOwners{}
 	tasks := map[string]string{}
 	units := map[string]*WorkUnit{}
 	dirs := map[string]*WorkUnit{}
@@ -127,7 +131,7 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 					return nil, e
 				}
 				n, ok := evInt(v.open, "epoch")
-				if !ok || epochsSeen[n] {
+				if !ok || match[1] != strconv.Itoa(n) || epochsSeen[n] {
 					return nil, ErrWorkDefinition
 				}
 				epochsSeen[n] = true
@@ -161,6 +165,7 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 			}
 
 		}
+		var previousEpoch *epochView
 		for n := 1; n <= len(epochsSeen); n++ {
 			if !epochsSeen[n] {
 				return nil, ErrWorkDefinition
@@ -173,6 +178,20 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 			if e != nil {
 				return nil, e
 			}
+			var predecessor any
+			if previousEpoch != nil {
+				if !previousEpoch.sealed {
+					return nil, ErrWorkDefinition
+				}
+				predecessor, e = hint.Digest(spoolBody(dirs[dir.Name()].UnitRef, previousEpoch))
+				if e != nil {
+					return nil, e
+				}
+			}
+			if v.open["predecessor_epoch_digest"] != predecessor {
+				return nil, ErrWorkDefinition
+			}
+			previousEpoch = v
 			raw, e = r.read(maxMembershipBytes, "state", membershipDir, dir.Name(), policyName(n))
 			var policy MembershipPolicy
 			if e != nil || definitionDecode(raw, &policy) != nil || policy.problem() != nil {
@@ -182,21 +201,94 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 			if v.open["policy_digest"] != dg {
 				return nil, ErrWorkDefinition
 			}
-			for _, enroll := range v.exec {
+			anchor, e := definitionProjectAnchor(dirs[dir.Name()], v)
+			if e != nil {
+				return nil, e
+			}
+			for execution, enroll := range v.exec {
 				name := configName(evStr(enroll, "planned_configuration_digest"))
 				raw, e = r.read(definitionMetadataMax, "state", membershipDir, dir.Name(), name)
 				var cfg activity.Configuration
-				if e != nil || definitionDecode(raw, &cfg) != nil || !definitionConfigurationValid(cfg) || cfg.Digest() != evStr(enroll, "planned_configuration_digest") {
+				if e != nil || definitionDecode(raw, &cfg) != nil || !definitionConfigurationValid(cfg) || cfg.Digest() != evStr(enroll, "planned_configuration_digest") || !slices.Contains(policy.ConfigurationDigests, cfg.Digest()) {
 					return nil, ErrWorkDefinition
+				}
+				u := dirs[dir.Name()]
+				attempt, task := evStr(enroll, "attempt_ref"), evStr(enroll, "task_id")
+				if !definitionProjectMember(anchor, attempt, task) {
+					return nil, ErrWorkDefinition
+				}
+				family, ok := u.Scope["family_ref"].(string)
+				if !ok {
+					return nil, ErrWorkDefinition
+				}
+				binding := activity.LedgerBinding{UnitRef: u.UnitRef, AttemptRef: attempt, RunRef: evStr(enroll, "run_ref"), TaskID: task, TaskFamilyID: family, ConfigurationDigest: cfg.Digest(), Origin: "project", ExecutionRef: execution}
+				if e = runOwners.add(definitionRunOwner{binding: binding, configuration: cfg, agent: policy.Agent, epoch: n}); e != nil {
+					return nil, e
 				}
 			}
 			if v.sealed {
-				if _, e = r.read(maxMembershipBytes, "state", membershipDir, dir.Name(), sealedName(n)); e != nil {
+				raw, e = r.read(maxMembershipBytes, "state", membershipDir, dir.Name(), sealedName(n))
+				if e != nil {
+					return nil, e
+				}
+				var batch sealedBatch
+				if definitionDecode(raw, &batch) != nil || len(batch.Observations) != 1 || batch.Observations[0].Membership == nil {
+					return nil, ErrWorkDefinition
+				}
+				u := dirs[dir.Name()]
+				expected := definitionMembershipOwner{body: spoolBody(u.UnitRef, v), source: orchestratorSource(r.s.Key(), u.UnitRef, n)}
+				key := definitionMembershipKey{unit: u.UnitRef, epoch: n}
+				membershipOwners[key] = expected
+				if !membershipOwners.matches(batch.Observations[0], batch.Source) {
 					return nil, ErrWorkDefinition
 				}
 			}
 		}
 	}
+	// The existing controlled-run index is another received ownership source. A
+	// malformed or matching record refuses; nothing is inferred from a missing run.
+	es, e = optionalDir("controlled_run_index", "state", "evals", "work")
+	if e != nil {
+		return nil, e
+	}
+	controlledOwners := map[string]string{}
+	for _, entry := range es {
+		if !entry.Type().IsRegular() || filepath.Ext(entry.Name()) != ".json" {
+			return nil, ErrWorkDefinition
+		}
+		raw, e := r.read(16<<20, "state", "evals", "work", entry.Name())
+		if e != nil {
+			return nil, e
+		}
+		received, e := runjournal.Parse(r.ctx, raw, entry.Name(), r.s.Key())
+		if e != nil {
+			return nil, ErrWorkDefinition
+		}
+		for _, u := range received.Units {
+			cfg, e := definitionOwnerConfiguration(u.Scope["configuration"])
+			if e != nil {
+				return nil, e
+			}
+			family, ok := u.Scope["family_ref"].(string)
+			if !ok {
+				return nil, ErrWorkDefinition
+			}
+			for _, a := range u.Attempts {
+				ids := a["task_ids"].([]any)
+				binding := activity.LedgerBinding{UnitRef: u.UnitRef, AttemptRef: a["attempt_ref"].(string), RunRef: a["trial_ref"].(string), TaskID: ids[0].(string), TaskFamilyID: family, ConfigurationDigest: cfg.Digest()}
+				if e = runOwners.add(definitionRunOwner{binding: binding, configuration: cfg, agent: received.Manifest.Agent, ordinal: int(a["ordinal"].(float64))}); e != nil {
+					return nil, e
+				}
+			}
+		}
+		for identity, owner := range received.Ownership() {
+			if identity == unit || units[identity] != nil || tasks[identity] != "" || (controlledOwners[identity] != "" && controlledOwners[identity] != owner) {
+				return nil, ErrWorkDefinition
+			}
+			controlledOwners[identity] = owner
+		}
+	}
+
 	sources := map[string]activity.Source{}
 	raw, e := r.read(definitionMetadataMax, "state", "activity", sourcesFile)
 	if errors.Is(e, fs.ErrNotExist) {
@@ -268,15 +360,18 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 		if o.ModelLedger != nil && o.ModelLedger.Binding.UnitRef == unit || o.Membership != nil && o.Membership.UnitRef == unit {
 			return nil, ErrWorkDefinition
 		}
-		if o.Membership != nil && units[o.Membership.UnitRef] == nil {
+		if o.Membership != nil && !membershipOwners.matches(o, src) {
 			return nil, ErrWorkDefinition
 		}
-		if o.ModelLedger != nil && o.ModelLedger.Binding.Origin == "project" && units[o.ModelLedger.Binding.UnitRef] == nil {
+		if o.ModelLedger != nil && !runOwners.ledger(o, src, r.s.Key()) {
+			return nil, ErrWorkDefinition
+		}
+		if src.Adapter.Name == hint.CLIRootAdapter && !runOwners.behavior(o, sources) {
 			return nil, ErrWorkDefinition
 		}
 		// Unattributed agent history can belong to the requested/deleted unit; do not
 		// turn missing ownership into a pre-work claim. Ordinary collector facts remain.
-		if src.Agent != "none" && src.Agent != "" && o.Membership == nil && o.ModelLedger == nil && tasks[o.Correlation["task_id"]] == "" {
+		if src.Agent != "none" && src.Agent != "" && o.Membership == nil && o.ModelLedger == nil && src.Adapter.Name != hint.CLIRootAdapter && tasks[o.Correlation["task_id"]] == "" {
 			return nil, ErrWorkDefinition
 		}
 	}
@@ -291,32 +386,6 @@ func definitionHistory(r *definitionStateRead, label, unit string) ([]string, er
 		b.Digest, _ = activityBatchDigest(b)
 		if validateActivityBatch(r.s, b) != nil {
 			return nil, ErrWorkDefinition
-		}
-	}
-	// The existing controlled-run index is another received ownership source. A
-	// malformed or matching record refuses; nothing is inferred from a missing run.
-	es, e = optionalDir("controlled_run_index", "state", "evals", "work")
-	if e != nil {
-		return nil, e
-	}
-	controlledOwners := map[string]string{}
-	for _, entry := range es {
-		if !entry.Type().IsRegular() || filepath.Ext(entry.Name()) != ".json" {
-			return nil, ErrWorkDefinition
-		}
-		raw, e := r.read(16<<20, "state", "evals", "work", entry.Name())
-		if e != nil {
-			return nil, e
-		}
-		received, e := runjournal.Parse(r.ctx, raw, entry.Name(), r.s.Key())
-		if e != nil {
-			return nil, ErrWorkDefinition
-		}
-		for identity, owner := range received.Ownership() {
-			if identity == unit || units[identity] != nil || tasks[identity] != "" || (controlledOwners[identity] != "" && controlledOwners[identity] != owner) {
-				return nil, ErrWorkDefinition
-			}
-			controlledOwners[identity] = owner
 		}
 	}
 
