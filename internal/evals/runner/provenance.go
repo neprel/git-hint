@@ -67,6 +67,8 @@ func (d *Docker) create(ctx context.Context, cfg *container.Config, host *contai
 	}
 	if p := referencePhaseFrom(ctx); p != nil {
 		p.cid = c.ID
+		p.work = ctx
+		p.cleanup = func() { d.removeForPhase(ctx, c.ID) }
 		p.audit.ContainerRef = referenceDigest([]byte(c.ID))
 		p.audit.ImageID = cfg.Image
 		p.audit.CommandDigest = referenceJSON(cfg.Cmd)

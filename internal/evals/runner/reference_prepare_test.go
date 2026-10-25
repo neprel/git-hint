@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
 
@@ -520,5 +522,70 @@ func TestReferencePrepareOrdinaryIOPhaseGolden(t *testing.T) {
 	expected := map[string]any{"interface": IOInterface, "spec": iot.specDigest, "inputs": iot.inputsDigest, "oracle_runs": OracleRuns, "verdict_scope": "equivalence_to_reference_on_declared_cases", "reference_tree": "sha256:897cf7e72a6771a5d5650ff4f770128f8fba6cd8210e889319f0bca073a755c6", "oracle_outputs": referenceDigest([]byte("lower\x000\x003\x00OK\nmixed\x000\x003\x00OK\n")), "candidate_outputs": referenceDigest([]byte("lower\x000\x00false\x00false\x003\x00OK\nmixed\x000\x00false\x00false\x003\x00OK\n")), "network": "engine_inspect:blocked"}
 	if referenceJSON(prov) != referenceJSON(expected) {
 		t.Fatalf("ordinary provenance changed %+v", prov)
+	}
+}
+
+// Inverts publication's original unsafe RP-LC-1 assertions using the same actual
+// create/runToEnd/join/remove helpers and original fixed endpoints.
+func TestReferencePrepareCleanupPrecedesUnjoinedWorker(t *testing.T) {
+	for _, blocked := range []bool{true, false} {
+		t.Run(map[bool]string{true: "blocked", false: "ready"}[blocked], func(t *testing.T) {
+			d, f := referenceEngine(t, "wait_late")
+			anchor := time.Now()
+			parent, cancel := context.WithDeadline(context.Background(), anchor.Add(time.Second))
+			defer cancel()
+			p := &referencePhase{parent: parent, anchor: anchor, workEnd: anchor.Add(100 * time.Millisecond), stopEnd: anchor.Add(200 * time.Millisecond), removeEnd: anchor.Add(300 * time.Millisecond), joinEnd: anchor.Add(500 * time.Millisecond)}
+			work, done := context.WithDeadline(context.Background(), p.workEnd)
+			defer done()
+			work = context.WithValue(work, referencePhaseKey{}, p)
+			cid, e := d.create(work, &container.Config{Image: fakeImage, Cmd: []string{"sh", "-c", "synthetic"}}, d.hostConfig(taskLimits{cpus: 2, memoryMB: 2048}))
+			if e != nil {
+				t.Fatal(e)
+			}
+			if e = d.runToEnd(work, cid, time.Second, "synthetic"); e == nil {
+				t.Fatal("wait did not time out")
+			}
+			worker := make(chan error, 1)
+			if !blocked {
+				worker <- nil
+			}
+			if e = p.join(worker); e == nil {
+				t.Fatal("expired work or missing worker became success")
+			}
+			// Exact outer finalizer call is idempotent, not a second cleanup request/window.
+			p.ensureCleanup()
+			p.cleaning = true
+			d.removeForPhase(work, cid)
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.stops != 1 || len(f.removed) != 1 || f.running[cid] || !p.audit.Removed {
+				t.Fatalf("missed original cleanup slots stops=%d removed=%d running=%v audit=%+v", f.stops, len(f.removed), f.running[cid], p.audit)
+			}
+			if blocked && p.err == nil {
+				t.Fatal("unjoined worker lacks unknown state")
+			}
+		})
+	}
+}
+func TestReferencePrepareLegacyTimeoutDistinction(t *testing.T) {
+	task := ioTaskDir(t, "cat\n", "cat\n", 1, 20, nil)
+	parsed, e := readIOTask(task)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, _, _, e = referenceExpectations(parsed, func(string, int) (caseRun, error) { return caseRun{}, timeoutError{"case"} })
+	var verdict errIOVerdict
+	if !errors.As(e, &verdict) {
+		t.Fatalf("per-case timeout changed legacy classification: %T %v", e, e)
+	}
+	if e.Error() != "no B1 verdict: reference run of case lower failed" {
+		t.Fatal(e)
+	}
+	_, _, _, e = referenceExpectations(parsed, func(string, int) (caseRun, error) {
+		return caseRun{}, referenceOverallDeadline{timeoutError{"verifier"}}
+	})
+	var deadline timeoutError
+	if !errors.As(e, &deadline) || errors.As(e, &verdict) || deadline.phase != "verifier" {
+		t.Fatalf("outer deadline lost legacy classification: %T %v", e, e)
 	}
 }

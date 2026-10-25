@@ -87,6 +87,8 @@ type referencePhase struct {
 	err                                          error
 	removed                                      bool
 	cleaning                                     bool
+	work                                         context.Context
+	cleanup                                      func()
 }
 
 func referencePhaseFrom(ctx context.Context) *referencePhase {
@@ -106,29 +108,73 @@ func (p *referencePhase) fail(e error) {
 func (p *referencePhase) deadline(end time.Time) (context.Context, context.CancelFunc) {
 	return context.WithDeadline(p.parent, end)
 }
-func (p *referencePhase) join(ch <-chan error) error {
-	if !time.Now().Before(p.joinEnd) {
-		p.fail(errReferencePrepare)
-		return errReferencePrepare
+
+// ensureCleanup is the single owner, shared by early join failure and the outer
+// phase finalizer. Its callback is installed only by actual successful container creation.
+func (p *referencePhase) ensureCleanup() {
+	if p.cleanup != nil && !p.removed {
+		p.cleaning = true
+		p.cleanup()
 	}
-	timer := time.NewTimer(time.Until(p.joinEnd))
-	defer timer.Stop()
-	select {
-	case e, ok := <-ch:
-		if !ok {
-			p.fail(errReferencePrepare)
-			return errReferencePrepare
-		}
-		if !time.Now().Before(p.joinEnd) {
+}
+func (p *referencePhase) join(ch <-chan error) error {
+	accept := func(e error, ok bool) error {
+		if !ok || !time.Now().Before(p.joinEnd) {
 			p.fail(errReferencePrepare)
 			return errReferencePrepare
 		}
 		p.fail(e)
 		return e
-	case <-timer.C:
+	}
+	if !time.Now().Before(p.joinEnd) {
 		p.fail(errReferencePrepare)
+		p.ensureCleanup()
 		return errReferencePrepare
 	}
+	// A cancelled/expired work window cannot defer cleanup even for a ready worker.
+	if (p.work != nil && p.work.Err() != nil) || (!p.workEnd.IsZero() && !time.Now().Before(p.workEnd)) {
+		p.fail(errReferencePrepare)
+		p.ensureCleanup()
+		final := time.NewTimer(time.Until(p.joinEnd))
+		defer final.Stop()
+		select {
+		case <-ch:
+		case <-final.C:
+		}
+		return errReferencePrepare
+	}
+	// A completed worker needs no wait. This does not reclassify earlier work failures.
+	select {
+	case e, ok := <-ch:
+		return accept(e, ok)
+	default:
+	}
+	var workDone <-chan struct{}
+	if p.work != nil {
+		workDone = p.work.Done()
+	}
+	workEnd := p.workEnd
+	if workEnd.IsZero() {
+		workEnd = p.joinEnd
+	}
+	timer := time.NewTimer(time.Until(workEnd))
+	defer timer.Stop()
+	select {
+	case e, ok := <-ch:
+		return accept(e, ok)
+	case <-workDone:
+	case <-timer.C:
+	}
+	// Never spend the later join allowance before the original stop/remove slots.
+	p.fail(errReferencePrepare)
+	p.ensureCleanup()
+	final := time.NewTimer(time.Until(p.joinEnd))
+	defer final.Stop()
+	select {
+	case <-ch:
+	case <-final.C:
+	}
+	return errReferencePrepare
 }
 func streamEnd(ctx context.Context, legacy time.Duration) <-chan time.Time {
 	if p := referencePhaseFrom(ctx); p != nil {
@@ -394,6 +440,7 @@ func (d *Docker) PrepareReference(ctx context.Context, taskDir string, o Referen
 		x.audit = ReferencePhaseAudit{Role: role, StartedMS: time.Since(anchor).Milliseconds(), WorkEndMS: work.Sub(anchor).Milliseconds(), StopEndMS: stop.Sub(anchor).Milliseconds(), RemoveEndMS: remove.Sub(anchor).Milliseconds(), JoinEndMS: join.Sub(anchor).Milliseconds()}
 		wc, cancel := context.WithDeadline(ctx, work)
 		wc = context.WithValue(wc, referencePhaseKey{}, x)
+		x.work = wc
 		if ctx.Err() != nil || !time.Now().Before(work) {
 			cancel()
 			return errReferencePrepare
@@ -403,8 +450,7 @@ func (d *Docker) PrepareReference(ctx context.Context, taskDir string, o Referen
 			x.fail(errReferencePrepare)
 		}
 		if x.cid != "" && !x.removed {
-			x.cleaning = true
-			d.removeForPhase(wc, x.cid)
+			x.ensureCleanup()
 		}
 		cancel()
 		x.audit.FinishedMS = time.Since(anchor).Milliseconds()

@@ -148,7 +148,7 @@ func (d *Docker) ioPhase(ctx context.Context, taskDir string, t *ioTask, lim tas
 	expected, outputs, allNone, err := referenceExpectations(t, func(id string, repetition int) (caseRun, error) {
 		r, e := d.runCase(ctx, img, reference, t.spec.Entry, t.inputs[id], limit, lim)
 		if de := deadline(); de != nil {
-			return r, de
+			return r, referenceOverallDeadline{de}
 		}
 		return r, e
 	})
@@ -430,9 +430,9 @@ func referenceExpectations(t *ioTask, run func(string, int) (caseRun, error)) (m
 		for k := 0; k < OracleRuns; k++ {
 			r, err := run(id, k)
 			if err != nil || !r.usable() || r.status != 0 {
-				var te timeoutError
-				if errors.As(err, &te) {
-					return nil, "", false, err
+				var overall referenceOverallDeadline
+				if errors.As(err, &overall) {
+					return nil, "", false, overall.err
 				}
 				return nil, "", false, errIOVerdict{fmt.Sprintf("reference run of case %s failed", id)}
 			}
@@ -448,3 +448,10 @@ func referenceExpectations(t *ioTask, run func(string, int) (caseRun, error)) (m
 	}
 	return expected, "sha256:" + hex.EncodeToString(oh.Sum(nil)), allNone, nil
 }
+
+// Only ioPhase's own overall deadline has legacy timeout classification. A per-case
+// runner timeout remains an oracle-verdict failure, as before the loop extraction.
+type referenceOverallDeadline struct{ err error }
+
+func (e referenceOverallDeadline) Error() string { return e.err.Error() }
+func (e referenceOverallDeadline) Unwrap() error { return e.err }
