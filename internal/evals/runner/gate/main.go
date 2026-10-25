@@ -92,24 +92,70 @@ func main() {
 	}
 }
 
-// forward copies both ways between the client and the one target; each direction keeps
-// an idle deadline, and both connections close when either side ends.
+// forward copies both ways between the client and the one target. Traffic in either
+// direction renews the connection's idle window. Each write retains its own bound.
 func forward(c net.Conn, dst string, connect, idle time.Duration) {
-	defer c.Close()
 	u, err := net.DialTimeout("tcp4", dst, connect)
 	if err != nil {
+		c.Close()
 		return
 	}
-	defer u.Close()
-	var wg sync.WaitGroup
+	forwardConnected(c, u, idle, wallIdleClock{})
+}
+
+type idleTimer interface {
+	channel() <-chan time.Time
+	reset(time.Duration)
+	stop()
+}
+type idleClock interface {
+	now() time.Time
+	timer(time.Duration) idleTimer
+}
+type wallIdleClock struct{}
+type wallIdleTimer struct{ *time.Timer }
+
+func (wallIdleClock) now() time.Time                  { return time.Now() }
+func (wallIdleClock) timer(d time.Duration) idleTimer { return wallIdleTimer{time.NewTimer(d)} }
+func (t wallIdleTimer) channel() <-chan time.Time     { return t.C }
+func (t wallIdleTimer) reset(d time.Duration)         { t.Reset(d) }
+func (t wallIdleTimer) stop()                         { t.Stop() }
+
+// The calling goroutine owns the watchdog and joins both copy workers. No timer can
+// close a connection using an activity sample older than the last synchronized read.
+func forwardConnected(c, u net.Conn, idle time.Duration, clock idleClock) {
+	var mu sync.Mutex
+	last, closed := clock.now(), false
+	var once sync.Once
+	closeBoth := func() {
+		mu.Lock()
+		closed = true
+		mu.Unlock()
+		once.Do(func() { c.Close(); u.Close() })
+	}
+	defer closeBoth()
+	changed, done := make(chan struct{}, 1), make(chan struct{}, 2)
+	activity := func() {
+		mu.Lock()
+		if !closed {
+			last = clock.now()
+		}
+		mu.Unlock()
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	}
+	timer := clock.timer(idle)
+	defer timer.stop()
 	pipe := func(w, r net.Conn) {
-		defer wg.Done()
+		defer func() { closeBoth(); done <- struct{}{} }()
 		buf := make([]byte, 32<<10)
 		for {
-			r.SetReadDeadline(time.Now().Add(idle))
 			n, err := r.Read(buf)
 			if n > 0 {
-				w.SetWriteDeadline(time.Now().Add(idle))
+				activity()
+				w.SetWriteDeadline(clock.now().Add(idle))
 				if _, werr := w.Write(buf[:n]); werr != nil {
 					break
 				}
@@ -118,13 +164,29 @@ func forward(c net.Conn, dst string, connect, idle time.Duration) {
 				break
 			}
 		}
-		c.Close()
-		u.Close()
 	}
-	wg.Add(2)
 	go pipe(u, c)
 	go pipe(c, u)
-	wg.Wait()
+	for workers := 0; workers < 2; {
+		select {
+		case <-done:
+			workers++
+		case <-changed:
+		case <-timer.channel():
+		}
+		mu.Lock()
+		remaining := last.Add(idle).Sub(clock.now())
+		expired := !closed && remaining <= 0
+		if expired {
+			closed = true
+		}
+		mu.Unlock()
+		if expired {
+			closeBoth()
+		} else if remaining > 0 {
+			timer.reset(remaining)
+		}
+	}
 }
 
 func fail(why string) {
