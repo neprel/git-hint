@@ -112,8 +112,10 @@ func TestEconomicReceivedUnknownAttemptInventories(t *testing.T) {
 	file := filepath.Join(dir, "received.json")
 	for _, tc := range []struct{ coverage, attempts, want string }{
 		{`[1,3]`, `null`, "coverage=1/3; attempts=unknown"},
-		{`[0,3]`, `0`, "coverage=0/3; attempts=0"},
-		{`[1,2]`, `1`, "coverage=1/2; attempts=1"},
+		{`[0,3]`, `null`, "coverage=0/3; attempts=unknown"},
+		{`[0,3]`, `3`, "coverage=0/3; attempts=3"},
+		{`[1,2]`, `null`, "coverage=1/2; attempts=unknown"},
+		{`[1,2]`, `2`, "coverage=1/2; attempts=2"},
 	} {
 		raw := strings.ReplaceAll(string(economicFixtureBytes(t)), `"canonical_tokens":37`, `"canonical_tokens":null`)
 		raw = strings.ReplaceAll(raw, `"counter_semantics":"hint-task-tokens-v1"`, `"counter_semantics":"unknown"`)

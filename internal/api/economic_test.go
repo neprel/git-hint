@@ -133,8 +133,10 @@ func TestEconomicUnknownAttemptInventories(t *testing.T) {
 		want                     *int64
 	}{
 		{"budget", `[1,3]`, `null`, nil},
-		{"unbound", `[0,3]`, `0`, func() *int64 { n := int64(0); return &n }()},
-		{"partial", `[1,2]`, `1`, func() *int64 { n := int64(1); return &n }()},
+		{"unbound", `[0,3]`, `null`, nil},
+		{"unknown usage with complete inventory", `[0,3]`, `3`, func() *int64 { n := int64(3); return &n }()},
+		{"partial", `[1,2]`, `null`, nil},
+		{"partial usage with complete inventory", `[1,2]`, `2`, func() *int64 { n := int64(2); return &n }()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			raw := strings.ReplaceAll(economicFixture, `"canonical_tokens":37`, `"canonical_tokens":null`)
@@ -152,7 +154,7 @@ func TestEconomicUnknownAttemptInventories(t *testing.T) {
 			} else if a.Attempts == nil || *a.Attempts != *tc.want {
 				t.Fatal("inventory changed")
 			}
-			for _, bad := range []string{`true`, `-1`, `1.0`, `"1"`} {
+			for _, bad := range []string{`true`, `-1`, `1.0`, `"1"`, `0`, `1`} {
 				if a, e := ParseEconomicAssessment([]byte(strings.ReplaceAll(raw, `"attempts":`+tc.attempts, `"attempts":`+bad)), economicNS, economicP(t)); e == nil || a != nil {
 					t.Fatal("invalid inventory accepted", bad)
 				}

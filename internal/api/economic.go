@@ -283,7 +283,7 @@ func ParseEconomicAssessment(raw []byte, ns string, p EconomicPolicy) (*Economic
 	}
 	if b["attempts"] != nil {
 		n, valid := economicInt(b["attempts"])
-		if !valid {
+		if !valid || n < out.Coverage[1] {
 			return nil, errEconomic
 		}
 		out.Attempts = &n
