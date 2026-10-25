@@ -277,6 +277,23 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 			return finish(err)
 		}
 	}
+	if o.PrelaunchCheck != nil {
+		if res.prelaunch == nil {
+			return finish(errors.New("prelaunch check requires capture"))
+		}
+		res.prelaunch.CheckState = "failed"
+		res.prelaunch.CheckStartedMs = o.Counter.mark().Milliseconds()
+		retained, err := retainPrelaunch(ctx, filepath.Join(filepath.Dir(artifact), "prelaunch.tar"), *res.prelaunch)
+		if err != nil {
+			return finish(err)
+		}
+		err = consumePrelaunch(ctx, retained, o.PrelaunchCheck)
+		res.prelaunch.CheckFinishedMs = o.Counter.mark().Milliseconds()
+		if err != nil || ctx.Err() != nil {
+			return finish(errors.New("prelaunch check failed"))
+		}
+		res.prelaunch.CheckState = "complete"
+	}
 	// Guarded runs reuse the normal start capture here, after setup and before caller intent.
 	// This does not prevent a later backend change; downstream capture checks remain required.
 	if expected != nil {

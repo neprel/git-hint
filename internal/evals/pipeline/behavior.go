@@ -41,7 +41,7 @@ type BehaviorImport struct {
 // Its default resolver scans immutable BASE; study opt-in scans observed start instead.
 // Neither path scans the current project or final agent tree.
 func handOverBehavior(ctx context.Context, s *store.Store, l *library.Library, rec map[string]any, work string, m workunits.Manifest,
-	trial, task, family string, runOK bool, observedStart bool, policy runner.StudyLaunchPolicy) BehaviorImport {
+	trial, task, family string, runOK bool, observedStart bool, policy runner.StudyLaunchPolicy, prepared ...*observedStartResult) BehaviorImport {
 	result := BehaviorImport{State: "unknown", RunRef: activity.RunRef(s.Key(), trial)}
 	fail := func(code string) BehaviorImport { result.Reason = code; return result }
 	if !runOK {
@@ -82,7 +82,16 @@ func handOverBehavior(ctx context.Context, s *store.Store, l *library.Library, r
 	var base, observed string
 	var cleanup func()
 	if observedStart {
-		resolve, base, observed, cleanup, err = observedStartResolver(ctx, s, rec, work, job)
+		if len(prepared) > 0 {
+			r := prepared[0]
+			if !preparedObservedStartMatches(job, r) {
+				err = errors.New("observed start unavailable")
+			} else {
+				resolve, base, observed, cleanup = r.resolve, r.baseTree, r.capture.Digest, func() {}
+			}
+		} else {
+			resolve, base, observed, cleanup, err = observedStartResolver(ctx, s, rec, work, job)
+		}
 	} else {
 		resolve, base, cleanup, err = behaviorResolver(ctx, s, l, rec, work)
 	}
@@ -245,14 +254,41 @@ func observedStartResolver(ctx context.Context, s *store.Store, rec map[string]a
 }
 
 func resolveObservedStart(ctx context.Context, s *store.Store, rec map[string]any, work string, job jobResult) (*observedStartResult, error) {
-	bad := errors.New("observed start unavailable")
+	if !observedStartMatches(job) {
+		return nil, errors.New("observed start unavailable")
+	}
+	artifact := filepath.Join(work, "jobs", "trial", "trial__1", "agent", "prelaunch.tar")
+	return buildObservedStart(ctx, s, rec, *job.Container.PrelaunchTree, func(ctx context.Context, dst string) ([]string, error) {
+		return runner.MaterializePrelaunchTree(artifact, job.Container.PrelaunchTree.Digest, dst)
+	})
+}
+
+// The prestart graph can be reused only for its exact completed callback and actual enclosure.
+func preparedObservedStartMatches(job jobResult, r *observedStartResult) bool {
+	if r == nil || !observedStartMatches(job) {
+		return false
+	}
+	c := job.Container.PrelaunchTree
+	return c.CheckState == "complete" && c.CheckStartedMs >= c.FinishedMs && c.CheckFinishedMs >= c.CheckStartedMs && c.CheckFinishedMs <= *job.Container.Ledger.AgentRun.EnclosureStartMs && sameObservedCapture(r.capture, *c)
+}
+func sameObservedCapture(a, b runner.PrelaunchTreeCapture) bool {
+	a.CheckState = ""
+	a.CheckStartedMs = 0
+	a.CheckFinishedMs = 0
+	b.CheckState = ""
+	b.CheckStartedMs = 0
+	b.CheckFinishedMs = 0
+	return a == b
+}
+func observedStartMatches(job jobResult) bool {
 	capture := job.Container.PrelaunchTree
 	ledger := job.Container.Ledger
-	if capture == nil || capture.State != "complete" || capture.Clock != "ledger_anchor_monotonic_ms" || capture.StartedMs < 0 || capture.FinishedMs < capture.StartedMs ||
+	return !(capture == nil || capture.State != "complete" || capture.Clock != "ledger_anchor_monotonic_ms" || capture.StartedMs < 0 || capture.FinishedMs < capture.StartedMs ||
 		ledger == nil || ledger.AgentRun == nil || ledger.AgentRun.EnclosureStartMs == nil || capture.FinishedMs > *ledger.AgentRun.EnclosureStartMs ||
-		!observedStartDigestPattern.MatchString(capture.ExecutionDigest) || capture.ExecutionDigest != ledger.AgentRun.ExecutionDigest || capture.ExecutionDigest != job.Container.AgentBinary.ExecutionDigest {
-		return nil, bad
-	}
+		!observedStartDigestPattern.MatchString(capture.ExecutionDigest) || capture.ExecutionDigest != ledger.AgentRun.ExecutionDigest || capture.ExecutionDigest != job.Container.AgentBinary.ExecutionDigest)
+}
+func buildObservedStart(ctx context.Context, s *store.Store, rec map[string]any, capture runner.PrelaunchTreeCapture, materialize func(context.Context, string) ([]string, error)) (*observedStartResult, error) {
+	bad := errors.New("observed start unavailable")
 	repos, ok := rec["repositories"].([]any)
 	if !ok || len(repos) != 1 {
 		return nil, bad
@@ -278,8 +314,7 @@ func resolveObservedStart(ctx context.Context, s *store.Store, rec map[string]an
 		return nil, err
 	}
 	cleanup := func() { os.RemoveAll(temp) }
-	artifact := filepath.Join(work, "jobs", "trial", "trial__1", "agent", "prelaunch.tar")
-	files, err := runner.MaterializePrelaunchTree(artifact, capture.Digest, temp)
+	files, err := materialize(ctx, temp)
 	if err != nil {
 		cleanup()
 		return nil, err
@@ -289,9 +324,9 @@ func resolveObservedStart(ctx context.Context, s *store.Store, rec map[string]an
 		return nil, bad
 	}
 	scanned, err := scan.Scan(scan.Options{Ctx: ctx, Root: temp, RepoID: repoID, Key: s.Key(), Files: files})
-	if err != nil {
+	if err != nil || ctx.Err() != nil {
 		cleanup()
-		return nil, err
+		return nil, errors.New("observed start scan unavailable")
 	}
 	ids := map[string]string{}
 	for _, entity := range scanned.Entities {
@@ -306,7 +341,7 @@ func resolveObservedStart(ctx context.Context, s *store.Store, rec map[string]an
 		id, ok := ids[name]
 		return id, ok
 	}
-	return &observedStartResult{resolve: resolve, graph: scanned, repoID: repoID, capture: *capture, baseTree: str(repo["base_tree"]), cleanup: cleanup}, nil
+	return &observedStartResult{resolve: resolve, graph: scanned, repoID: repoID, capture: capture, baseTree: str(repo["base_tree"]), cleanup: cleanup}, nil
 }
 
 // Inspection-only receipts do not grant canonical/calibration eligibility. The separate

@@ -3,6 +3,7 @@ package runner
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -86,12 +87,14 @@ type RunOptions struct {
 	// CapturePrelaunchTree opts controlled studies into local observed-start evidence.
 	// It does not enable a trusted producer, export source, or change launch policy.
 	CapturePrelaunchTree bool
-	Agent                string // nop, oracle, opencode
-	Attempts             int
-	JobsDir              string
-	JobName              string
-	Env                  []string // the agent's environment for a live attempt (never credentials)
-	Timeout              time.Duration
+	// PrelaunchCheck consumes retained actual capture before backend and launch checks.
+	PrelaunchCheck func(context.Context, *PrelaunchArtifact) error
+	Agent          string // nop, oracle, opencode
+	Attempts       int
+	JobsDir        string
+	JobName        string
+	Env            []string // the agent's environment for a live attempt (never credentials)
+	Timeout        time.Duration
 	// the container runner's live attempts: the model proxy and this attempt's counter
 	Live     *Live
 	Counter  *Counter

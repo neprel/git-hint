@@ -28,11 +28,13 @@ type SuiteOptions struct {
 	StudyLaunchPolicy runner.StudyLaunchPolicy
 	// CapturePrelaunchTree is an internal study opt-in; no CLI/default enables it.
 	CapturePrelaunchTree bool
-	Evals                []string // eval IDs or versions; empty: every validated eval
-	Agent                string   // opencode (live), oracle or nop (checks without a model)
-	Attempts             int
-	Arm                  string
-	Live                 *runner.Live // LAN model access for live agents (nil for oracle/nop)
+	// PrelaunchCheck observes the one owned actual graph before backend and final launch checks.
+	PrelaunchCheck func(context.Context, *ObservedPrelaunch) error
+	Evals          []string // eval IDs or versions; empty: every validated eval
+	Agent          string   // opencode (live), oracle or nop (checks without a model)
+	Attempts       int
+	Arm            string
+	Live           *runner.Live // LAN model access for live agents (nil for oracle/nop)
 	// OpenCodeTgz is a local copy of the pinned OpenCode archive for the container runner
 	// (offline; checked against the pin like a download)
 	OpenCodeTgz string
@@ -67,6 +69,9 @@ type SuiteReport struct {
 
 // RunSuite freezes a suite and runs bounded trials. Every attempt is recorded.
 func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersion string, o SuiteOptions, now time.Time) (SuiteReport, error) {
+	if o.PrelaunchCheck != nil && (!o.CapturePrelaunchTree || o.Live == nil || o.Agent != "opencode") {
+		return SuiteReport{}, fmt.Errorf("prelaunch check requires live capture")
+	}
 	rep := SuiteReport{Outcomes: map[string]int{}}
 	if o.ExpectedBackend != nil {
 		if o.BackendCapture == nil || o.Live == nil || o.Agent != "opencode" {
@@ -268,6 +273,20 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				return rep, err
 			}
 			ro := runner.RunOptions{StudyLaunchPolicy: o.StudyLaunchPolicy, ExpectLaunchDigest: launch, CapturePrelaunchTree: o.CapturePrelaunchTree, Agent: o.Agent, JobsDir: work + "/jobs", JobName: "trial"}
+			var prestart *ObservedPrelaunch
+			if o.PrelaunchCheck != nil {
+				ro.PrelaunchCheck = func(ctx context.Context, a *runner.PrelaunchArtifact) error {
+					if prestart != nil {
+						return fmt.Errorf("prelaunch already observed")
+					}
+					v, err := prepareObservedPrelaunch(ctx, s, rec, a)
+					if err != nil {
+						return err
+					}
+					prestart = v
+					return o.PrelaunchCheck(ctx, v)
+				}
+			}
 			var counter *runner.Counter
 			if o.Live != nil {
 				counter = o.Live.NewTrial(lim.TrialRequests)
@@ -282,6 +301,9 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 			}
 			started := time.Now()
 			trials, err := r.Run(ctx, work+"/task", ro)
+			if prestart != nil {
+				defer prestart.result.close()
+			}
 			if err != nil || len(trials) == 0 {
 				trials = []runner.Trial{{Name: "trial", Exception: "RunnerError", Checks: map[string]string{}}}
 			}
@@ -327,7 +349,18 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				return rep, err
 			}
 			if o.Agent == "opencode" && o.Live != nil {
-				behavior := handOverBehavior(ctx, s, l, rec, work, manifest, name, b.Objective, str(m.(map[string]any)["task_family"]), trials[0].Exception == "", o.CapturePrelaunchTree, o.StudyLaunchPolicy)
+				var prepared []*observedStartResult
+				if o.PrelaunchCheck != nil {
+					var r *observedStartResult
+					if prestart != nil {
+						r = prestart.result
+					}
+					prepared = append(prepared, r)
+				}
+				behavior := handOverBehavior(ctx, s, l, rec, work, manifest, name, b.Objective, str(m.(map[string]any)["task_family"]), trials[0].Exception == "", o.CapturePrelaunchTree, o.StudyLaunchPolicy, prepared...)
+				if prestart != nil {
+					prestart.result.close()
+				}
 				if behavior.State != "imported" {
 					rep.BehaviorImportProblems++
 				}

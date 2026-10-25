@@ -24,6 +24,7 @@ import (
 )
 
 type studyFakeOptions struct {
+	prelaunchCheck                                        func(context.Context, *PrelaunchArtifact) error
 	expectedBackend                                       *CaptureSnapshot
 	capture                                               *fakeTransport
 	cancelAfter                                           time.Duration
@@ -352,7 +353,7 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 	task := t.TempDir()
 	os.MkdirAll(filepath.Join(task, "environment", "repo"), 0755)
 	os.WriteFile(filepath.Join(task, "instruction.md"), []byte("do"), 0600)
-	opts := RunOptions{Agent: "opencode", Attempts: 1, Live: live, Counter: c, OpenCode: &OpenCodeSource{Version: DockerOpenCodeVersion, TgzFile: file, CacheDir: t.TempDir()}, ExpectTarget: "linux-arm64", StudyLaunchPolicy: StudyLaunchSingleRootV1, CapturePrelaunchTree: true, ExpectLaunchDigest: planned, BeforeAgentStart: o.hook}
+	opts := RunOptions{Agent: "opencode", Attempts: 1, Live: live, Counter: c, OpenCode: &OpenCodeSource{Version: DockerOpenCodeVersion, TgzFile: file, CacheDir: t.TempDir()}, ExpectTarget: "linux-arm64", StudyLaunchPolicy: StudyLaunchSingleRootV1, CapturePrelaunchTree: true, ExpectLaunchDigest: planned, BeforeAgentStart: o.hook, PrelaunchCheck: o.prelaunchCheck}
 	if o.ripgrepFile != "" {
 		opts.Ripgrep = &RipgrepSource{BinaryFile: o.ripgrepFile}
 	}

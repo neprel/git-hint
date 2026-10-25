@@ -46,6 +46,9 @@ func (o RunOptions) checkStudyLaunch() error {
 	if o.StudyLaunchPolicy != "" && !prelaunchDigestPattern.MatchString(o.ExpectLaunchDigest) {
 		return errors.New("study launch needs a frozen planned launch digest")
 	}
+	if o.PrelaunchCheck != nil && !o.CapturePrelaunchTree {
+		return errors.New("prelaunch check requires capture")
+	}
 	if o.BeforeAgentStart != nil && o.StudyLaunchPolicy == "" {
 		return errors.New("a launch hook requires a study launch")
 	}

@@ -22,7 +22,7 @@ const ReferencePreparationPolicyVersion = "hint-reference-prepare-policy-v1"
 
 var ErrReferencePreparationPolicy = errors.New("reference_preparation_policy_refused")
 
-//go:embed frozen_inputs.go frozen_bridge.go bounded_phase.go frozen_io.go agentrun.go capture.go capture_ssh.go docker.go export.go gate.go io.go launch_recipe.go ledger.go live.go live_docker.go opencode.go prelaunch.go provenance.go reference_policy.go reference_policy_catalogue.go reference_policy_other.go reference_policy_unix.go reference_prepare.go ripgrep.go ripgrep_unix.go ripgrep_other.go run.go study_inspection.go tree_archive.go trust.go reference_policy_dependencies.json
+//go:embed frozen_inputs.go frozen_bridge.go bounded_phase.go frozen_io.go agentrun.go capture.go capture_ssh.go docker.go export.go gate.go io.go launch_recipe.go ledger.go live.go live_docker.go opencode.go prelaunch.go prelaunch_input_unix.go prelaunch_input_other.go provenance.go reference_policy.go reference_policy_catalogue.go reference_policy_other.go reference_policy_unix.go reference_prepare.go ripgrep.go ripgrep_unix.go ripgrep_other.go run.go study_inspection.go tree_archive.go trust.go reference_policy_dependencies.json
 var referencePolicySources embed.FS
 
 type ReferencePreparationPolicyRef struct{ PolicyID, PolicyDigest string }
