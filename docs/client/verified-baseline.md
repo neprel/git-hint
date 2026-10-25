@@ -89,7 +89,12 @@ v2. It reloads the exact baseline and independently captures through the same co
 Selected presence/absence, path, mode, size/content, root, index stages, Git/config
 source relation and structural graph must match. A mode-only change refuses even
 when the structural triple stays unchanged. Definition/source v1 protocol paths
-remain available without promotion. Writer source gates rotate with these changes;
+remain available without promotion for v1-only units. Definition kinds are mutually
+exclusive per unit. Create/replay checks the other exact kind-specific reference
+under the shared state lock. Any counterpart, including malformed or unreadable
+data, refuses. Reload also refuses already-coexisting rejected records; no repair,
+downgrade, upgrade, or alternate-version source acceptance occurs. Same-kind
+unchanged replay remains available when the counterpart is absent. Writer source gates rotate with these changes;
 this package does not claim historical writer-hash readability or migration.
 
 ## Scope and remaining boundary

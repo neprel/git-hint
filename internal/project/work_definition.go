@@ -238,6 +238,26 @@ func (r *definitionStateRead) dir(elem ...string) ([]fs.DirEntry, error) {
 	return r.s.ReadStateDirBounded(r.ctx, definitionEntriesMax, elem...)
 }
 
+// Definition kinds are mutually exclusive for one unit. Call the guard before
+// create/replay under the existing writer lock; factual reload also refuses old
+// coexisting records. Any counterpart, including malformed/unreadable data,
+// conflicts. No counterpart parser, repair, search or migration is needed.
+func definitionExclusiveKind(r *definitionStateRead, kind, unit string) error {
+	if (kind != WorkDefinitionInputsVersion && kind != WorkDefinitionInputsV2) || !batchID.MatchString(unit) {
+		return ErrWorkDefinition
+	}
+	other := WorkDefinitionInputsVersion
+	if kind == WorkDefinitionInputsVersion {
+		other = WorkDefinitionInputsV2
+	}
+	ref := hint.EvalRef(r.s.Key(), other, unit)
+	_, e := r.read(WorkDefinitionRecordMax, "state", library.WorkDefinitionStateDir, ref+".json")
+	if errors.Is(e, fs.ErrNotExist) {
+		return nil
+	}
+	return definitionProblem(r.ctx, "definition_kind_conflict")
+}
+
 func definitionBase(s *store.Store, now time.Time, exports []byte, inputs []DefinitionSnapshotInput, objects map[string][]byte) (*Current, *exportState, error) {
 	var st exportState
 	if definitionDecode(exports, &st) != nil || st.SnapshotDigests == nil {
@@ -336,6 +356,9 @@ func WriteWorkDefinitionInputs(parent context.Context, s *store.Store, request D
 	}
 	ref := hint.EvalRef(s.Key(), kind, unit)
 	r := &definitionStateRead{ctx: ctx, s: s}
+	if e := definitionExclusiveKind(r, kind, unit); e != nil {
+		return zero, e
+	}
 	absent, e := definitionHistory(r, request.Label, unit)
 	if e != nil {
 		return zero, definitionProblem(ctx, "history_refused")
@@ -480,6 +503,9 @@ func loadWorkDefinitionResolved(ctx context.Context, s *store.Store, ref WorkDef
 	dg, e := definitionBinding(v)
 	if e != nil || dg != v.DefinitionBindingDigest || (v.Kind != WorkDefinitionInputsVersion && v.Kind != WorkDefinitionInputsV2) || v.Basis != "stored_input_consistency_only" || v.ResolutionState != "resolved_inputs" || v.Namespace != s.Cfg.ProjectNamespace || v.StoreBinding != storeBinding || v.RecordRef != ref.RecordRef || hint.EvalRef(s.Key(), v.Kind, v.UnitRef) != ref.RecordRef || !batchID.MatchString(v.UnitRef) || !batchID.MatchString(v.FamilyRef) || !definitionConfigurationValid(v.DeclaredConfiguration) || v.DeclaredConfiguration.Digest() != v.DeclaredConfigurationDigest || v.WriterSourceIdentity != definitionSourceIdentity() || v.ResolverSourceIdentity != qualify.QualifiedInputSourceIdentity() || v.BoundedReaderIdentity != store.BoundedStateSourceIdentity() {
 		return nil, nil, definitionProblem(ctx, "record_binding_refused")
+	}
+	if e := definitionExclusiveKind(&definitionStateRead{ctx: ctx, s: s}, v.Kind, v.UnitRef); e != nil {
+		return nil, nil, e
 	}
 	if (v.Kind == WorkDefinitionInputsVersion && v.Baseline != nil) || (v.Kind == WorkDefinitionInputsV2 && v.Baseline == nil) {
 		return nil, nil, ErrWorkDefinition
