@@ -1,0 +1,33 @@
+# Local definition-bound selected-source capture
+
+`project.CaptureWorkDefinitionSource(ctx, store, CaptureSourceRequest{Label, Definition, Limits}, now)` creates one local selected-source observation. It does not implement original start, completion, export, source admission, or a trusted catalogue. Its source authority remains `unknown`.
+
+The request supplies an exact existing `WorkDefinitionRef`. The producer loads that definition through the existing qualified-input resolver. It derives the unit, namespace, plan/base, family, configuration and configured canonical repository from those actual stored inputs. `Label` stays in memory for the shared current-history check; it is not a policy or record field. The capture does not establish that the physical selected tree equals the definition's structural base snapshot. It emits no `base_hint_tree_digest`.
+
+The sole reader is the existing strict `trees.SourceView`: one instance, exactly two actual passes, Git 2.56.0 only, with the existing selection, descriptor, configuration, ignore, index and source consistency checks. Zero limits select defaults; explicit positive limits must be no wider than their resolved profile. No request path, injected reader, supplied source bytes, alternate invocation, policy Boolean or caller clock exists. Ignored, unselected, deleted, unreceived and outside-HINT work can remain unknown. This is neither a complete worktree census nor an atomic filesystem snapshot.
+
+## CREATE and process-local acceptance
+
+One original `min(parent endpoint, entry+30 seconds)` includes invocation discovery, one nonblocking state lock, definition/history checks, policy and reservation, capture, objects, audit, factual reload, checked unlock and the final endpoint check. Existing received or pending operations refuse; this CREATE-only API never resumes, repairs operation records or returns replay authority from durable bytes. Failures preserve allocated records and objects.
+
+A successful `CaptureSourceAttempt.Source()` returns a copied exact factual ref. `Acceptance()` returns a distinct opaque, nonserializable, process-local selected-source checkpoint. It expires at that original endpoint. Source and acceptance appear only after the success protocol finishes. Factual `LoadCaptureSource` returns copied `Identity()` and `Object(digest)` values; it has no acceptance issuer. A persisted audit can exist after cancellation, a late commit, failed release or process death. That audit does not prove successful return or pre-work order. Restart cannot reconstruct the checkpoint.
+
+The source, reference-preparation and future original-start wrappers have distinct purposes over the existing neutral core. A source checkpoint supplies no observer/origin authority and no original-start record. No source authority catalogue or product default becomes enabled.
+
+## Local records and objects
+
+The protected roots are `capture-policies`, `capture-source-reservations` and `capture-sources` below `.hint/state`. The single existing library retention barrier covers all three before capture objects exist, including empty, corrupt, symlink and orphan roots. There is no deletion/recovery mapping, rollback, cleanup, positive marker or extra retention loop.
+
+Policy/ref domains use the existing project-keyed `EvalRef`: `project-capture-policy-v1`, `project-capture-source-reservation-v1`, and `project-capture-source-v1`. Record digests seal exact canonical local bytes. Policy identity binds the exact definition, configured-root binding, effective limits, fixed selection/repeat profile, frozen invocation and declared source bundle. Reservation binds the planned audit. Audit binds that exact reservation and all four actual receipt objects. These local IDs and raw content identities are not public export identities.
+
+Raw selected content/tree, Git configuration query, source/state metadata, receipt envelopes and the captured Store configuration remain private library objects. The Store configuration is one additional bounded object so factual reload can reconstruct the original configured-root mapping without querying the current worktree. It contains private local configuration and paths. None of these bytes gains export permission. The loader uses the existing strict receipt codec and raw referenced-object validator, not a parallel Git parser or scanner.
+
+Consumer bounds are 1 MiB each for policy/reservation/Store configuration, 8 MiB for the audit and each receipt, 128 MiB for the distinct referenced raw source objects, and at most 22,059 inventory refs including four receipt envelopes and the additional Store configuration. The existing shared state-read budget is 64 MiB; exact definition/qualified reload helpers retain their own documented per-call byte limits. A valid capture can exceed these projection bounds and refuse. No complete physical-I/O or adversarial memory bound is claimed.
+
+## Identity and time boundaries
+
+The declared bundle hashes every embedded member of the actual `capture_source`/neutral checkpoint family, actual trees/readgit/storage/HINT helper families, supported HINT schema assets, module/checksum files, actual Go runtime/platform, and existing definition, qualified-input and bounded-reader identities. Structural tests compare production family members with embedded members and mutate every declared dependency. This declared boundary is not a universal transitive closure or source-to-binary attestation.
+
+The outer invocation and SourceView invocation have separate 88,254-dispatch caps and actual counters. Their identities must match. SourceView retains its existing 38 inspection-query limit, source-query output bounds and metadata/content limits. These are not a whole-producer 38-query or 88,254-dispatch claim. Persistence guards use the same frozen scope and original deadline.
+
+Reader receipt offsets use the reader's private origin. Producer call brackets use the producer's separate entry origin; no conversion or invented reader-origin offset exists. The immutable audit records completed brackets, `commit_prepare_begin_ns`, outer dispatch statistics and shared-state returned bytes only at that prefix. Final audit write, reload, last guards and release still use the original limits. Their later counters and completion time cannot be inserted into the same immutable record. Checked release and cooperative post-return endpoint checks do not claim hard OS preemption.

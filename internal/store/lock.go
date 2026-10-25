@@ -48,14 +48,19 @@ func (s *Store) LockState(wait bool) (*Lock, error) {
 }
 
 // Unlock releases the lock.
-func (l *Lock) Unlock() {
+func (l *Lock) Unlock() { _ = l.UnlockChecked() }
+
+// UnlockChecked releases the same lock and reports both unlock and close failures.
+// It does not renew any caller budget or change non-reentrant ownership.
+func (l *Lock) UnlockChecked() error {
 	if l == nil || l.f == nil {
-		return
+		return nil
 	}
-	_ = unlockFile(l.f)
-	l.f.Close()
+	unlockErr := unlockFile(l.f)
+	closeErr := l.f.Close()
 	l.f = nil
 	inProcess.Unlock()
+	return errors.Join(unlockErr, closeErr)
 }
 
 // TryLockStateContext never waits for the non-reentrant state lock. Its safety

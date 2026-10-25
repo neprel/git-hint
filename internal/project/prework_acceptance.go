@@ -29,7 +29,7 @@ func validPreworkKind(kind preworkKind) bool {
 
 // mintPreworkAcceptance performs memory-only issuance. A kind-specific producer
 // must finish all success IO/release and its final caller-endpoint check FIRST.
-// Only the reference producer calls this in production today.
+// The reference and selected-source producers use this memory-only core.
 func mintPreworkAcceptance(kind preworkKind) preworkAcceptance {
 	if !validPreworkKind(kind) {
 		return preworkAcceptance{}

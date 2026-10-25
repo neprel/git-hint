@@ -120,12 +120,14 @@ func TestPreworkDeclaredSourceSetAndVersionIdentity(t *testing.T) {
 		t.Fatal("unlisted compiled helper escaped source-set guard")
 	}
 }
-func TestPreworkOnlyReferenceProductionMint(t *testing.T) {
+func TestPreworkOnlyReviewedProductionMint(t *testing.T) {
 	entries, e := os.ReadDir(".")
 	if e != nil {
 		t.Fatal(e)
 	}
 	count := 0
+	seen := map[string]int{}
+	reviewed := map[string]string{"reference_preparation.go": "preworkReferencePreparation", "capture_source.go": "preworkSelectedSource"}
 	for _, entry := range entries {
 		n := entry.Name()
 		if !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
@@ -145,19 +147,21 @@ func TestPreworkOnlyReferenceProductionMint(t *testing.T) {
 				return true
 			}
 			count++
-			if n != "reference_preparation.go" || len(call.Args) != 1 {
+			expected, reviewedFile := reviewed[n]
+			seen[n]++
+			if !reviewedFile || len(call.Args) != 1 || seen[n] != 1 {
 				t.Error("unreviewed production checkpoint callsite", n)
 				return true
 			}
 			kind, ok := call.Args[0].(*ast.Ident)
-			if !ok || kind.Name != "preworkReferencePreparation" {
-				t.Error("source/start kind activated", n)
+			if !ok || kind.Name != expected {
+				t.Error("unreviewed checkpoint kind activated", n)
 			}
 			return true
 		})
 	}
-	if count != 1 {
-		t.Fatal("production mint callsite count", count)
+	if count != 2 || seen["reference_preparation.go"] != 1 || seen["capture_source.go"] != 1 {
+		t.Fatal("production mint callsite count", count, seen)
 	}
 }
 

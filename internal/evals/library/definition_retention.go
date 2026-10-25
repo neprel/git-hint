@@ -13,11 +13,14 @@ import (
 // export/source authority is implied. Retention has no reviewed strong edges yet.
 const WorkDefinitionStateDir = "work-definitions"
 const ReferencePreparationStateDir = "reference-preparations"
+const CapturePolicyStateDir = "capture-policies"
+const CaptureReservationStateDir = "capture-source-reservations"
+const CaptureSourceStateDir = "capture-sources"
 
 var ErrDefinitionReferences = errors.New("destructive retention refused: unmapped work-definition references")
 
 func (l *Library) definitionRetentionProblem() error {
-	for _, dir := range []string{WorkDefinitionStateDir, ReferencePreparationStateDir} {
+	for _, dir := range []string{WorkDefinitionStateDir, ReferencePreparationStateDir, CapturePolicyStateDir, CaptureReservationStateDir, CaptureSourceStateDir} {
 		_, e := os.Lstat(l.s.Path("state", dir))
 		if !os.IsNotExist(e) {
 			return ErrDefinitionReferences

@@ -32,7 +32,12 @@ type definitionFixture struct {
 func definitionFixtureNew(t *testing.T) definitionFixture {
 	t.Helper()
 	t.Setenv("HINT_KEY_DIR", t.TempDir())
-	root := t.TempDir()
+	return definitionFixtureAt(t, t.TempDir())
+}
+
+// Same synthetic stored-input fixture, with a caller-owned test root only.
+func definitionFixtureAt(t *testing.T, root string) definitionFixture {
+	t.Helper()
 	testkit.Git(t, root, "init", "-q")
 	testkit.WriteFile(t, root, "main.go", "package main\nfunc Value() int {return 1}\n")
 	s, _, e := store.Init(root, store.InitOptions{})
