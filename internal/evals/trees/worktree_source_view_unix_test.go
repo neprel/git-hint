@@ -16,6 +16,7 @@ import (
 	"github.com/neprel/git-hint/internal/readgit"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/testkit"
+	"golang.org/x/sys/unix"
 )
 
 func sourceViewFixture(t *testing.T) (*SelectedSourceView, string) {
@@ -365,5 +366,91 @@ func TestSourceViewCancellationAndConcurrentClose(t *testing.T) {
 	}
 	if c, e := v.Capture(context.Background()); e == nil || c != nil {
 		t.Fatal("closed view reused")
+	}
+}
+
+func TestSourceViewObjectAlternatesRefuse(t *testing.T) {
+	for _, name := range []string{"alternates", "http-alternates"} {
+		for _, moment := range []string{"before_open", "before_first", "between_passes"} {
+			for _, shape := range []string{"regular", "empty", "link", "directory", "fifo", "ancestor_link"} {
+				t.Run(name+"/"+moment+"/"+shape, func(t *testing.T) {
+					v, root := sourceViewFixture(t)
+					l := v.session.library
+					if moment == "before_open" {
+						if e := v.Close(); e != nil {
+							t.Fatal(e)
+						}
+					}
+					if moment == "between_passes" {
+						if _, e := v.Capture(context.Background()); e != nil {
+							t.Fatal(e)
+						}
+					}
+					path := filepath.Join(root, ".git", "objects", "info", name)
+					switch shape {
+					case "regular":
+						if e := os.WriteFile(path, []byte("/synthetic/object-source\n"), 0600); e != nil {
+							t.Fatal(e)
+						}
+					case "empty":
+						if e := os.WriteFile(path, nil, 0600); e != nil {
+							t.Fatal(e)
+						}
+					case "link":
+						if e := os.Symlink("/dev/null", path); e != nil {
+							t.Fatal(e)
+						}
+					case "directory":
+						if e := os.Mkdir(path, 0700); e != nil {
+							t.Fatal(e)
+						}
+					case "fifo":
+						if e := unix.Mkfifo(path, 0600); e != nil {
+							t.Fatal(e)
+						}
+					case "ancestor_link":
+						if e := os.Rename(filepath.Dir(path), filepath.Dir(path)+"-moved"); e != nil {
+							t.Fatal(e)
+						}
+						if e := os.Symlink(filepath.Base(filepath.Dir(path))+"-moved", filepath.Dir(path)); e != nil {
+							t.Fatal(e)
+						}
+					}
+					if moment == "before_open" {
+						next, e := OpenSelectedSourceView(context.Background(), l, root, SourceViewOptions{})
+						if e == nil {
+							next.Close()
+							t.Fatal("unsupported alternates profile admitted at open")
+						}
+						return
+					}
+					if c, e := v.Capture(context.Background()); e == nil || c != nil {
+						t.Fatal("unsupported alternates profile returned receipt")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSourceViewObjectAlternatesActualAbsentFacts(t *testing.T) {
+	v, _ := sourceViewFixture(t)
+	for pass := 0; pass < 2; pass++ {
+		c, e := v.Capture(context.Background())
+		if e != nil {
+			t.Fatal(e)
+		}
+		found := map[string]bool{}
+		for _, f := range c.Sources().Facts {
+			if f.Path == filepath.Join(v.gitdir, "objects/info/alternates") || f.Path == filepath.Join(v.gitdir, "objects/info/http-alternates") {
+				if f.Role != "git_state" || f.State != "observed_absent" || f.AbsenceIdentity == "" || f.NodeIdentity != "" || f.ObjectDigest != "" || f.Bytes != 0 {
+					t.Fatal("alternate absence fact malformed")
+				}
+				found[filepath.Base(f.Path)] = true
+			}
+		}
+		if !reflect.DeepEqual(found, map[string]bool{"alternates": true, "http-alternates": true}) {
+			t.Fatal("missing required alternate absence")
+		}
 	}
 }

@@ -67,7 +67,8 @@ complete exit-1 empty nonmatch is admitted only by the config-path or detached-H
 query. A nonempty stderr, truncated stream, other error, or other query refuses.
 
 Metadata facts include candidate config, repository config, global/local excludes,
-HEAD/index/packed-refs, an active loose ref, absent worktree config, and ignore
+HEAD/index/packed-refs, an active loose ref, absent worktree config, required absent
+`objects/info/alternates` and `objects/info/http-alternates`, and ignore
 files on the actual selected path chains. Present facts include bytes/object/node
 identities; absent facts include the checked nearest-parent identity. They remain
 local. The config query bytes and state envelope use the existing local immutable

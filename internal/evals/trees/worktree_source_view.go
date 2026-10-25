@@ -406,6 +406,16 @@ func (v *SelectedSourceView) snapshot(ctx context.Context) (sourceSnapshot, erro
 	if e := add("repo_config", filepath.Join(v.gitdir, "config")); e != nil {
 		return snap, e
 	}
+	// Object alternates are outside this ordinary-root profile. Observe their
+	// absence through the same bounded reader before querying repository state.
+	for _, name := range []string{"objects/info/alternates", "objects/info/http-alternates"} {
+		if e := add("git_state", filepath.Join(v.gitdir, filepath.FromSlash(name))); e != nil {
+			return snap, e
+		}
+		if snap.Facts[len(snap.Facts)-1].State != "observed_absent" {
+			return snap, sourceProblem()
+		}
+	}
 	v.checkPhase = "config_list"
 	raw, e := v.query(ctx, readgit.MaxOutput, "config", "list", "--no-includes", "--null", "--show-origin", "--show-scope")
 	if e != nil {
