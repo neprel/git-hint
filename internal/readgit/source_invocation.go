@@ -33,7 +33,27 @@ type SourceInvocation struct {
 	mu                    sync.Mutex
 	stats                 SourceDispatchStats
 	failed                bool
+	// budget is this invocation's own counter, or the one it shares with the
+	// invocation it was frozen against. It is never renewed.
+	budget *sourceDispatchBudget
 }
+
+// sourceDispatchBudget is one aggregate SourceDispatchLimit admission counter.
+type sourceDispatchBudget struct {
+	mu         sync.Mutex
+	dispatches int
+}
+
+func (b *sourceDispatchBudget) take() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.dispatches >= SourceDispatchLimit {
+		return false
+	}
+	b.dispatches++
+	return true
+}
+
 type sourceInvocationKey struct{}
 
 // WithSourceInvocation scopes one owned frozen dispatch path and environment.
@@ -67,7 +87,7 @@ func (i *SourceInvocation) recordOutput(out, err int64) {
 func (i *SourceInvocation) admit(ctx context.Context) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if i.failed || i.stats.Dispatches >= SourceDispatchLimit {
+	if i.failed || i.stats.Dispatches >= SourceDispatchLimit || i.budget == nil {
 		return errSourceInvocation
 	}
 	id, n, e := inspectSourceExecutable(ctx, i.path)
@@ -78,6 +98,11 @@ func (i *SourceInvocation) admit(ctx context.Context) error {
 		if e != nil {
 			return e
 		}
+		return errSourceInvocation
+	}
+	// The shared aggregate is consumed BEFORE the process starts.
+	if !i.budget.take() {
+		i.failed = true
 		return errSourceInvocation
 	}
 	i.stats.Dispatches++
@@ -124,13 +149,27 @@ func FreezeSourceInvocation(ctx context.Context, base []string) (*SourceInvocati
 // FreezeArtifactSourceInvocation is the closed retained-artifact profile: the SAME
 // PATH/executable selection, with host system/global config disabled BY PROFILE
 // and owned control HOME/XDG. It records disabled sources, never observed absence.
-func FreezeArtifactSourceInvocation(ctx context.Context, base []string, control ArtifactSourceControl) (*SourceInvocation, error) {
+// It SHARES the aggregate dispatch budget of shared (the view's Native guard
+// invocation), which must resolve the same executable. Its own initial
+// executable inspection is counted in its stats; no dispatch allowance is added.
+func FreezeArtifactSourceInvocation(ctx context.Context, base []string, control ArtifactSourceControl, shared *SourceInvocation) (*SourceInvocation, error) {
 	for _, p := range []string{control.Home, control.XDG, control.Global, control.Ceiling} {
 		if !canonicalSourcePath(p) {
 			return nil, errSourceInvocation
 		}
 	}
-	return freezeSourceInvocation(ctx, base, &control)
+	if shared == nil || shared.budget == nil || shared.path == "" {
+		return nil, errSourceInvocation
+	}
+	i, e := freezeSourceInvocation(ctx, base, &control)
+	if e != nil {
+		return nil, e
+	}
+	if i.path != shared.path || i.executable != shared.executable {
+		return nil, errSourceInvocation
+	}
+	i.budget = shared.budget
+	return i, nil
 }
 func freezeSourceInvocation(ctx context.Context, base []string, control *ArtifactSourceControl) (*SourceInvocation, error) {
 	if ctx == nil {
@@ -222,7 +261,7 @@ func freezeSourceInvocation(ctx context.Context, base []string, control *Artifac
 	if e = ctx.Err(); e != nil {
 		return nil, e
 	}
-	return &SourceInvocation{path: resolved, match: match, identity: "sha256:" + hex.EncodeToString(h[:]), env: env, executable: exe, stats: SourceDispatchStats{ExecutableReads: 1, ExecutableBytes: n}}, nil
+	return &SourceInvocation{path: resolved, match: match, identity: "sha256:" + hex.EncodeToString(h[:]), env: env, executable: exe, stats: SourceDispatchStats{ExecutableReads: 1, ExecutableBytes: n}, budget: &sourceDispatchBudget{}}, nil
 }
 func canonicalSourcePath(p string) bool {
 	return p != "" && filepath.IsAbs(p) && filepath.Clean(p) == p && !strings.ContainsAny(p, "\x00\r\n")

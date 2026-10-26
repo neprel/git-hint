@@ -122,7 +122,7 @@ func openArtifactSourceView(v *SelectedSourceView, o ArtifactSourceOptions) (*Se
 	if e != nil {
 		return fail()
 	}
-	inv, e := readgit.FreezeArtifactSourceInvocation(s.ctx, os.Environ(), readgit.ArtifactSourceControl{Home: filepath.Join(dir, "home"), XDG: filepath.Join(dir, "xdg"), Global: filepath.Join(dir, "global"), Ceiling: dir})
+	inv, e := readgit.FreezeArtifactSourceInvocation(s.ctx, os.Environ(), readgit.ArtifactSourceControl{Home: filepath.Join(dir, "home"), XDG: filepath.Join(dir, "xdg"), Global: filepath.Join(dir, "global"), Ceiling: dir}, guard)
 	if e != nil {
 		return fail()
 	}
@@ -476,8 +476,9 @@ func validateArtifactSource(selected SelectedReceipt, r SourceViewReceipt, pass 
 	if r.MetadataReads != reads || r.MetadataReads > 1024 || r.MetadataBytes != readBytes || r.MetadataBytes > sourceMetadataCap {
 		return pairProblem()
 	}
-	// Two frozen invocations (artifact source + Native guard) each inspect once.
-	if r.SourceQueryAttempts != queries || r.TotalDispatchAttempts < queries || r.TotalDispatchAttempts > 2*readgit.SourceDispatchLimit || r.PersistenceGuardAttempts != r.TotalDispatchAttempts-queries || r.ExecutableReads != r.TotalDispatchAttempts+2 || r.ExecutableReadBytes < 1 || r.ExecutableReadBytes%int64(r.ExecutableReads) != 0 || r.ExecutableReadBytes/int64(r.ExecutableReads) > 64<<20 || r.SourceStdoutBytes < 1 || r.SourceStdoutBytes > sourceQueryCap || r.SourceStderrBytes != 0 || r.GuardStderrBytes != 0 || r.GuardStdoutBytes < 0 || r.GuardStdoutBytes > int64(r.PersistenceGuardAttempts)*readgit.MaxOutput {
+	// Two frozen invocations (artifact source + Native guard) each inspect once;
+	// their dispatches share ONE aggregate SourceDispatchLimit budget.
+	if r.SourceQueryAttempts != queries || r.TotalDispatchAttempts < queries || r.TotalDispatchAttempts > readgit.SourceDispatchLimit || r.PersistenceGuardAttempts != r.TotalDispatchAttempts-queries || r.ExecutableReads != r.TotalDispatchAttempts+2 || r.ExecutableReadBytes < 1 || r.ExecutableReadBytes%int64(r.ExecutableReads) != 0 || r.ExecutableReadBytes/int64(r.ExecutableReads) > 64<<20 || r.SourceStdoutBytes < 1 || r.SourceStdoutBytes > sourceQueryCap || r.SourceStderrBytes != 0 || r.GuardStderrBytes != 0 || r.GuardStdoutBytes < 0 || r.GuardStdoutBytes > int64(r.PersistenceGuardAttempts)*readgit.MaxOutput {
 		return pairProblem()
 	}
 	puts := selectedPutCount(selected, r)

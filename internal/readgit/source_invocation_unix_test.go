@@ -141,11 +141,11 @@ func TestArtifactSourceInvocationCeilingStopsDiscovery(t *testing.T) {
 	base := []string{"PATH=" + filepath.Dir(installed), "HOME=" + parent}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	artifact, e := FreezeArtifactSourceInvocation(ctx, base, ArtifactSourceControl{Home: filepath.Join(control, "home"), XDG: filepath.Join(control, "xdg"), Global: filepath.Join(control, "global"), Ceiling: control})
+	native, e := FreezeSourceInvocation(ctx, base)
 	if e != nil {
 		t.Fatal(e)
 	}
-	native, e := FreezeSourceInvocation(ctx, base)
+	artifact, e := FreezeArtifactSourceInvocation(ctx, base, ArtifactSourceControl{Home: filepath.Join(control, "home"), XDG: filepath.Join(control, "xdg"), Global: filepath.Join(control, "global"), Ceiling: control}, native)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -163,5 +163,46 @@ func TestArtifactSourceInvocationCeilingStopsDiscovery(t *testing.T) {
 		if kv == "HOME="+parent {
 			t.Fatal("caller HOME selected by artifact profile")
 		}
+	}
+}
+
+// TC-1: the artifact source invocation and the Native guard invocation consume
+// ONE aggregate SourceDispatchLimit budget before any process start. The owned
+// counter is primed near the limit instead of running 88254 commands.
+func TestArtifactSourceInvocationSharesOneDispatchBudget(t *testing.T) {
+	dir, base := sourceExecutableFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	native, e := FreezeSourceInvocation(ctx, base)
+	if e != nil {
+		t.Fatal(e)
+	}
+	control := func(p string) string { return filepath.Join(dir, p) }
+	artifact, e := FreezeArtifactSourceInvocation(ctx, base, ArtifactSourceControl{Home: control("home"), XDG: control("xdg"), Global: control("global"), Ceiling: dir}, native)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = FreezeArtifactSourceInvocation(ctx, base, ArtifactSourceControl{Home: control("home"), XDG: control("xdg"), Global: control("global"), Ceiling: dir}, nil); e == nil {
+		t.Fatal("artifact invocation without a shared budget")
+	}
+	if artifact.budget != native.budget {
+		t.Fatal("separate dispatch budgets")
+	}
+	native.budget.dispatches = SourceDispatchLimit - 2
+	if _, e = OutputWithSourceInvocation(ctx, artifact, dir, 1024, "--version"); e != nil {
+		t.Fatal("artifact dispatch within shared budget", e)
+	}
+	if _, e = OutputWithSourceInvocation(ctx, native, dir, 1024, "--version"); e != nil {
+		t.Fatal("guard dispatch within shared budget", e)
+	}
+	before := artifact.Stats().Dispatches + native.Stats().Dispatches
+	if _, e = OutputWithSourceInvocation(ctx, artifact, dir, 1024, "--version"); e == nil {
+		t.Fatal("artifact dispatch beyond the shared aggregate")
+	}
+	if _, e = OutputWithSourceInvocation(ctx, native, dir, 1024, "--version"); e == nil {
+		t.Fatal("guard dispatch beyond the shared aggregate")
+	}
+	if native.budget.dispatches != SourceDispatchLimit || artifact.Stats().Dispatches+native.Stats().Dispatches != before || artifact.Stats().ExecutableReads != 1+2 {
+		t.Fatal("refused dispatch was counted or renewed", native.budget.dispatches, artifact.Stats())
 	}
 }

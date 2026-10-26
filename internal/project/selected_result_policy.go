@@ -32,6 +32,7 @@ type NativeArtifactRelation struct {
 	Version, State, Authority, Limitation         string
 	NativeSource                                  CaptureSourceRef
 	NativeInvocation, ArtifactInvocation          string
+	ExecutableDigest                              string
 	NativeSourceDigest, ArtifactSourceDigest      string
 	ReplayState, ReplayDigest                     string
 	LocalExcludeState, LocalExcludeDigest         string
@@ -92,6 +93,13 @@ func nativeArtifactRelation(source *CaptureSourceInputs, replay *trees.ArtifactS
 	if native.Version != trees.SourceViewVersion || artifact.Version != trees.SourceViewArtifactVersion || replay == nil {
 		return zero, relationProblem()
 	}
+	// The artifact Git must be the SAME captured executable bytes that parsed and
+	// selected for the retained Native closure. Invocation identities differ by
+	// profile; the version string is not a substitute. Same host and environment
+	// are assumed; this is digest equality, not a binary attestation.
+	if native.ExecutableDigest == "" || native.ExecutableDigest != artifact.ExecutableDigest {
+		return zero, relationProblem()
+	}
 	nativeConfig, ok := source.Object(native.ConfigObject)
 	if !ok {
 		return zero, relationProblem()
@@ -115,7 +123,7 @@ func nativeArtifactRelation(source *CaptureSourceInputs, replay *trees.ArtifactS
 			return zero, relationProblem()
 		}
 	}
-	rel := NativeArtifactRelation{Version: nativeArtifactRelationVersion, State: "native_policy_correspondence_observed", Authority: "unknown", Limitation: nativeArtifactLimitation, NativeSource: source.Ref(), NativeInvocation: native.InvocationIdentity, ArtifactInvocation: artifact.InvocationIdentity, NativeSourceDigest: native.SourceDigest, ArtifactSourceDigest: artifact.SourceDigest, ReplayState: replay.ReplayState, ReplayDigest: replay.ReplayDigest, Compared: []NativeArtifactKey{}, Chain: []NativeArtifactChain{}, InventoryEntries: len(inv.Entries)}
+	rel := NativeArtifactRelation{Version: nativeArtifactRelationVersion, State: "native_policy_correspondence_observed", Authority: "unknown", Limitation: nativeArtifactLimitation, NativeSource: source.Ref(), NativeInvocation: native.InvocationIdentity, ArtifactInvocation: artifact.InvocationIdentity, ExecutableDigest: native.ExecutableDigest, NativeSourceDigest: native.SourceDigest, ArtifactSourceDigest: artifact.SourceDigest, ReplayState: replay.ReplayState, ReplayDigest: replay.ReplayDigest, Compared: []NativeArtifactKey{}, Chain: []NativeArtifactChain{}, InventoryEntries: len(inv.Entries)}
 	for _, key := range nativeSelectionKeys {
 		n, ok1 := effectiveConfig(nativeRows, key)
 		a, ok2 := effectiveConfig(artifactRows, key)

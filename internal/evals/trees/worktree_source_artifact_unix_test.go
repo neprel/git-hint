@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/neprel/git-hint/internal/evals/library"
+	"github.com/neprel/git-hint/internal/readgit"
 	"github.com/neprel/git-hint/internal/store"
 	"github.com/neprel/git-hint/internal/testkit"
 )
@@ -183,6 +184,19 @@ func TestArtifactSourceViewMatchesNativeSelection(t *testing.T) {
 	}
 	if _, e = pair.ValidateObjects(objects); e != nil {
 		t.Fatal("artifact objects", e)
+	}
+	// TC-1: the combined receipt bound is the ONE SourceDispatchLimit, not 2x.
+	if validateArtifactSource(ab.Selected().Receipt(), y, 2) != nil {
+		t.Fatal("actual pass-two artifact receipt")
+	}
+	over := y
+	per := y.ExecutableReadBytes / int64(y.ExecutableReads)
+	over.TotalDispatchAttempts = readgit.SourceDispatchLimit + 1
+	over.PersistenceGuardAttempts = over.TotalDispatchAttempts - over.SourceQueryAttempts
+	over.ExecutableReads = over.TotalDispatchAttempts + 2
+	over.ExecutableReadBytes = per * int64(over.ExecutableReads)
+	if validateArtifactSource(ab.Selected().Receipt(), over, 2) == nil {
+		t.Fatal("combined dispatches beyond SourceDispatchLimit admitted")
 	}
 	// Mixed Native/artifact pairs refuse in both orders.
 	nx, ny := na.Sources(), nb.Sources()
