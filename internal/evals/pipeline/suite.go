@@ -30,6 +30,7 @@ type SuiteOptions struct {
 	CapturePrelaunchTree bool
 	// PrelaunchCheck observes the one owned actual graph before backend and final launch checks.
 	PrelaunchCheck func(context.Context, *ObservedPrelaunch) error
+	ResultCheck    func(context.Context, *ObservedProjectResult) error
 	Evals          []string // eval IDs or versions; empty: every validated eval
 	Agent          string   // opencode (live), oracle or nop (checks without a model)
 	Attempts       int
@@ -69,6 +70,9 @@ type SuiteReport struct {
 
 // RunSuite freezes a suite and runs bounded trials. Every attempt is recorded.
 func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersion string, o SuiteOptions, now time.Time) (SuiteReport, error) {
+	if o.ResultCheck != nil && o.PrelaunchCheck == nil {
+		return SuiteReport{}, fmt.Errorf("result check requires actual prelaunch check")
+	}
 	if o.PrelaunchCheck != nil && (!o.CapturePrelaunchTree || o.Live == nil || o.Agent != "opencode") {
 		return SuiteReport{}, fmt.Errorf("prelaunch check requires live capture")
 	}
@@ -299,9 +303,23 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 							return fmt.Errorf("task input already observed")
 						}
 						retained.observed = v.result
+						retained.occurrence = a
 					}
 					prestart = v
 					return o.PrelaunchCheck(ctx, v)
+				}
+			}
+
+			if o.ResultCheck != nil {
+				if retained == nil {
+					return rep, fmt.Errorf("result check requires bounded B1 inputs")
+				}
+				ro.ResultInputs = retained.frozen
+				ro.ResultCheck = func(ctx context.Context, a *runner.TaskResultArtifact) error {
+					if prestart == nil || retained.occurrence == nil || !a.MatchesPrelaunch(retained.occurrence) {
+						return mappingProblem("result_occurrence")
+					}
+					return o.ResultCheck(ctx, &ObservedProjectResult{retained, a})
 				}
 			}
 			var counter *runner.Counter

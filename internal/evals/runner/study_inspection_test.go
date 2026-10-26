@@ -24,12 +24,14 @@ import (
 )
 
 type studyFakeOptions struct {
+	finalCloseError, failAgentRemove                      bool
 	parent                                                context.Context
 	omitApp                                               map[string]bool
 	taskDir                                               string
 	external                                              *RunOptions
 	skipRequest                                           bool
 	extraApp                                              map[string]storedStudyFile
+	finalApp                                              map[string]storedStudyFile
 	prelaunchCheck                                        func(context.Context, *PrelaunchArtifact) error
 	expectedBackend                                       *CaptureSnapshot
 	capture                                               *fakeTransport
@@ -264,6 +266,13 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 				w.WriteHeader(500)
 				return
 			}
+			if source == "/app" && st.starts > 0 {
+				for n, v := range o.finalApp {
+					v.header.Name = "app/" + n
+					v.header.Size = int64(len(v.body))
+					files[v.header.Name] = v
+				}
+			}
 			b := studyArchive(files)
 			if source == "/"+ripgrepInstall {
 				if o.ripgrepInventory == "cut" {
@@ -334,10 +343,16 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 			req := httptest.NewRequest("POST", "http://proxy/t/"+c.token+"/chat/completions", strings.NewReader(`{"model":"m"}`))
 			live.srv.Handler.ServeHTTP(httptest.NewRecorder(), req)
 		}
+		if o.failAgentRemove && r.Method == "DELETE" && isAgent(p+"/delete") {
+			http.Error(w, `{"message":"synthetic remove refusal"}`, 500)
+			return
+		}
 		s.serve(w, r)
 	}))
 	t.Cleanup(api.Close)
-	cli, err := client.New(client.WithHost(api.URL), client.WithAPIVersion("1.56"))
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	cli, err := client.New(client.WithHost(api.URL), client.WithAPIVersion("1.56"), client.WithHTTPClient(&http.Client{Transport: studyResultTransport{transport, func() bool { st.mu.Lock(); defer st.mu.Unlock(); return o.finalCloseError && st.starts > 0 }}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,6 +390,8 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 	if o.external != nil {
 		opts.ExpectLaunchDigest = o.external.ExpectLaunchDigest
 		opts.PrelaunchCheck = o.external.PrelaunchCheck
+		opts.ResultCheck = o.external.ResultCheck
+		opts.ResultInputs = o.external.ResultInputs
 		opts.BeforeAgentStart = o.external.BeforeAgentStart
 	}
 	opts.ExpectedBackend, opts.capture, opts.captureRef = o.expectedBackend, transportOf(o.capture), refOf(o.capture)
@@ -450,4 +467,24 @@ func studySourceForTest(t *testing.T) string {
 	file := filepath.Join(t.TempDir(), "binary.tgz")
 	os.WriteFile(file, tgz, 0600)
 	return file
+}
+
+type studyResultTransport struct {
+	base      http.RoundTripper
+	failClose func() bool
+}
+
+func (s studyResultTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	v, e := s.base.RoundTrip(r)
+	if e == nil && v != nil && strings.HasSuffix(r.URL.Path, "/archive") && r.Method == "GET" && r.URL.Query().Get("path") == "/app" && s.failClose() {
+		v.Body = studyResultCloseBody{v.Body}
+	}
+	return v, e
+}
+
+type studyResultCloseBody struct{ io.ReadCloser }
+
+func (s studyResultCloseBody) Close() error {
+	_ = s.ReadCloser.Close()
+	return fmt.Errorf("synthetic close refusal")
 }

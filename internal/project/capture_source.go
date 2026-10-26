@@ -27,7 +27,7 @@ import (
 
 var ErrCaptureSource = errors.New("selected source capture refused")
 
-//go:embed capture_source.go capture_source_records.go capture_source_pair.go baseline_collect.go baseline_records.go prework_acceptance.go
+//go:embed selected_result_inputs.go capture_source.go capture_source_records.go capture_source_pair.go baseline_collect.go baseline_records.go prework_acceptance.go
 var captureSources embed.FS
 
 func captureSourceIdentity() string {
@@ -389,5 +389,5 @@ func CaptureWorkDefinitionSource(parent context.Context, s *store.Store, req Cap
 
 // Declared local family list for structural source-identity guards.
 func captureSourceFamily(name string) bool {
-	return (strings.HasPrefix(name, "baseline_") || strings.HasPrefix(name, "capture_source") || strings.HasPrefix(name, "prework_acceptance")) && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
+	return (strings.HasPrefix(name, "selected_result_") || strings.HasPrefix(name, "baseline_") || strings.HasPrefix(name, "capture_source") || strings.HasPrefix(name, "prework_acceptance")) && strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
 }

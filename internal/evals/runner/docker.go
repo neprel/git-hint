@@ -133,6 +133,18 @@ func parseLimits(b []byte) taskLimits {
 
 // Run executes the attempts of one job on a task directory and reads its trials.
 func (d *Docker) Run(ctx context.Context, taskDir string, o RunOptions) ([]Trial, error) {
+	if o.ResultCheck != nil {
+		if ctx == nil || !taskResultCurrent(ctx) {
+			return nil, ErrTaskResult
+		}
+		if _, ok := ctx.Deadline(); !ok {
+			return nil, ErrTaskResult
+		}
+		if !taskResultInputsMatch(ctx, taskDir, o.ResultInputs) {
+			return nil, ErrTaskResult
+		}
+	}
+
 	if err := o.checkStudyLaunch(); err != nil {
 		return nil, err
 	}
@@ -605,12 +617,20 @@ func freezeTreeBounded(r io.Reader, artifact string, rawLimit int64) (string, er
 	return freezeTreeWithLimits(r, artifact, rawLimit, 0)
 }
 func freezeTreeWithLimits(r io.Reader, artifact string, rawLimit, outputLimit int64) (string, error) {
+	return freezeTreeEmission(r, artifact, rawLimit, outputLimit, nil)
+}
+
+// One validator/emission; the optional sink retains exactly the emitted bytes.
+func freezeTreeEmission(r io.Reader, artifact string, rawLimit, outputLimit int64, retained io.Writer) (string, error) {
 	f, err := os.OpenFile(artifact, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", err
 	}
 	h := sha256.New()
 	var target io.Writer = io.MultiWriter(f, h)
+	if retained != nil {
+		target = io.MultiWriter(target, retained)
+	}
 	if outputLimit > 0 {
 		target = &referenceOutput{w: target, left: outputLimit}
 	}

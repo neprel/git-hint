@@ -83,6 +83,16 @@ type liveResult struct {
 // exists (the ledger is then sealed empty with unverified egress by the caller).
 func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, lim taskLimits, img, artifact string) liveResult {
 	var res liveResult
+	var occurrence *PrelaunchArtifact
+	var retainedResult bytes.Buffer
+	hasResultDeadline := false
+	if ctx != nil {
+		_, hasResultDeadline = ctx.Deadline()
+	}
+	if o.ResultCheck != nil && (!hasResultDeadline || ctx == nil || ctx.Err() != nil || o.PrelaunchCheck == nil || !o.CapturePrelaunchTree || !taskResultInputsMatch(ctx, taskDir, o.ResultInputs)) {
+		res.err = ErrTaskResult
+		return res
+	}
 	if err := o.checkStudyLaunch(); err != nil {
 		if o.Counter != nil {
 			o.Counter.Seal(0, BypassUnverified, ScopeIsolatedContainer)
@@ -140,6 +150,14 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 			_ = o.Counter.assemble(startCap, endCap)
 		}
 		res.ledger, res.err = o.Counter.Report(), err
+		if o.ResultCheck != nil && err == nil {
+			if !res.final || !taskResultCurrent(ctx) || occurrence == nil || res.ledger == nil || res.ledger.State != "complete" || !res.ledger.TotalComplete || !taskResultInputsMatch(ctx, taskDir, o.ResultInputs) {
+				res.err = ErrTaskResult
+				return res
+			}
+			r := newTaskResult(retainedResult.Bytes(), res.digest, occurrence, o.ResultInputs, res.ledger, *res.prelaunch)
+			res.err = deliverTaskResult(ctx, r, o.ResultCheck)
+		}
 		return res
 	}
 	refuse := func(err error) liveResult { return finish(gateRefused(err)) }
@@ -163,6 +181,9 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		instr, err := taskInstruction(taskDir)
 		if err != nil {
 			return finish(agentInstallError{err})
+		}
+		if o.ResultCheck != nil && referenceDigest([]byte(instr)) != o.ResultInputs.sources["instruction"] {
+			return finish(ErrTaskResult)
 		}
 		recipe, err = makeOpenCodeRecipe(o.Live.model, instr, o.Counter.token, o.StudyLaunchPolicy)
 		if err != nil {
@@ -287,6 +308,7 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		if err != nil {
 			return finish(err)
 		}
+		occurrence = retained
 		err = consumePrelaunch(ctx, retained, o.PrelaunchCheck)
 		res.prelaunch.CheckFinishedMs = o.Counter.mark().Milliseconds()
 		if err != nil || ctx.Err() != nil {
@@ -330,8 +352,15 @@ func (d *Docker) livePhase(ctx context.Context, taskDir string, o RunOptions, li
 		src.Content.Close()
 		return finish(err)
 	}
-	res.digest, err = freezeTree(src.Content, artifact)
-	src.Content.Close()
+	if o.ResultCheck == nil {
+		res.digest, err = freezeTree(src.Content, artifact)
+		_ = src.Content.Close()
+	} else {
+		res.digest, err = freezeTreeEmission(&referenceReader{ctx: ctx, r: src.Content}, artifact, 96<<20, 96<<20, &retainedResult)
+		if ce := src.Content.Close(); err == nil && ce != nil {
+			err = ErrTaskResult
+		}
+	}
 	if err != nil {
 		res.digest = ""
 	}

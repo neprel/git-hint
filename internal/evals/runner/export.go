@@ -77,6 +77,10 @@ func ExportBounded(parent context.Context, l *library.Library, rec map[string]an
 		return nil, errors.New("bounded_export_refused")
 	}
 	if task.frozen != nil {
+		task.frozen.actual, e = InspectReferencePreparationInputs(ctx, dir)
+		if e != nil {
+			return nil, e
+		}
 		task.frozen.sources = cloneStringMap(task.Inputs)
 		task.frozenPublished = true
 		if ctx.Err() != nil {
@@ -248,7 +252,7 @@ func exportTask(l *library.Library, rec map[string]any, dir string, s Settings, 
 				return nil, err
 			}
 			if budget != nil {
-				t.frozen = &FrozenIOInputs{base: append([]byte(nil), base...), baseInventory: baseInventory.Copy(), task: cloneIOTask(iot), limits: parseLimits(taskConfig), image: image, configDigest: referenceDigest(taskConfig)}
+				t.frozen = &FrozenIOInputs{recipe: FrozenExportRecipe{evalID, version, s}, base: append([]byte(nil), base...), baseInventory: baseInventory.Copy(), task: cloneIOTask(iot), limits: parseLimits(taskConfig), image: image, configDigest: referenceDigest(taskConfig)}
 			}
 			want := iodecl.Tests(iot.spec.Cases)
 			cs, _ := rec["verifier"].(map[string]any)["checks"].([]any)

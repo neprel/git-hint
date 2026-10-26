@@ -5,6 +5,7 @@ package runner
 import (
 	"archive/tar"
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -15,10 +16,13 @@ type SelectedMappingTestNode struct {
 	Type             byte
 }
 type SelectedMappingTestRunner struct {
-	Before func(string)
-	T      *testing.T
-	Nodes  []SelectedMappingTestNode
-	Starts int
+	FailResultClose, FailResultRemove bool
+	Before                            func(string)
+	T                                 *testing.T
+	Nodes                             []SelectedMappingTestNode
+	FinalNodes                        []SelectedMappingTestNode
+	Problem                           string
+	Starts                            int
 }
 
 func (r *SelectedMappingTestRunner) SupportsStudyLaunchPolicy(p StudyLaunchPolicy) bool {
@@ -48,7 +52,14 @@ func (r *SelectedMappingTestRunner) Run(ctx context.Context, task string, opts R
 		}
 		extra[n.Path] = storedStudyFile{tar.Header{Typeflag: typ, Mode: mode, Linkname: n.Link, Uid: 65534, Gid: 65534}, []byte(n.Body)}
 	}
-	_, _, state := studyFake(r.T, studyFakeOptions{parent: ctx, taskDir: task, external: &opts, skipRequest: true, extraApp: extra, omitApp: omit})
+	final := map[string]storedStudyFile{}
+	for _, n := range r.FinalNodes {
+		final[n.Path] = storedStudyFile{header: tar.Header{Typeflag: tar.TypeReg, Mode: n.Mode, Uid: 65534, Gid: 65534}, body: []byte(n.Body)}
+	}
+	actual, _, state := studyFake(r.T, studyFakeOptions{parent: ctx, taskDir: task, external: &opts, skipRequest: opts.ResultCheck == nil, extraApp: extra, finalApp: final, omitApp: omit, finalCloseError: r.FailResultClose, failAgentRemove: r.FailResultRemove})
+	if actual.ExceptionInfo != nil {
+		r.Problem = actual.ExceptionInfo.ExceptionType + ": " + fmt.Sprint(actual.Container["error"])
+	}
 	state.mu.Lock()
 	r.Starts += state.starts
 	state.mu.Unlock()

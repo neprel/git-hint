@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,6 +17,8 @@ import (
 var ErrFrozenInputs = errors.New("frozen verification inputs refused")
 
 type FrozenIOInputs struct {
+	actual              ReferenceInputIdentity
+	recipe              FrozenExportRecipe
 	base                []byte
 	baseInventory       PrelaunchInventory
 	task                *ioTask
@@ -23,7 +26,14 @@ type FrozenIOInputs struct {
 	image, configDigest string
 	sources             map[string]string
 }
+type FrozenExportRecipe struct {
+	EvalID   string
+	Version  int
+	Settings Settings
+}
+
 type FrozenIOInputsIdentity struct {
+	Recipe                                                    FrozenExportRecipe
 	Cases                                                     []string
 	CaseSeconds                                               int
 	SpecDigest, InputsDigest, DeclaredImage, TaskConfigDigest string
@@ -76,7 +86,15 @@ func (h *FrozenIOInputs) Identity() FrozenIOInputsIdentity {
 	if h.limits.lan {
 		net = "allowlist"
 	}
-	return FrozenIOInputsIdentity{SpecDigest: h.task.specDigest, InputsDigest: h.task.inputsDigest, DeclaredImage: h.image, TaskConfigDigest: h.configDigest, VerifierLimit: h.limits.verifier, CPUs: h.limits.cpus, MemoryMB: h.limits.memoryMB, Network: net, SourceInputs: cloneStringMap(h.sources), Cases: append([]string(nil), h.task.spec.Cases...), CaseSeconds: h.task.spec.CaseSeconds}
+	return FrozenIOInputsIdentity{Recipe: h.recipe, SpecDigest: h.task.specDigest, InputsDigest: h.task.inputsDigest, DeclaredImage: h.image, TaskConfigDigest: h.configDigest, VerifierLimit: h.limits.verifier, CPUs: h.limits.cpus, MemoryMB: h.limits.memoryMB, Network: net, SourceInputs: cloneStringMap(h.sources), Cases: append([]string(nil), h.task.spec.Cases...), CaseSeconds: h.task.spec.CaseSeconds}
+}
+
+// PreparationIdentity is copied from the same actual bounded task export.
+func (h *FrozenIOInputs) PreparationIdentity() ReferenceInputIdentity {
+	if !h.valid() {
+		return ReferenceInputIdentity{}
+	}
+	return h.actual
 }
 func (h *FrozenIOInputs) stamp() string { return referenceJSON(h.Identity()) }
 func (h *FrozenIOInputs) byteCount() int64 {
@@ -191,4 +209,21 @@ func (h *FrozenIOInputs) BaseInventory() (PrelaunchInventory, error) {
 		return PrelaunchInventory{}, e
 	}
 	return h.baseInventory.Copy(), nil
+}
+
+// ValidateExportRecipe checks the SAME taskTOML function, not runtime authority.
+// Task config and generated compose Pids remain role-specific identities; Docker
+// create separately reports its actual fixed Pids1024 in phase audits.
+func (id FrozenIOInputsIdentity) ValidateExportRecipe() error {
+	r := id.Recipe
+	s := r.Settings
+	if r.EvalID == "" || r.Version < 1 || s.AgentSeconds <= 0 || s.VerifierSeconds <= 0 || s.BuildSeconds <= 0 || s.CPUs <= 0 || s.MemoryMB <= 0 || s.Pids <= 0 {
+		return ErrFrozenInputs
+	}
+	config := []byte(taskTOML(fmt.Sprintf("hint/%s-v%d", r.EvalID, r.Version), r.Version, r.EvalID, s))
+	lim := parseLimits(config)
+	if referenceDigest(config) != id.TaskConfigDigest || lim.verifier != id.VerifierLimit || lim.cpus != id.CPUs || lim.memoryMB != id.MemoryMB || id.Network != "none" {
+		return ErrFrozenInputs
+	}
+	return nil
 }

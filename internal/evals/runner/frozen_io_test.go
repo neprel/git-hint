@@ -18,7 +18,7 @@ func TestFrozenIOSourceIdentityGuards(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, name := range []string{"bounded_phase.go", "frozen_io.go", "frozen_inputs.go", "frozen_bridge.go"} {
+	for _, name := range []string{"task_result.go", "bounded_phase.go", "frozen_io.go", "frozen_inputs.go", "frozen_bridge.go"} {
 		for _, mutation := range []string{"bytes", "omission"} {
 			fixture := fstest.MapFS{}
 			for _, source := range sources {

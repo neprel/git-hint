@@ -3,14 +3,11 @@ package pipeline
 // Local factual correspondence only. No new source identifier, issuer, scanner,
 // ordinary wire payload, original-start or completion authority is defined here.
 import (
-	"archive/tar"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path"
 	"reflect"
-	"strings"
 
 	"github.com/neprel/git-hint/internal/evals/library"
 	"github.com/neprel/git-hint/internal/evals/qualify"
@@ -29,11 +26,13 @@ type TaskInputIdentity struct {
 	Inputs                                      runner.FrozenIOInputsIdentity
 }
 type RetainedTaskInput struct {
-	observed  *observedStartResult
-	store     *store.Store // actual owner, private; getters/serialization expose no key/path
-	identity  TaskInputIdentity
-	base      []byte
-	inventory runner.PrelaunchInventory
+	observed   *observedStartResult
+	occurrence *runner.PrelaunchArtifact
+	frozen     *runner.FrozenIOInputs
+	store      *store.Store // actual owner, private; getters/serialization expose no key/path
+	identity   TaskInputIdentity
+	base       []byte
+	inventory  runner.PrelaunchInventory
 }
 
 func (t *RetainedTaskInput) Identity() TaskInputIdentity {
@@ -95,7 +94,7 @@ func retainActualTaskInput(ctx context.Context, s *store.Store, l *library.Libra
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	return &RetainedTaskInput{store: s, identity: TaskInputIdentity{s.Cfg.ProjectNamespace, ref, digest, suite, run, attempt, arm, str(repo["base_tree"]), id}, base: b, inventory: inv}, nil
+	return &RetainedTaskInput{frozen: frozen, store: s, identity: TaskInputIdentity{s.Cfg.ProjectNamespace, ref, digest, suite, run, attempt, arm, str(repo["base_tree"]), id}, base: b, inventory: inv}, nil
 }
 
 // obj is intentionally not a record parser; immutable manifests already went
@@ -114,6 +113,7 @@ type SelectedMappingIdentity struct {
 	Absent      []string
 }
 type SelectedProjectMapping struct {
+	input    *RetainedTaskInput
 	identity SelectedMappingIdentity
 	unmapped runner.PrelaunchInventory
 }
@@ -165,145 +165,17 @@ func selectedBaselinePair(b *project.BaselineInputs) (*trees.DecodedSelectedSour
 	}
 	return p, nil
 }
-func inventoryNodes(inv runner.PrelaunchInventory) (map[string]runner.PrelaunchEntry, error) {
-	if len(inv.Entries) > 200000 {
-		return nil, mappingProblem("inventory_bound")
-	}
-	out := map[string]runner.PrelaunchEntry{}
-	aliases := map[string]bool{}
-	for _, e := range inv.Entries {
-		if e.Path == "" && e.Type == tar.TypeDir && !e.Unresolved && e.Mode >= 0 && e.Mode&^0777 == 0 {
-			if aliases[""] {
-				return nil, mappingProblem("root_alias")
-			}
-			aliases[""] = true
-			out[""] = e
-			continue
-		}
-		if e.Path == "" || path.Clean(e.Path) != e.Path || strings.HasPrefix(e.Path, "/") || e.Path == ".." || strings.HasPrefix(e.Path, "../") || strings.ContainsAny(e.Path, "\\\x00") || e.Mode < 0 || e.Mode&^0777 != 0 {
-			return nil, mappingProblem("path_or_mode")
-		}
-		key := runner.ArchivePathAlias(e.Path)
-		if aliases[key] {
-			return nil, mappingProblem("alias")
-		}
-		aliases[key] = true
-		out[e.Path] = e
-	}
-	return out, nil
-}
-func logicalMode(v string) int64 {
-	if v == "100644" {
-		return 0100644
-	}
-	if v == "100755" {
-		return 0100755
-	}
-	return 0
-}
-func sameSelected(f trees.SelectedPathFact, e runner.PrelaunchEntry) bool {
-	return !e.Unresolved && e.Type == tar.TypeReg && e.LogicalMode == logicalMode(f.Mode) && e.Size == f.Size && e.Digest == f.ObjectDigest
-}
-func selectedInventoryFacts(selected trees.SelectedReceipt, inv runner.PrelaunchInventory, exact bool) ([]runner.PrelaunchEntry, []string, runner.PrelaunchInventory, error) {
-	nodes, e := inventoryNodes(inv)
-	if e != nil {
-		return nil, nil, runner.PrelaunchInventory{}, e
-	}
-	// Occupancy is a path fact, not a fabricated TAR entry. Materialization
-	// creates required ancestor directories even when the archive omits their
-	// headers. Preserve all original inventory metadata and unmapped entries.
-	occupancy := map[string]map[string]bool{}
-	for actual := range nodes {
-		for component := actual; component != "."; component = path.Dir(component) {
-			alias := runner.ArchivePathAlias(component)
-			if occupancy[alias] == nil {
-				occupancy[alias] = map[string]bool{}
-			}
-			occupancy[alias][component] = true
-		}
-	}
-	expected := map[string]bool{}
-	parents := map[string]bool{}
-	parentAliases := map[string]string{}
-	aliases := map[string]string{}
-	compared := []runner.PrelaunchEntry{}
-	absent := []string{}
-	for _, f := range selected.Selected {
-		aliases[runner.ArchivePathAlias(f.Path)] = f.Path
-		expected[f.Path] = true
-		for d := path.Dir(f.Path); d != "."; d = path.Dir(d) {
-			parents[d] = true
-			parentAliases[runner.ArchivePathAlias(d)] = d
-		}
-	}
-	for _, f := range selected.Selected {
-		n, exists := nodes[f.Path]
-		if f.State == trees.SelectedAbsent {
-			if len(occupancy[runner.ArchivePathAlias(f.Path)]) != 0 {
-				return nil, nil, runner.PrelaunchInventory{}, mappingProblem("selected_absence")
-			}
-			absent = append(absent, f.Path)
-		} else if !exists || !sameSelected(f, n) {
-			return nil, nil, runner.PrelaunchInventory{}, mappingProblem("selected_content_mode_or_type")
-		} else {
-			compared = append(compared, n)
-		}
-		for component := f.Path; component != "."; component = path.Dir(component) {
-			for actual := range occupancy[runner.ArchivePathAlias(component)] {
-				if actual != component {
-					return nil, nil, runner.PrelaunchInventory{}, mappingProblem("selected_component_alias")
-				}
-			}
-		}
-		for d := path.Dir(f.Path); d != "."; d = path.Dir(d) {
-			if n, ok := nodes[d]; ok && (n.Type != tar.TypeDir || n.Unresolved) {
-				return nil, nil, runner.PrelaunchInventory{}, mappingProblem("ancestor_type")
-			}
-		}
-	}
-	unmapped := runner.PrelaunchInventory{Digest: inv.Digest, Entries: []runner.PrelaunchEntry{}}
-	for _, n := range inv.Entries {
-		if target, ok := parentAliases[runner.ArchivePathAlias(n.Path)]; ok && target != n.Path {
-			return nil, nil, unmapped, mappingProblem("selected_ancestor_alias")
-		}
-		if target, ok := aliases[runner.ArchivePathAlias(n.Path)]; ok && target != n.Path {
-			return nil, nil, unmapped, mappingProblem("selected_alias")
-		}
-		if expected[n.Path] {
-			continue
-		}
-		// A link to/through a selected node cannot be treated as unrelated extra.
-		if n.LinkTarget != "" {
-			target := path.Clean(path.Join(path.Dir(n.Path), n.LinkTarget))
-			if n.Type == tar.TypeLink {
-				target = path.Clean(strings.TrimPrefix(n.LinkTarget, "app/"))
-			}
-			if strings.HasPrefix(n.LinkTarget, "/app/") {
-				target = strings.TrimPrefix(n.LinkTarget, "/app/")
-			}
-			if n.LinkTarget == "/app" {
-				target = "."
-			}
-			a := runner.ArchivePathAlias(target)
-			if _, ok := aliases[a]; ok {
-				return nil, nil, unmapped, mappingProblem("selected_link_alias")
-			}
-			for parent := range parents {
-				if runner.ArchivePathAlias(parent) == a {
-					return nil, nil, unmapped, mappingProblem("selected_link_alias")
-				}
-			}
-			if target == "." {
-				return nil, nil, unmapped, mappingProblem("selected_link_alias")
-			}
-		}
 
-		if exact && !(n.Type == tar.TypeDir && !n.Unresolved && parents[n.Path]) {
-			return nil, nil, unmapped, mappingProblem("unexpected_base_node")
-		}
-		unmapped.Entries = append(unmapped.Entries, n)
+// Shared physical relation, including implicit ancestors and aliases.
+func selectedInventoryFacts(selected trees.SelectedReceipt, inv runner.PrelaunchInventory, exact bool) ([]runner.PrelaunchEntry, []string, runner.PrelaunchInventory, error) {
+	return selectedInventoryFactsContext(context.Background(), selected, inv, exact)
+}
+func selectedInventoryFactsContext(ctx context.Context, selected trees.SelectedReceipt, inv runner.PrelaunchInventory, exact bool) ([]runner.PrelaunchEntry, []string, runner.PrelaunchInventory, error) {
+	a, b, c, e := runner.MatchSelectedInventory(ctx, selected, inv, exact)
+	if e != nil {
+		return nil, nil, runner.PrelaunchInventory{}, fmt.Errorf("%w: %v", ErrSelectedProjectMapping, e)
 	}
-	return compared, absent, unmapped, nil
+	return a, b, c, nil
 }
 func CheckSelectedProjectPrelaunch(ctx context.Context, b *project.BaselineInputs, source *project.CaptureSourceInputs, v *ObservedPrelaunch) (*SelectedProjectMapping, error) {
 	if ctx == nil || ctx.Err() != nil || b == nil || source == nil || v == nil || v.result == nil || v.input == nil || v.input.store == nil || v.input.observed != v.result {
@@ -339,10 +211,10 @@ func CheckSelectedProjectPrelaunch(ctx context.Context, b *project.BaselineInput
 		return nil, e
 	}
 	selected, _, _, _ := pair.Receipts()
-	if _, _, _, e = selectedInventoryFacts(selected, input.inventory, true); e != nil {
+	if _, _, _, e = selectedInventoryFactsContext(ctx, selected, input.inventory, true); e != nil {
 		return nil, e
 	}
-	compared, absent, unmapped, e := selectedInventoryFacts(selected, v.inventory, false)
+	compared, absent, unmapped, e := selectedInventoryFactsContext(ctx, selected, v.inventory, false)
 	if e != nil {
 		return nil, e
 	}
@@ -369,5 +241,5 @@ func CheckSelectedProjectPrelaunch(ctx context.Context, b *project.BaselineInput
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	return &SelectedProjectMapping{SelectedMappingIdentity{"project_selected_prelaunch_v1", binding, src.Ref(), sid.DefinitionRef, input.Identity(), v.result.capture, input.inventory.Digest, compared, absent}, unmapped.Copy()}, nil
+	return &SelectedProjectMapping{input: input, identity: SelectedMappingIdentity{"project_selected_prelaunch_v1", binding, src.Ref(), sid.DefinitionRef, input.Identity(), v.result.capture, input.inventory.Digest, compared, absent}, unmapped: unmapped.Copy()}, nil
 }

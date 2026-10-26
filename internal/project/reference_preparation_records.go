@@ -35,6 +35,7 @@ type referenceRequest struct {
 	Policy                     runner.ReferencePreparationPolicyInfo
 	Inputs                     runner.ReferenceInputIdentity
 	ExportInputs               map[string]string
+	ExportedTask               runner.FrozenIOInputsIdentity
 	CreatedAt, StartedAt       string
 }
 type referenceReservation struct {
@@ -57,6 +58,8 @@ type referenceTerminal struct {
 	FailureCodes                      []string
 }
 type PreparedReferenceIdentity struct {
+	ExportInputs                      map[string]string
+	ExportedTask                      runner.FrozenIOInputsIdentity
 	Eligibility                       string
 	Cases                             []qualify.IOResolvedCase
 	ReadBoundary                      ReferencePreparationReadBoundary
@@ -278,6 +281,18 @@ func loadPreparedReference(ctx context.Context, s *store.Store, ref ReferencePre
 	if e != nil || !reflect.DeepEqual(def.Identity(), v.Definition) || !reflect.DeepEqual(q.Cases(), v.Cases) {
 		return nil, referenceRefused("definition_binding")
 	}
+	rawManifest, e := library.Open(s, 0).ResolveBoundedRead(ctx, "eval", v.Definition.QualifiedInputIdentity.EvalName, qualify.ResolveMetadataMax)
+	var manifest map[string]any
+	if e != nil || library.Digest(rawManifest) != v.Definition.QualifiedInputIdentity.ManifestDigest || json.Unmarshal(rawManifest, &manifest) != nil {
+		return nil, referenceRefused("export_manifest_binding")
+	}
+	expected, e := referenceExpectedExportInputs(manifest, v.Definition.QualifiedInputIdentity)
+	if e != nil || !reflect.DeepEqual(v.ExportInputs, expected) || !reflect.DeepEqual(v.ExportedTask.SourceInputs, expected) || v.ExportedTask.ValidateExportRecipe() != nil || v.ExportedTask.Recipe.Settings != referenceExportSettings() || v.ExportedTask.SpecDigest != v.Inputs.SpecDigest || v.ExportedTask.InputsDigest != v.Inputs.InputsDigest || v.ExportedTask.DeclaredImage != v.Definition.QualifiedInputIdentity.Image || v.ExportedTask.Recipe.EvalID != str(manifest["eval_id"]) || v.ExportedTask.Recipe.Version != int(func() float64 { n, _ := manifest["version"].(float64); return n }()) {
+		return nil, referenceRefused("export_recipe_binding")
+	}
+	if e = verifyReferenceExportedTask(ctx, s, manifest, v); e != nil {
+		return nil, e
+	}
 	pi, e := runner.ResolveReferencePreparationPolicy(v.Policy.Policy)
 	if e != nil || !reflect.DeepEqual(pi, v.Policy) {
 		return nil, referenceRefused("policy_binding")
@@ -368,7 +383,7 @@ func loadPreparedReference(ctx context.Context, s *store.Store, ref ReferencePre
 	if !referenceCurrent(ctx) {
 		return nil, referenceRefused("late_load")
 	}
-	return &PreparedFinalReference{PreparedReferenceIdentity{"requires_process_local_acceptance_witness", v.Cases, referenceReadBoundary(), ReferencePreparationVersion, "unknown", t.State, t.Writer, ref, t.Request, t.Reservation, v.DefinitionRef, v.Definition, pi, v.Inputs, a, t.Artifacts}, objects}, nil
+	return &PreparedFinalReference{PreparedReferenceIdentity{v.ExportInputs, v.ExportedTask, "requires_process_local_acceptance_witness", v.Cases, referenceReadBoundary(), ReferencePreparationVersion, "unknown", t.State, t.Writer, ref, t.Request, t.Reservation, v.DefinitionRef, v.Definition, pi, v.Inputs, a, t.Artifacts}, objects}, nil
 }
 
 // Reconcile actual retained bytes, not a caller's digest assertion. Framing belongs
@@ -416,6 +431,72 @@ func reconcileReferenceTranscript(ctx context.Context, s *store.Store, artifacts
 	}
 	if !referenceCurrent(ctx) {
 		return referenceRefused("late_transcript")
+	}
+	return nil
+}
+
+// FrozenVerificationInputs converts only this loader-verified retained reference.
+// It does not issue process acceptance or recover original-start authority.
+func (h *PreparedFinalReference) FrozenVerificationInputs(ctx context.Context, inputs *runner.FrozenIOInputs) (*runner.FrozenIOArtifact, *runner.FrozenIOReferenceTranscript, error) {
+	if h == nil || ctx == nil || ctx.Err() != nil || inputs == nil {
+		return nil, nil, ErrReferencePreparation
+	}
+	a := h.identity.Audit
+	actual := inputs.PreparationIdentity()
+	id := inputs.Identity()
+	if !reflect.DeepEqual(h.identity.ExportInputs, id.SourceInputs) || actual.SpecDigest != h.identity.Inputs.SpecDigest || actual.InputsDigest != h.identity.Inputs.InputsDigest || actual.ReferenceDigest != h.identity.Inputs.ReferenceDigest || id.DeclaredImage != h.identity.ExportedTask.DeclaredImage || id.ValidateExportRecipe() != nil {
+		return nil, nil, ErrReferencePreparation
+	}
+	raw, ok := h.Object(a.FinalTAR.Digest)
+	if !ok {
+		return nil, nil, ErrReferencePreparation
+	}
+	artifact, e := runner.ValidateFrozenIOArtifact(ctx, runner.FrozenIOArtifactIdentity{Domain: a.FinalTAR.Domain, Digest: a.FinalTAR.Digest, Bytes: a.FinalTAR.Size}, raw)
+	if e != nil {
+		return nil, nil, e
+	}
+	cases := make([]runner.IOTranscriptCase, 0, len(h.identity.Cases))
+	for i, c := range h.identity.Cases {
+		name := fmt.Sprintf("case-outputs/%d-0.stdout", i)
+		var data []byte
+		found := false
+		for _, v := range h.identity.Artifacts {
+			if v.File == name {
+				data, found = h.Object(v.Digest)
+				break
+			}
+		}
+		if !found {
+			return nil, nil, ErrReferencePreparation
+		}
+		cases = append(cases, runner.IOTranscriptCase{ID: c.ID, Status: 0, Output: data})
+	}
+	transcript, e := runner.ValidateFrozenIOReferenceTranscript(ctx, inputs, cases, a.OracleOutputsDigest)
+	return artifact, transcript, e
+}
+
+// Reuse the sole exporter to verify retained derived identities under its exact
+// role recipe. No reference application, model, engine or latest substitution.
+func verifyReferenceExportedTask(ctx context.Context, s *store.Store, rec map[string]any, v referenceRequest) (err error) {
+	if !referenceCurrent(ctx) || v.ExportedTask.Recipe.Settings != referenceExportSettings() {
+		return referenceRefused("export_recipe_binding")
+	}
+	dir, e := os.MkdirTemp("", "hint-reference-input-check-")
+	if e != nil {
+		return referenceRefused("export_workspace")
+	}
+	defer func() {
+		if e := os.RemoveAll(dir); e != nil || !referenceCurrent(ctx) {
+			err = referenceRefused("export_cleanup_unknown")
+		}
+	}()
+	task, e := runner.ExportBounded(ctx, library.Open(s, 0), rec, dir, referenceExportSettings())
+	if e != nil {
+		return referenceRefused("export_replay_unknown")
+	}
+	frozen, e := task.FrozenIOInputs()
+	if e != nil || frozen.PreparationIdentity() != v.Inputs || !reflect.DeepEqual(frozen.Identity(), v.ExportedTask) || !reflect.DeepEqual(task.Inputs, v.ExportInputs) {
+		return referenceRefused("derived_export_identity")
 	}
 	return nil
 }

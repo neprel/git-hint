@@ -418,28 +418,23 @@ func reserveReference(ctx context.Context, s *store.Store, req PrepareReferenceR
 		return fail("directory_refused")
 	}
 	taskDir := s.Path(append(base, "task")...)
-	task, e := runner.ExportBounded(ctx, l, rec, taskDir, runner.Settings{AgentSeconds: 1800, VerifierSeconds: 600, BuildSeconds: 600, CPUs: 2, MemoryMB: 2048, Pids: 1024})
+	task, e := runner.ExportBounded(ctx, l, rec, taskDir, referenceExportSettings())
 	if e != nil {
 		return fail("export_refused")
 	}
-	env, _ := rec["environment"].(map[string]any)
-	repos, _ := rec["repositories"].([]any)
-	if len(repos) != 1 {
+	expected, e := referenceExpectedExportInputs(rec, v.QualifiedInputIdentity)
+	if e != nil || !reflect.DeepEqual(task.Inputs, expected) {
 		return fail("export_binding")
 	}
-	repo, _ := repos[0].(map[string]any)
-	expected := map[string]string{"instruction": str(rec["instruction"]), "base_archive": str(repo["base_archive"]), "verifier": v.QualifiedInputIdentity.VerifierArchive, "reference": v.QualifiedInputIdentity.ReferencePatchArchive}
-	if v.QualifiedInputIdentity.SetupDigest != "" {
-		expected["setup"] = v.QualifiedInputIdentity.SetupDigest
-	}
-	if !reflect.DeepEqual(task.Inputs, expected) || str(env["image"]) != v.QualifiedInputIdentity.Image {
+	frozen, e := task.FrozenIOInputs()
+	if e != nil {
 		return fail("export_binding")
 	}
 	inputs, e := runner.InspectReferencePreparationInputs(ctx, taskDir)
 	if e != nil || inputs.SpecDigest != v.QualifiedInputIdentity.SpecDigest || inputs.InputsDigest != v.QualifiedInputIdentity.InputsDigest {
 		return fail("derived_input_binding")
 	}
-	request := referenceRequest{Cases: q.Cases(), ReadBoundary: referenceReadBoundary(), Version: ReferencePreparationVersion, Authority: "unknown", Writer: referenceBridgeIdentity(), DefinitionRef: req.Definition, Definition: v, Policy: info, Inputs: inputs, ExportInputs: task.Inputs, CreatedAt: now.UTC().Format(time.RFC3339Nano), StartedAt: anchor.UTC().Format(time.RFC3339Nano)}
+	request := referenceRequest{Cases: q.Cases(), ReadBoundary: referenceReadBoundary(), Version: ReferencePreparationVersion, Authority: "unknown", Writer: referenceBridgeIdentity(), DefinitionRef: req.Definition, Definition: v, Policy: info, Inputs: inputs, ExportInputs: task.Inputs, ExportedTask: frozen.Identity(), CreatedAt: now.UTC().Format(time.RFC3339Nano), StartedAt: anchor.UTC().Format(time.RFC3339Nano)}
 	if referencePolicyWindow(info, workEnd) != nil {
 		return fail("policy_window_refused")
 	}
@@ -453,4 +448,26 @@ func reserveReference(ctx context.Context, s *store.Store, req PrepareReferenceR
 		return fail("reservation_commit")
 	}
 	return nil, &ReferencePreparationAttempt{reservation: ref}, taskDir, base, nil
+}
+
+// One role recipe; records retain the actual emitted task identity, not a
+// reconstructed digest masquerading as an observed task.
+func referenceExportSettings() runner.Settings {
+	return runner.Settings{AgentSeconds: 1800, VerifierSeconds: 600, BuildSeconds: 600, CPUs: 2, MemoryMB: 2048, Pids: 1024}
+}
+func referenceExpectedExportInputs(rec map[string]any, q qualify.IOInputIdentity) (map[string]string, error) {
+	env, _ := rec["environment"].(map[string]any)
+	repos, _ := rec["repositories"].([]any)
+	if len(repos) != 1 {
+		return nil, ErrReferencePreparation
+	}
+	repo, _ := repos[0].(map[string]any)
+	expected := map[string]string{"instruction": str(rec["instruction"]), "base_archive": str(repo["base_archive"]), "verifier": q.VerifierArchive, "reference": q.ReferencePatchArchive}
+	if q.SetupDigest != "" {
+		expected["setup"] = q.SetupDigest
+	}
+	if expected["instruction"] == "" || expected["base_archive"] != q.NegativeControlArchive || str(env["image"]) != q.Image {
+		return nil, ErrReferencePreparation
+	}
+	return expected, nil
 }

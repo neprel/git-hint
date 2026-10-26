@@ -69,6 +69,13 @@ func (h *FrozenIOObservation) Output(i int) ([]byte, bool) {
 	}
 	return bytes.Clone(h.cases[i].output), true
 }
+
+// ResolveFrozenVerificationPolicy describes only the exact installed frozen-B1
+// purpose. It performs no engine/Store IO and cannot register or enable policy.
+func ResolveFrozenVerificationPolicy(ref FrozenVerificationPolicyRef) (ReferencePreparationPolicyInfo, error) {
+	_, info, e := resolvePurposeEntry(ReferencePreparationPolicyRef{ref.PolicyID, ref.PolicyDigest}, frozenPurpose)
+	return info, e
+}
 func VerifyFrozenIOForPolicy(parent context.Context, req FrozenVerificationRequest) (out *FrozenIOObservation, err error) {
 	anchor := time.Now()
 	out = &FrozenIOObservation{identity: FrozenIOObservationIdentity{State: "unknown", Authority: "unknown", Version: "hint-frozen-verification-v1", Policy: req.Policy}}

@@ -89,12 +89,15 @@ type RunOptions struct {
 	CapturePrelaunchTree bool
 	// PrelaunchCheck consumes retained actual capture before backend and launch checks.
 	PrelaunchCheck func(context.Context, *PrelaunchArtifact) error
-	Agent          string // nop, oracle, opencode
-	Attempts       int
-	JobsDir        string
-	JobName        string
-	Env            []string // the agent's environment for a live attempt (never credentials)
-	Timeout        time.Duration
+	// ResultCheck observes actual retained output after teardown; nil preserves legacy behavior.
+	ResultCheck  func(context.Context, *TaskResultArtifact) error
+	ResultInputs *FrozenIOInputs
+	Agent        string // nop, oracle, opencode
+	Attempts     int
+	JobsDir      string
+	JobName      string
+	Env          []string // the agent's environment for a live attempt (never credentials)
+	Timeout      time.Duration
 	// the container runner's live attempts: the model proxy and this attempt's counter
 	Live     *Live
 	Counter  *Counter

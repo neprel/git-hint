@@ -206,6 +206,56 @@ func TestProjectReferenceOverlayChild(t *testing.T) {
 				}
 			})
 		}
+
+		requestPath := f.s.Path(append(base, "request.json")...)
+		reservationPath := f.s.Path(append(base, "reservation.json")...)
+		originalRequest, e := os.ReadFile(requestPath)
+		if e != nil {
+			t.Fatal(e)
+		}
+		originalReservation, e := os.ReadFile(reservationPath)
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, kind := range []string{"export-map", "recipe-pids", "task-config", "environment"} {
+			t.Run("factual-export-"+kind, func(t *testing.T) {
+				var request referenceRequest
+				var reservation referenceReservation
+				var terminal referenceTerminal
+				if decodeReferenceRecord(originalRequest, base, "request", &request) != nil || decodeReferenceRecord(originalReservation, base, "reservation", &reservation) != nil || decodeReferenceRecord(originalOutcome, base, "outcome", &terminal) != nil {
+					t.Fatal("record fixture")
+				}
+				switch kind {
+				case "export-map":
+					request.ExportInputs["instruction"] = "sha256:" + strings.Repeat("a", 64)
+				case "recipe-pids":
+					request.ExportedTask.Recipe.Settings.Pids = 64
+				case "task-config":
+					request.ExportedTask.TaskConfigDigest = "sha256:" + strings.Repeat("b", 64)
+				case "environment":
+					request.Inputs.EnvironmentDigest = "sha256:" + strings.Repeat("c", 64)
+					terminal.Audit.Inputs = request.Inputs
+					terminal.Audit.BuildContextDigest = request.Inputs.EnvironmentDigest
+				}
+				raw := referenceEncoded(base, "request", request)
+				reservation.Request = referenceRecordRef(base, "request", raw)
+				terminal.Request = reservation.Request
+				reserved := referenceEncoded(base, "reservation", reservation)
+				terminal.Reservation = referenceRecordRef(base, "reservation", reserved)
+				forged := referenceEncoded(base, "outcome", terminal)
+				for path, data := range map[string][]byte{requestPath: raw, reservationPath: reserved, outcomePath: forged} {
+					if e := os.WriteFile(path, data, 0600); e != nil {
+						t.Fatal(e)
+					}
+				}
+				defer os.WriteFile(requestPath, originalRequest, 0600)
+				defer os.WriteFile(reservationPath, originalReservation, 0600)
+				defer os.WriteFile(outcomePath, originalOutcome, 0600)
+				if _, e := LoadPreparedFinalReference(context.Background(), f.s, referenceRecordRef(base, "outcome", forged)); e == nil {
+					t.Fatal("derived input mismatch loaded", kind)
+				}
+			})
+		}
 		// Factual load checks content-addressed bytes, independent of scratch output.
 		if _, e = LoadPreparedFinalReference(context.Background(), f.s, *a.Prepared()); e != nil {
 			t.Fatal("factual load used scratch", e)
