@@ -123,6 +123,16 @@ func WorkStart(s *store.Store, label string, setRaw []byte, planID, family strin
 		if err != nil {
 			return nil, err
 		}
+		// Document acceptance does not establish selected-plan applicability. This
+		// gate belongs to start admission, not retrospective change association.
+		switch pr.ImportStatus {
+		case "accept", "partial", "render_only":
+			// A declared association never applies a step or proves an effect.
+		case "reject":
+			return nil, errors.New("the selected plan is rejected by the importer")
+		default:
+			return nil, errors.New("the selected plan has no valid import result")
+		}
 		if latest[pr.RepoID] != pr.SnapshotID {
 			return nil, fmt.Errorf("%s: the plan was made for another snapshot than the current one; collect or fetch a new plan first", pr.RepoName)
 		}

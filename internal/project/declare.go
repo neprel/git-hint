@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/neprel/git-hint/internal/hint"
 	"github.com/neprel/git-hint/internal/snapshot"
 	"github.com/neprel/git-hint/internal/store"
 )
@@ -98,6 +99,23 @@ func record(s *store.Store, d Declaration) (Declaration, bool, error) {
 // configured repository and a snapshot digest that was exported.
 type planRef struct {
 	SetID, SetDigest, PlanID, RepoID, RepoName, SnapshotID, SnapshotDigest string
+	// ImportStatus is the selected plan's result from the same import. Historical
+	// declarations keep their association semantics; WorkStart checks this status.
+	ImportStatus string
+}
+
+func selectedPlanImportStatus(results []hint.PlanResult, planID string) string {
+	status, count := "", 0
+	for _, r := range results {
+		if r.PlanID == planID {
+			status = r.Status
+			count++
+		}
+	}
+	if count != 1 {
+		return ""
+	}
+	return status
 }
 
 func resolvePlan(s *store.Store, raw []byte, planID string, now time.Time) (planRef, error) {
@@ -163,6 +181,7 @@ func resolvePlanForBase(s *store.Store, raw []byte, planID string, base *Current
 		return pr, fmt.Errorf("%s: the plan's snapshot digest was never exported for that snapshot", pr.RepoName)
 	}
 	pr.SetID, pr.SetDigest, pr.PlanID = str(doc["document_id"]), str(doc["content_digest"]), planID
+	pr.ImportStatus = selectedPlanImportStatus(im.Result.Plans, planID)
 	return pr, nil
 }
 
