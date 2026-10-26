@@ -22,7 +22,11 @@ const SourceViewVersion = "git-selected-source-observations-v1"
 const sourceMetadataCap = int64(4 << 20)
 const sourceQueryCap = int64(16 << 20)
 
-type SourceViewOptions struct{ Limits Limits }
+// SourceViewOptions with a nil Artifact selects the unchanged Native profile.
+type SourceViewOptions struct {
+	Limits   Limits
+	Artifact *ArtifactSourceOptions
+}
 type SourceFact struct {
 	Role, Path, State, ObjectDigest, NodeIdentity, AbsenceIdentity string
 	Bytes                                                          int64
@@ -85,6 +89,7 @@ type SelectedSourceView struct {
 	invocation              *readgit.SourceInvocation
 	root, home, xdg, gitdir string
 	external, git           *worktreeRoot
+	artifact                *artifactSourceState
 	candidates              []string
 	queries                 int
 	stdout, stderr          int64
@@ -125,6 +130,9 @@ func OpenSelectedSourceView(ctx context.Context, l *library.Library, root string
 		return nil, e
 	}
 	v := &SelectedSourceView{session: s, root: s.source.root}
+	if o.Artifact != nil {
+		return openArtifactSourceView(v, *o.Artifact)
+	}
 	phase := "invocation"
 	fail := func() (*SelectedSourceView, error) {
 		v.Close()
@@ -229,8 +237,25 @@ func sourceLines(b []byte, count int) ([]string, error) {
 	return lines, nil
 }
 func (v *SelectedSourceView) sourceOutput(ctx context.Context, root string, limit int64, args ...string) ([]byte, error) {
-	if v.failed || v.queries >= 38 || root != v.root {
+	if root != v.root {
 		return nil, sourceProblem()
+	}
+	if v.artifact != nil {
+		args = append(v.artifact.rootedArgs(v), args...)
+	}
+	return v.dispatch(ctx, root, limit, args...)
+}
+
+// sourceDispatchTrace is an unexported test seam on the SAME dispatch core.
+var sourceDispatchTrace func(root string, args []string)
+
+// dispatch is the one accounted source-query core shared by both profiles.
+func (v *SelectedSourceView) dispatch(ctx context.Context, root string, limit int64, args ...string) ([]byte, error) {
+	if v.failed || v.queries >= 38 {
+		return nil, sourceProblem()
+	}
+	if sourceDispatchTrace != nil {
+		sourceDispatchTrace(root, append([]string(nil), args...))
 	}
 	left := sourceQueryCap - v.stdout - v.stderr
 	if left < 1 {
@@ -259,6 +284,15 @@ func (v *SelectedSourceView) meta(ctx context.Context, role, path string) (Sourc
 	if !safeRolePath(path) || v.reads[v.pass] >= 1024 {
 		return zero, nil, sourceProblem()
 	}
+	// The artifact role/path guard runs BEFORE any open or read accounting.
+	var artifactAnchor *worktreeRoot
+	var artifactRelative string
+	if v.artifact != nil {
+		var ok bool
+		if artifactAnchor, artifactRelative, ok = v.artifact.anchor(v, role, path); !ok {
+			return zero, nil, sourceProblem()
+		}
+	}
 	v.reads[v.pass]++
 	remaining := sourceMetadataCap - v.readBytes[v.pass]
 	if remaining < 0 {
@@ -277,6 +311,9 @@ func (v *SelectedSourceView) meta(ctx context.Context, role, path string) (Sourc
 	if role == "selected_chain_gitignore" {
 		anchor = v.session.source
 		relative = strings.TrimPrefix(path, v.root+string(filepath.Separator))
+	}
+	if v.artifact != nil {
+		anchor, relative = artifactAnchor, artifactRelative
 	}
 	if anchor == nil || !validPath(filepath.ToSlash(relative)) {
 		return zero, nil, sourceProblem()
@@ -394,6 +431,9 @@ func (v sourceConfigProfile) validateConfig(rows []configTuple) error {
 	return nil
 }
 func (v *SelectedSourceView) snapshot(ctx context.Context) (sourceSnapshot, error) {
+	if v.artifact != nil {
+		return v.artifactSnapshot(ctx)
+	}
 	snap := sourceSnapshot{raw: map[string][]byte{}}
 	add := func(role, path string) error {
 		fact, data, e := v.meta(ctx, role, path)
@@ -688,12 +728,29 @@ func (v *SelectedSourceView) Capture(ctx context.Context) (*SelectedSourceViewCa
 	}
 	exe, node := v.invocation.ExecutableIdentity()
 	stats := v.invocation.Stats()
+	if v.artifact != nil {
+		// Source queries use the artifact invocation; persistence guards keep the
+		// view's Native invocation. Both counters enter the one receipt.
+		guard := v.artifact.guard.Stats()
+		stats.Dispatches += guard.Dispatches
+		stats.ExecutableReads += guard.ExecutableReads
+		stats.ExecutableBytes += guard.ExecutableBytes
+		stats.StdoutBytes += guard.StdoutBytes
+		stats.StderrBytes += guard.StderrBytes
+	}
 	timing := "discovered_after_selection"
 	if v.pass == 1 {
 		timing = "observed_before_selection"
 	}
 	sourceDigest := sourceFactsDigest(v.after.Facts)
-	receipt := SourceViewReceipt{Version: SourceViewVersion, Authority: "unknown", State: "observed_source_inputs", ChainTiming: timing, Pass: r.Pass, InvocationIdentity: v.invocation.Identity(), ExecutableDigest: exe, ExecutableNode: node, CandidatePaths: append([]string(nil), v.candidates...), ConfigObject: cfg, StateObject: state, SourceDigest: sourceDigest, SelectedInventoryDigest: r.SelectedInventoryDigest, StageInventoryDigest: r.StageInventoryDigest, TreeDigest: r.TreeDigest, Facts: append([]SourceFact(nil), v.after.Facts...), SourceQueryAttempts: v.queries, SourceStdoutBytes: v.stdout, SourceStderrBytes: v.stderr, TotalDispatchAttempts: stats.Dispatches, PersistenceGuardAttempts: stats.Dispatches - v.queries, ExecutableReads: stats.ExecutableReads, ExecutableReadBytes: stats.ExecutableBytes, GuardStdoutBytes: stats.StdoutBytes - v.stdout, GuardStderrBytes: stats.StderrBytes - v.stderr, MetadataReads: v.reads[v.pass], MetadataBytes: v.readBytes[v.pass], BeginOffsetNS: r.BeginOffsetNS, EndOffsetNS: time.Since(v.session.anchor).Nanoseconds()}
+	if v.artifact != nil {
+		sourceDigest = sourceFactsDigestFor(SourceViewArtifactVersion, v.after.Facts)
+	}
+	version, receiptState := SourceViewVersion, "observed_source_inputs"
+	if v.artifact != nil {
+		version, receiptState = SourceViewArtifactVersion, artifactReceiptState
+	}
+	receipt := SourceViewReceipt{Version: version, Authority: "unknown", State: receiptState, ChainTiming: timing, Pass: r.Pass, InvocationIdentity: v.invocation.Identity(), ExecutableDigest: exe, ExecutableNode: node, CandidatePaths: append([]string{}, v.candidates...), ConfigObject: cfg, StateObject: state, SourceDigest: sourceDigest, SelectedInventoryDigest: r.SelectedInventoryDigest, StageInventoryDigest: r.StageInventoryDigest, TreeDigest: r.TreeDigest, Facts: append([]SourceFact(nil), v.after.Facts...), SourceQueryAttempts: v.queries, SourceStdoutBytes: v.stdout, SourceStderrBytes: v.stderr, TotalDispatchAttempts: stats.Dispatches, PersistenceGuardAttempts: stats.Dispatches - v.queries, ExecutableReads: stats.ExecutableReads, ExecutableReadBytes: stats.ExecutableBytes, GuardStdoutBytes: stats.StdoutBytes - v.stdout, GuardStderrBytes: stats.StderrBytes - v.stderr, MetadataReads: v.reads[v.pass], MetadataBytes: v.readBytes[v.pass], BeginOffsetNS: r.BeginOffsetNS, EndOffsetNS: time.Since(v.session.anchor).Nanoseconds()}
 	if receipt.EndOffsetNS > int64(strictCaptureSeconds) {
 		return fail(context.DeadlineExceeded)
 	}
@@ -722,6 +779,9 @@ func (v *SelectedSourceView) Close() error {
 					e = sourceProblem()
 				}
 			}
+		}
+		if v.artifact != nil && v.artifact.close() != nil {
+			e = sourceProblem()
 		}
 	}
 	return e
@@ -765,10 +825,13 @@ func selectedIgnoreChain(root string, paths []string, maxBytes int64) ([]string,
 }
 
 func sourceFactsDigest(facts []SourceFact) string {
+	return sourceFactsDigestFor(SourceViewVersion, facts)
+}
+func sourceFactsDigestFor(domain string, facts []SourceFact) string {
 	return receiptDigest(struct {
 		Domain string
 		Facts  []SourceFact
-	}{SourceViewVersion, facts})
+	}{domain, facts})
 }
 
 type sourceStateObject struct {

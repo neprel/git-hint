@@ -323,8 +323,18 @@ func validStageRecord(rec []byte) bool {
 // Legacy validPath/tree spelling remains unchanged. Git metadata is forbidden at every
 // component (as validPath already does for exact .git); .hint protects the root store only.
 func strictProtectedPath(p string) bool {
-	for i, part := range strings.Split(p, "/") {
-		if strings.EqualFold(part, ".git") || i == 0 && strings.EqualFold(part, ".hint") {
+	if ProtectedGitMetadataPath(p) {
+		return true
+	}
+	first, _, _ := strings.Cut(p, "/")
+	return strings.EqualFold(first, ".hint")
+}
+
+// ProtectedGitMetadataPath is the existing explicit Git-metadata non-project rule:
+// any path component equal to ".git" under case folding.
+func ProtectedGitMetadataPath(p string) bool {
+	for _, part := range strings.Split(p, "/") {
+		if strings.EqualFold(part, ".git") {
 			return true
 		}
 	}

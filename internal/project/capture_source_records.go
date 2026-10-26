@@ -108,6 +108,8 @@ type CaptureSourceInputs struct {
 	ref      CaptureSourceRef
 	identity CaptureSourceIdentity
 	objects  map[string][]byte
+	// native is the decoded retained SourceB receipt of this loaded closure.
+	native trees.SourceViewReceipt
 }
 
 func (h *CaptureSourceInputs) Identity() CaptureSourceIdentity {
@@ -274,7 +276,7 @@ func loadCaptureSource(ctx context.Context, s *store.Store, ref CaptureSourceRef
 	if e = compareBaselineSource(ctx, s, v, pair, objects); e != nil {
 		return nil, e
 	}
-	return &CaptureSourceInputs{ref, a, objects}, nil
+	return &CaptureSourceInputs{ref, a, objects, sy}, nil
 }
 func captureInventory(pair *trees.DecodedSelectedSourcePair, receipts []DefinitionObject, config DefinitionObject, objects map[string][]byte) ([]CaptureSourceObject, error) {
 	roles := map[string][]string{}

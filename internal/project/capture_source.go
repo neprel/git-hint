@@ -27,7 +27,7 @@ import (
 
 var ErrCaptureSource = errors.New("selected source capture refused")
 
-//go:embed selected_result_inputs.go capture_source.go capture_source_records.go capture_source_pair.go baseline_collect.go baseline_records.go prework_acceptance.go
+//go:embed selected_result_inputs.go selected_result_policy.go capture_source.go capture_source_records.go capture_source_pair.go baseline_collect.go baseline_records.go prework_acceptance.go
 var captureSources embed.FS
 
 func captureSourceIdentity() string {

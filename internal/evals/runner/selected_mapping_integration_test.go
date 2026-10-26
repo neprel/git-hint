@@ -113,6 +113,10 @@ func (r *mappingQualificationRunner) Run(ctx context.Context, task string, o run
 	return out, nil
 }
 
+// mappingGlobalExclude, when set by a test, becomes the fixture's owned XDG global
+// exclude BEFORE the Native baseline/source capture. It never names a host file.
+var mappingGlobalExclude []byte
+
 type mappingFixture struct {
 	s        *store.Store
 	l        *library.Library
@@ -158,6 +162,9 @@ func newMappingFixture(t *testing.T, edits ...func(*library.Library, map[string]
 	t.Setenv("HOME", filepath.Join(domain, "home"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(domain, "xdg"))
 	t.Setenv("HINT_KEY_DIR", filepath.Join(domain, "keys"))
+	if mappingGlobalExclude != nil {
+		mappingWrite(t, filepath.Join(domain, "xdg", "git", "ignore"), mappingGlobalExclude)
+	}
 	root := filepath.Join(domain, "root")
 	testkit.Git(t, root, "init", "-q")
 	testkit.WriteFile(t, root, "go.mod", "module example\n\ngo 1.26\n")

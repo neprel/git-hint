@@ -141,6 +141,9 @@ func (p *DecodedSelectedSourcePair) ValidateObjects(objects map[string][]byte) (
 	if e != nil || !bytes.Equal(exact, stateRaw) {
 		return nil, codecProblem()
 	}
+	if p.x.Version == SourceViewArtifactVersion {
+		return out, validateArtifactObjects(p.x, state, objects)
+	}
 	profile := receiptConfigProfile(p.x)
 	optional := []string{}
 	for _, f := range p.x.Facts {

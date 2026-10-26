@@ -18,7 +18,15 @@ type capturedSourcePair struct {
 }
 
 func captureSourcePair(ctx context.Context, l *library.Library, root string, limits trees.Limits, invocation *readgit.SourceInvocation, phase func(string, func() error) error) (result *capturedSourcePair, err error) {
+	return captureSourcePairProfile(ctx, l, root, limits, invocation, nil, phase)
+}
+
+// captureSourcePairProfile shares the one core. A nil artifact keeps the Native
+// profile and its caller-frozen invocation binding. The artifact profile binds
+// the actual opened view's own invocation identity instead.
+func captureSourcePairProfile(ctx context.Context, l *library.Library, root string, limits trees.Limits, invocation *readgit.SourceInvocation, artifact *trees.ArtifactSourceOptions, phase func(string, func() error) error) (result *capturedSourcePair, err error) {
 	var e error
+	expected := invocation.Identity()
 	var view *trees.SelectedSourceView
 	defer func() {
 		if view != nil {
@@ -29,7 +37,10 @@ func captureSourcePair(ctx context.Context, l *library.Library, root string, lim
 	}()
 	if e = phase("view_open", func() error {
 		var e error
-		view, e = trees.OpenSelectedSourceView(ctx, l, root, trees.SourceViewOptions{Limits: limits})
+		view, e = trees.OpenSelectedSourceView(ctx, l, root, trees.SourceViewOptions{Limits: limits, Artifact: artifact})
+		if e == nil && artifact != nil {
+			expected = view.SourceInvocationIdentity()
+		}
 		return e
 	}); e != nil {
 		return nil, captureProblem(ctx, "view_open")
@@ -48,7 +59,7 @@ func captureSourcePair(ctx context.Context, l *library.Library, root string, lim
 	receipts := []DefinitionObject{}
 	if e = phase("objects_and_receipts", func() error {
 		x, y := a.Sources(), b.Sources()
-		if x.InvocationIdentity != invocation.Identity() || y.InvocationIdentity != invocation.Identity() {
+		if expected == "" || x.InvocationIdentity != expected || y.InvocationIdentity != expected {
 			return ErrCaptureSource
 		}
 		wire, e := trees.EncodeSelectedSourcePair(limits, a.Selected().Receipt(), b.Selected().Receipt(), x, y)

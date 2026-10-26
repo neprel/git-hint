@@ -28,7 +28,7 @@ var ErrBaselineObservation = errors.New("baseline observation refused")
 
 // Declared source/dependency family, not a complete binary attestation.
 //
-//go:embed selected_result_inputs.go baseline_collect.go baseline_records.go state.go collect.go capture_source.go capture_source_records.go capture_source_pair.go prework_acceptance.go
+//go:embed selected_result_inputs.go selected_result_policy.go baseline_collect.go baseline_records.go state.go collect.go capture_source.go capture_source_records.go capture_source_pair.go prework_acceptance.go
 var baselineSources embed.FS
 
 func baselineSourceIdentity() string {

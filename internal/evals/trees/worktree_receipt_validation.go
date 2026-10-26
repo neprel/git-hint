@@ -35,7 +35,7 @@ func ValidateSelectedSourcePair(limits Limits, a, b SelectedReceipt, x, y Source
 	if a.RootIdentity != b.RootIdentity || a.TreeDigest != b.TreeDigest || a.SelectedInventoryDigest != b.SelectedInventoryDigest || a.StageInventoryDigest != b.StageInventoryDigest || !reflect.DeepEqual(a.Selected, b.Selected) || !reflect.DeepEqual(a.Stages, b.Stages) {
 		return pairProblem()
 	}
-	if x.InvocationIdentity != y.InvocationIdentity || x.ExecutableDigest != y.ExecutableDigest || x.ExecutableNode != y.ExecutableNode || x.ConfigObject != y.ConfigObject || x.StateObject != y.StateObject || x.SourceDigest != y.SourceDigest || !reflect.DeepEqual(x.CandidatePaths, y.CandidatePaths) || !reflect.DeepEqual(x.Facts, y.Facts) {
+	if x.Version != y.Version || x.InvocationIdentity != y.InvocationIdentity || x.ExecutableDigest != y.ExecutableDigest || x.ExecutableNode != y.ExecutableNode || x.ConfigObject != y.ConfigObject || x.StateObject != y.StateObject || x.SourceDigest != y.SourceDigest || !reflect.DeepEqual(x.CandidatePaths, y.CandidatePaths) || !reflect.DeepEqual(x.Facts, y.Facts) {
 		return pairProblem()
 	}
 	if x.EndOffsetNS > b.BeginOffsetNS || y.TotalDispatchAttempts <= x.TotalDispatchAttempts || y.PersistenceGuardAttempts <= x.PersistenceGuardAttempts || y.SourceStdoutBytes < x.SourceStdoutBytes || y.GuardStdoutBytes < x.GuardStdoutBytes {
@@ -143,6 +143,9 @@ func validateSelected(lim Limits, r SelectedReceipt, pass uint8) error {
 }
 
 func validateSource(selected SelectedReceipt, r SourceViewReceipt, pass uint8) error {
+	if r.Version == SourceViewArtifactVersion {
+		return validateArtifactSource(selected, r, pass)
+	}
 	timing := "discovered_after_selection"
 	queries := 24
 	if pass == 2 {

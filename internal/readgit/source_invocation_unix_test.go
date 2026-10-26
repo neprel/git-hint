@@ -5,6 +5,7 @@ package readgit
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -104,5 +105,63 @@ func TestSourceInvocationAdmissionSelectors(t *testing.T) {
 	}
 	if i, e := FreezeSourceInvocation(nil, env); e == nil || i != nil {
 		t.Fatal("nil context")
+	}
+}
+
+// The artifact control cwd sits below the fresh ceiling directory. Even inside
+// an ancestor repository, Git must not discover it; the Native profile would.
+// A ceiling is a Git discovery bound, not a kernel sandbox.
+func TestArtifactSourceInvocationCeilingStopsDiscovery(t *testing.T) {
+	installed, e := exec.LookPath("git")
+	if e != nil {
+		t.Fatal(e)
+	}
+	installed, e = filepath.EvalSymlinks(installed)
+	if e != nil {
+		t.Fatal(e)
+	}
+	parent, e := filepath.EvalSymlinks(t.TempDir())
+	if e != nil {
+		t.Fatal(e)
+	}
+	init := exec.Command(installed, "init", "-q", parent)
+	init.Env = []string{"PATH=" + filepath.Dir(installed), "HOME=" + parent, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
+	if out, e := init.CombinedOutput(); e != nil {
+		t.Fatal(string(out), e)
+	}
+	control := filepath.Join(parent, "control")
+	for _, d := range []string{"home", "xdg", "cwd"} {
+		if e := os.MkdirAll(filepath.Join(control, d), 0700); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e := os.WriteFile(filepath.Join(control, "global"), nil, 0600); e != nil {
+		t.Fatal(e)
+	}
+	base := []string{"PATH=" + filepath.Dir(installed), "HOME=" + parent}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	artifact, e := FreezeArtifactSourceInvocation(ctx, base, ArtifactSourceControl{Home: filepath.Join(control, "home"), XDG: filepath.Join(control, "xdg"), Global: filepath.Join(control, "global"), Ceiling: control})
+	if e != nil {
+		t.Fatal(e)
+	}
+	native, e := FreezeSourceInvocation(ctx, base)
+	if e != nil {
+		t.Fatal(e)
+	}
+	cwd := filepath.Join(control, "cwd")
+	if out, e := OutputWithSourceInvocation(ctx, native, cwd, 4096, "rev-parse", "--absolute-git-dir"); e != nil || string(out) != filepath.Join(parent, ".git")+"\n" {
+		t.Fatal("control: Native profile should discover the ancestor", string(out), e)
+	}
+	if out, e := OutputWithSourceInvocation(ctx, artifact, cwd, 4096, "rev-parse", "--absolute-git-dir"); e == nil || len(out) != 0 {
+		t.Fatal("artifact control cwd discovered an ancestor repository", string(out))
+	}
+	if artifact.Identity() == native.Identity() || !strings.Contains(strings.Join(artifact.Environment(), "\n"), "GIT_CONFIG_NOSYSTEM=1") {
+		t.Fatal("artifact identity/profile")
+	}
+	for _, kv := range artifact.Environment() {
+		if kv == "HOME="+parent {
+			t.Fatal("caller HOME selected by artifact profile")
+		}
 	}
 }

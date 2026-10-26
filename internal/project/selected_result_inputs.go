@@ -40,6 +40,7 @@ type SelectedResultIdentity struct {
 	Receipts                                    []DefinitionObject
 	Compared                                    []runner.PrelaunchEntry
 	Absent                                      []string
+	Relation                                    NativeArtifactRelation
 }
 type SelectedResultInputs struct {
 	identity  SelectedResultIdentity
@@ -154,6 +155,11 @@ func ResolveSelectedResultInputs(parent context.Context, s *store.Store, req Sel
 	if rid.Inputs.SpecDigest != qi.SpecDigest || rid.Inputs.InputsDigest != qi.InputsDigest || rid.Inputs.DeclaredImage != qi.Image || rid.Inputs.SourceInputs["base_archive"] != qi.NegativeControlArchive || rid.Inputs.SourceInputs["verifier"] != qi.VerifierArchive || rid.Inputs.SourceInputs["reference"] != qi.ReferencePatchArchive || rid.Inputs.SourceInputs["setup"] != qi.SetupDigest || qi.Workdir != "/app" {
 		return nil, ErrSelectedResult
 	}
+	// The artifact profile replays the loaded closure's retained global exclude.
+	replay, e := nativeReplay(source)
+	if e != nil {
+		return nil, e
+	}
 	if e = s.EnsureStateDirContext(ctx, "state", library.CaptureSourceStateDir); e != nil {
 		return nil, e
 	}
@@ -187,11 +193,15 @@ func ResolveSelectedResultInputs(parent context.Context, s *store.Store, req Sel
 		return ctx.Err()
 	}
 	l := library.Open(s, 0)
-	pair, e := captureSourcePair(ctx, l, dir, limits, invocation, phase)
+	pair, e := captureSourcePairProfile(ctx, l, dir, limits, invocation, replay, phase)
 	if e != nil {
 		return nil, e
 	}
 	compared, absent, unmapped, e := runner.MatchSelectedInventory(ctx, pair.selected, inv, false)
+	if e != nil {
+		return nil, e
+	}
+	relation, e := nativeArtifactRelation(source, replay, pair.source, pair.objects, inv)
 	if e != nil {
 		return nil, e
 	}
@@ -214,5 +224,5 @@ func ResolveSelectedResultInputs(parent context.Context, s *store.Store, req Sel
 	if !referenceCurrent(ctx) {
 		return nil, ErrSelectedResult
 	}
-	return &SelectedResultInputs{SelectedResultIdentity{req.RepoID, s.Cfg.ProjectNamespace, "terminal_selected_correspondence_observed", "unknown", captureSourceIdentity(), req.Definition, b, req.Source, rid, pair.selected, pair.source, append([]DefinitionObject(nil), pair.receipts...), compared, absent}, pair.objects, inv.Copy(), unmapped.Copy(), local}, nil
+	return &SelectedResultInputs{SelectedResultIdentity{req.RepoID, s.Cfg.ProjectNamespace, "terminal_selected_correspondence_observed", "unknown", captureSourceIdentity(), req.Definition, b, req.Source, rid, pair.selected, pair.source, append([]DefinitionObject(nil), pair.receipts...), compared, absent, relation}, pair.objects, inv.Copy(), unmapped.Copy(), local}, nil
 }

@@ -111,9 +111,28 @@ func (i *SourceInvocation) Environment() []string {
 
 var errSourceInvocation = errors.New("git_source_invocation_invalid")
 
+// ArtifactSourceControl names owned, empty, non-repository control paths. The
+// artifact profile never selects the caller HOME/XDG or host system/global config.
+type ArtifactSourceControl struct{ Home, XDG, Global, Ceiling string }
+
 // FreezeSourceInvocation copies only the strict profile's local selectors. No
 // credential/provider/model environment value is retained. It does not run Git.
 func FreezeSourceInvocation(ctx context.Context, base []string) (*SourceInvocation, error) {
+	return freezeSourceInvocation(ctx, base, nil)
+}
+
+// FreezeArtifactSourceInvocation is the closed retained-artifact profile: the SAME
+// PATH/executable selection, with host system/global config disabled BY PROFILE
+// and owned control HOME/XDG. It records disabled sources, never observed absence.
+func FreezeArtifactSourceInvocation(ctx context.Context, base []string, control ArtifactSourceControl) (*SourceInvocation, error) {
+	for _, p := range []string{control.Home, control.XDG, control.Global, control.Ceiling} {
+		if !canonicalSourcePath(p) {
+			return nil, errSourceInvocation
+		}
+	}
+	return freezeSourceInvocation(ctx, base, &control)
+}
+func freezeSourceInvocation(ctx context.Context, base []string, control *ArtifactSourceControl) (*SourceInvocation, error) {
 	if ctx == nil {
 		return nil, errSourceInvocation
 	}
@@ -180,9 +199,14 @@ func FreezeSourceInvocation(ctx context.Context, base []string) (*SourceInvocati
 	if e != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&0111 == 0 {
 		return nil, errSourceInvocation
 	}
+	version := "git-source-invocation-v1"
 	env := []string{"PATH=" + path, "HOME=" + home, "LANG=C", "LC_ALL=C", "TZ=UTC", "GIT_OPTIONAL_LOCKS=0"}
 	if v, ok := selected["XDG_CONFIG_HOME"]; ok {
 		env = append(env, "XDG_CONFIG_HOME="+v)
+	}
+	if control != nil {
+		version = "git-artifact-source-invocation-v1"
+		env = []string{"PATH=" + path, "HOME=" + control.Home, "XDG_CONFIG_HOME=" + control.XDG, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + control.Global, "GIT_CEILING_DIRECTORIES=" + control.Ceiling, "LANG=C", "LC_ALL=C", "TZ=UTC", "GIT_OPTIONAL_LOCKS=0"}
 	}
 	sort.Strings(env)
 	exe, n, e := inspectSourceExecutable(ctx, resolved)
@@ -193,7 +217,7 @@ func FreezeSourceInvocation(ctx context.Context, base []string) (*SourceInvocati
 		Version, Match, Path string
 		Env                  []string
 		Executable           sourceExecutableIdentity
-	}{"git-source-invocation-v1", match, resolved, env, exe})
+	}{version, match, resolved, env, exe})
 	h := sha256.Sum256(raw)
 	if e = ctx.Err(); e != nil {
 		return nil, e
