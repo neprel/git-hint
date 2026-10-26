@@ -1,0 +1,111 @@
+{
+  "report_version": "0.4.0",
+  "report_id": "000000000000000000000000000001f4",
+  "project_namespace": "000000000000000000000000000001f5",
+  "created_at": "2026-10-24T12:00:00Z",
+  "producer": {
+    "tool": "git-hint",
+    "version": "0.0.0-dev"
+  },
+  "trials": [],
+  "work_units": [
+    {
+      "unit_ref": "00000000000000000000000000000064",
+      "origin": "project",
+      "scope": {
+        "declared_at": "2026-10-24T10:00:00Z",
+        "plan": {
+          "recommendation_set_id": "00000000000000000000000000000032",
+          "plan_id": "00000000000000000000000000000033"
+        },
+        "objective_ref": null,
+        "base_snapshots": [
+          "00000000000000000000000000000020"
+        ],
+        "family_ref": "00000000000000000000000000000034",
+        "configuration": {
+          "agent": {
+            "name": "opencode",
+            "version": {
+              "state": "known",
+              "value": "2.0.26"
+            }
+          },
+          "model": {
+            "state": "known",
+            "ref": "00000000000000000000000000000028",
+            "provenance": "launch_parameter"
+          },
+          "harness": {
+            "kind": "hint-docker",
+            "version": {
+              "state": "known",
+              "value": "0.1.0"
+            }
+          },
+          "context_policy": {
+            "state": "disabled"
+          },
+          "config_refs": {
+            "state": "known",
+            "refs": []
+          },
+          "budget": {
+            "max_requests": {
+              "state": "known",
+              "value": 8
+            },
+            "max_seconds": {
+              "state": "known",
+              "value": 480
+            }
+          }
+        },
+        "environment_ref": null,
+        "run_ref": null,
+        "eval_ref": null,
+        "baseline_ref": null,
+        "arm": null,
+        "planned_attempts": null,
+        "verification_intent": {
+          "intent_version": "project-verification-intent-v2",
+          "definition_ref": "0000000000000000000000000000000b",
+          "definition_version_ref": "0000000000000000000000000000000c",
+          "qualification_source": {
+            "domain": "hint-work-definition-qualified-inputs-v1",
+            "policy": "q3"
+          },
+          "spec_ref": "0000000000000000000000000000000d",
+          "inputs_ref": "0000000000000000000000000000000e",
+          "reference_input": {
+            "domain": "hint-library-reference-patch-archive-v1",
+            "ref": "0000000000000000000000000000000f"
+          },
+          "reference_artifact_ref": "00000000000000000000000000000010",
+          "reference_preparation_ref": "00000000000000000000000000000064.00000000000000000000000000000011.outcome",
+          "reference_preparation_version_ref": "00000000000000000000000000000012",
+          "capture_policy_ref": "00000000000000000000000000000013",
+          "capture_policy_version_ref": "00000000000000000000000000000014",
+          "capture_source_ref": "00000000000000000000000000000015",
+          "capture_source_version_ref": "00000000000000000000000000000016",
+          "mandatory_checks_digest": "sha256:e6b0d5781db025e9f118f798551a863f03de0b19e24a7cec4522a7a4626297ff",
+          "start_binding": {
+            "recommendation_set_digest": "sha256:000000000000000000000000000000000000000000000000000000000000001e",
+            "repo_id": "0000000000000000000000000000001f",
+            "base_snapshot_id": "00000000000000000000000000000020",
+            "base_snapshot_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000021",
+            "base_hint_tree_ref": "00000000000000000000000000000022"
+          }
+        }
+      },
+      "scope_digest": "sha256:f68f409878dc1adf6dbb4c35b0591adc98b8f634e304ca0ffc2a49c6bc5ae080",
+      "revision": 1,
+      "predecessor": null,
+      "state": "open",
+      "attempts": [],
+      "declared_by": "user",
+      "revision_digest": "sha256:8310f15c01c9389ca83b5f5ce9b902f6a8eaef869673510400a19a0117ff6a0b"
+    }
+  ],
+  "content_digest": "sha256:5056b8530b9363c5e21be8cae842d42d96cdf61539924f27db40102008a4c88c"
+}

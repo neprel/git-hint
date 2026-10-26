@@ -51,3 +51,8 @@ var SchemaEvalReportV03 []byte
 //
 //go:embed schemas/evalreport-v0.3.1/report.schema.json
 var SchemaEvalReportV031 []byte
+
+// SchemaEvalReportV04 validates keyed project-v2 receipt assertions only.
+//
+//go:embed schemas/evalreport-v0.4/report.schema.json
+var SchemaEvalReportV04 []byte

@@ -1,7 +1,7 @@
 package report
 
 // These checks establish receipt consistency only. No writer or runner authority is
-// enabled by accepting versions 0.3.0 or 0.3.1. Referenced history is self-contained in the receipt.
+// enabled by accepting versions 0.3.0, 0.3.1 or 0.4.x. Referenced history is self-contained in the receipt.
 import (
 	"bytes"
 	"encoding/json"
@@ -29,7 +29,7 @@ func sealed(m map[string]any, key string) bool {
 	return e == nil && d == str(m[key])
 }
 
-// projectHistoryConsistent is the existing receipt chain rule shared with intent-only 0.3.1.
+// projectHistoryConsistent is the receipt chain rule shared by the prospective readers.
 // It validates assertions, not external latest history or real pre-work ordering.
 func projectHistoryConsistent(rs []map[string]any) bool {
 	if len(rs) == 0 {
@@ -126,7 +126,8 @@ func prospectiveStartBinding(scope map[string]any) bool {
 }
 
 func projectProblem(m map[string]any) error {
-	if str(m["report_version"]) != "0.3.0" && str(m["report_version"]) != "0.3.1" {
+	v04 := reportMinor(str(m["report_version"])) == "0.4"
+	if str(m["report_version"]) != "0.3.0" && str(m["report_version"]) != "0.3.1" && !v04 {
 		return nil
 	}
 	invalid := func() error { return fmt.Errorf("%w: project verification binding", ErrInvalid) }
@@ -148,6 +149,14 @@ func projectProblem(m map[string]any) error {
 		}
 		seenRevisions[ref][n] = true
 		scope := object(u["scope"])
+		if v04 {
+			if intent := object(scope["verification_intent"]); intent != nil {
+				prep := str(intent["reference_preparation_ref"])
+				if !projectV2PreparationLocator(prep) || prep[:32] != ref {
+					return invalid()
+				}
+			}
+		}
 		d, e := hint.Digest(scope)
 		if e != nil || d != str(u["scope_digest"]) || !sealed(u, "revision_digest") {
 			return invalid()
@@ -164,9 +173,9 @@ func projectProblem(m map[string]any) error {
 			}
 		}
 	}
-	// Unlike legacy assertions, 0.3.1 also validates prospective intent-only history.
+	// Prospective readers also validate intent-only history.
 	// Detect intent anywhere, so adding it after an original intent-free start refuses.
-	if str(m["report_version"]) == "0.3.1" {
+	if str(m["report_version"]) == "0.3.1" || v04 {
 		for _, rs := range units {
 			hasIntent := false
 			for _, r := range rs {
@@ -230,7 +239,7 @@ func projectProblem(m map[string]any) error {
 		if plan == nil || !sameValue(plan["recommendation_set_id"], actualPlan["recommendation_set_id"]) || !sameValue(plan["plan_id"], actualPlan["plan_id"]) {
 			return invalid()
 		}
-		if str(m["report_version"]) == "0.3.1" && !sameValue(object(intent["start_binding"])["recommendation_set_digest"], actualPlan["recommendation_set_digest"]) {
+		if (str(m["report_version"]) == "0.3.1" || v04) && !sameValue(object(intent["start_binding"])["recommendation_set_digest"], actualPlan["recommendation_set_digest"]) {
 			return invalid()
 		}
 		var frozen map[string]any
