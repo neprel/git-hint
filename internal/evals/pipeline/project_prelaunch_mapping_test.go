@@ -138,3 +138,38 @@ func TestRetainedTaskInputActualObjectManifestAndCopies(t *testing.T) {
 		t.Fatal("different actual exported instruction bound to manifest")
 	}
 }
+
+func TestSelectedImplicitOccupancyAndComponentAliases(t *testing.T) {
+	for _, kind := range []string{"absent_implicit", "absent_case_implicit", "absent_nfc_implicit", "present_parent_case_implicit", "present_parent_nfc_implicit", "present_self_implicit"} {
+		t.Run(kind, func(t *testing.T) {
+			s, inv := selectedFactsFixture()
+			extra := "removed.go/child"
+			switch kind {
+			case "absent_case_implicit":
+				extra = "REMOVED.GO/child"
+			case "absent_nfc_implicit":
+				s.Selected[1].Path = "caf\u00e9"
+				extra = "cafe\u0301/child"
+			case "present_parent_case_implicit":
+				extra = "SRC/extra"
+			case "present_parent_nfc_implicit":
+				s.Selected[0].Path = "caf\u00e9/file.go"
+				inv.Entries[0].Path = s.Selected[0].Path
+				extra = "cafe\u0301/extra"
+			case "present_self_implicit":
+				inv.Entries = nil
+				extra = "src/file.go/child"
+			}
+			inv.Entries = append(inv.Entries, runner.PrelaunchEntry{Path: extra, Type: tar.TypeReg, Mode: 0644, LogicalMode: 0100644, Size: 0, Digest: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"})
+			if _, _, _, e := selectedInventoryFacts(s, inv, false); e == nil {
+				t.Fatal("implicit occupancy/alias accepted", kind)
+			}
+		})
+	}
+	// A genuinely absent path remains valid; no invented directory enters output.
+	s, inv := selectedFactsFixture()
+	_, absent, unmapped, e := selectedInventoryFacts(s, inv, false)
+	if e != nil || len(absent) != 1 || absent[0] != "removed.go" || len(unmapped.Entries) != 0 {
+		t.Fatal("real absence changed", e)
+	}
+}

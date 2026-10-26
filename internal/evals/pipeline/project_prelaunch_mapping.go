@@ -209,6 +209,19 @@ func selectedInventoryFacts(selected trees.SelectedReceipt, inv runner.Prelaunch
 	if e != nil {
 		return nil, nil, runner.PrelaunchInventory{}, e
 	}
+	// Occupancy is a path fact, not a fabricated TAR entry. Materialization
+	// creates required ancestor directories even when the archive omits their
+	// headers. Preserve all original inventory metadata and unmapped entries.
+	occupancy := map[string]map[string]bool{}
+	for actual := range nodes {
+		for component := actual; component != "."; component = path.Dir(component) {
+			alias := runner.ArchivePathAlias(component)
+			if occupancy[alias] == nil {
+				occupancy[alias] = map[string]bool{}
+			}
+			occupancy[alias][component] = true
+		}
+	}
 	expected := map[string]bool{}
 	parents := map[string]bool{}
 	parentAliases := map[string]string{}
@@ -226,7 +239,7 @@ func selectedInventoryFacts(selected trees.SelectedReceipt, inv runner.Prelaunch
 	for _, f := range selected.Selected {
 		n, exists := nodes[f.Path]
 		if f.State == trees.SelectedAbsent {
-			if exists {
+			if len(occupancy[runner.ArchivePathAlias(f.Path)]) != 0 {
 				return nil, nil, runner.PrelaunchInventory{}, mappingProblem("selected_absence")
 			}
 			absent = append(absent, f.Path)
@@ -234,6 +247,13 @@ func selectedInventoryFacts(selected trees.SelectedReceipt, inv runner.Prelaunch
 			return nil, nil, runner.PrelaunchInventory{}, mappingProblem("selected_content_mode_or_type")
 		} else {
 			compared = append(compared, n)
+		}
+		for component := f.Path; component != "."; component = path.Dir(component) {
+			for actual := range occupancy[runner.ArchivePathAlias(component)] {
+				if actual != component {
+					return nil, nil, runner.PrelaunchInventory{}, mappingProblem("selected_component_alias")
+				}
+			}
 		}
 		for d := path.Dir(f.Path); d != "."; d = path.Dir(d) {
 			if n, ok := nodes[d]; ok && (n.Type != tar.TypeDir || n.Unresolved) {

@@ -373,7 +373,7 @@ func TestSelectedProjectMappingActualProducerCallback(t *testing.T) {
 }
 
 func TestSelectedProjectMappingActualMismatchesStopBeforeStart(t *testing.T) {
-	for _, kind := range []string{"byte", "mode", "deleted", "type", "absent", "alias", "cancel", "unrelated", "wrong_archive", "task_dir"} {
+	for _, kind := range []string{"byte", "mode", "deleted", "type", "absent", "alias", "cancel", "unrelated", "wrong_archive", "task_dir", "absent_implicit", "absent_case_implicit"} {
 		t.Run(kind, func(t *testing.T) {
 			var edit func(*library.Library, map[string]any)
 			if kind == "wrong_archive" {
@@ -424,6 +424,10 @@ func TestSelectedProjectMappingActualMismatchesStopBeforeStart(t *testing.T) {
 				r.Nodes = []runner.SelectedMappingTestNode{{Path: "tool.sh", Deleted: true}}
 			case "type":
 				r.Nodes = []runner.SelectedMappingTestNode{{Path: "tool.sh", Type: tar.TypeDir, Mode: 0755}}
+			case "absent_implicit":
+				r.Nodes = []runner.SelectedMappingTestNode{{Path: "missing.txt/child", Body: "unmapped child; no directory header\n"}}
+			case "absent_case_implicit":
+				r.Nodes = []runner.SelectedMappingTestNode{{Path: "MISSING.TXT/child", Body: "alias child; no directory header\n"}}
 			case "absent":
 				r.Nodes = []runner.SelectedMappingTestNode{{Path: "missing.txt", Type: tar.TypeDir, Mode: 0755}}
 			case "alias":
