@@ -269,7 +269,17 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 				return rep, err
 			}
 			// no network for the task: a live agent reaches the model only through the gate
-			if _, err := runner.Export(l, rec, work+"/task", settings); err != nil {
+			var retained *RetainedTaskInput
+			if o.PrelaunchCheck != nil && str(mappingMap(rec["verifier"])["kind"]) == runner.IOInterface {
+				task, e := runner.ExportBounded(ctx, l, rec, work+"/task", settings)
+				if e != nil {
+					return rep, e
+				}
+				retained, e = retainActualTaskInput(ctx, s, l, ref, bind[ref].EvalDigest, suite, job, o.Arm, a, rec, task)
+				if e != nil {
+					return rep, e
+				}
+			} else if _, err := runner.Export(l, rec, work+"/task", settings); err != nil {
 				return rep, err
 			}
 			ro := runner.RunOptions{StudyLaunchPolicy: o.StudyLaunchPolicy, ExpectLaunchDigest: launch, CapturePrelaunchTree: o.CapturePrelaunchTree, Agent: o.Agent, JobsDir: work + "/jobs", JobName: "trial"}
@@ -282,6 +292,13 @@ func RunSuite(ctx context.Context, s *store.Store, r qualify.Runner, runnerVersi
 					v, err := prepareObservedPrelaunch(ctx, s, rec, a)
 					if err != nil {
 						return err
+					}
+					v.input = retained
+					if retained != nil {
+						if retained.observed != nil {
+							return fmt.Errorf("task input already observed")
+						}
+						retained.observed = v.result
 					}
 					prestart = v
 					return o.PrelaunchCheck(ctx, v)

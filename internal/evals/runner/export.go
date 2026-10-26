@@ -17,13 +17,17 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/unicode/norm"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/neprel/git-hint/internal/evals/iodecl"
 	"github.com/neprel/git-hint/internal/evals/library"
@@ -176,7 +180,18 @@ func exportTask(l *library.Library, rec map[string]any, dir string, s Settings, 
 	if err := w("task.toml", taskConfig, 0o644); err != nil {
 		return nil, err
 	}
-	if err := untar(base, filepath.Join(dir, "environment", "repo")); err != nil {
+	var baseInventory PrelaunchInventory
+	var baseFacts *PrelaunchInventory
+	if budget != nil && str(rec["verifier"].(map[string]any)["kind"]) == IOInterface {
+		baseFacts = &baseInventory
+		baseInventory.Digest = sumDigest(base)
+	}
+	if err := untarObserved(base, filepath.Join(dir, "environment", "repo"), baseFacts, func() context.Context {
+		if budget != nil {
+			return budget.ctx
+		}
+		return context.Background()
+	}()); err != nil {
 		return nil, err
 	}
 	if err := w("environment/setup.sh", setup, 0o755); err != nil {
@@ -233,7 +248,7 @@ func exportTask(l *library.Library, rec map[string]any, dir string, s Settings, 
 				return nil, err
 			}
 			if budget != nil {
-				t.frozen = &FrozenIOInputs{task: cloneIOTask(iot), limits: parseLimits(taskConfig), image: image, configDigest: referenceDigest(taskConfig)}
+				t.frozen = &FrozenIOInputs{base: append([]byte(nil), base...), baseInventory: baseInventory.Copy(), task: cloneIOTask(iot), limits: parseLimits(taskConfig), image: image, configDigest: referenceDigest(taskConfig)}
 			}
 			want := iodecl.Tests(iot.spec.Cases)
 			cs, _ := rec["verifier"].(map[string]any)["checks"].([]any)
@@ -359,27 +374,96 @@ RUN if [ -f /tests/deps/requirements.txt ]; then python -m pip install -q -r /te
 
 // untar extracts a HINT archive (regular files, directories and links whose targets stay
 // inside) into dir. No write passes through a link, and every link must resolve inside.
-func untar(data []byte, dir string) error {
+func untar(data []byte, dir string) error { return untarObserved(data, dir, nil, context.Background()) }
+
+// ArchivePathAlias is the one local comparison key for case/Unicode aliases. It
+// neither changes exported paths nor grants filesystem/source authority.
+func ArchivePathAlias(p string) string { return cases.Fold().String(norm.NFC.String(p)) }
+func sumDigest(b []byte) string        { return "sha256:" + sum(b) }
+
+// untarObserved is the EXISTING extraction pass with optional factual inventory.
+// The bounded B1 route opts in; legacy callers retain their prior behavior.
+func untarObserved(data []byte, dir string, inventory *PrelaunchInventory, ctx context.Context) (err error) {
 	d, err := safefs.Open(dir)
 	if err != nil {
 		return err
 	}
-	defer d.Close()
-	tr := tar.NewReader(bytes.NewReader(data))
+	defer func() {
+		e := d.Close()
+		if inventory != nil && e != nil {
+			err = e
+		}
+	}()
+	input := bytes.NewReader(data)
+	var source io.Reader = input
+	var raw *treeArchiveReader
+	if inventory != nil {
+		if ctx == nil {
+			return ErrFrozenInputs
+		}
+		raw = &treeArchiveReader{source: input, limit: int64(len(data))}
+		source = raw
+	}
+	tr := tar.NewReader(source)
+	seen := map[string]bool{}
+	var padding int64
 	for {
+		var before int64
+		if raw != nil {
+			before = raw.read
+			raw.padding = padding
+		}
 		h, err := tr.Next()
 		if err == io.EOF {
+			if inventory != nil {
+				if e := raw.finish(before, padding); e != nil {
+					return e
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				sort.Slice(inventory.Entries, func(i, j int) bool { return inventory.Entries[i].Path < inventory.Entries[j].Path })
+			}
 			return d.Check()
 		}
 		if err != nil {
 			return err
 		}
+		if raw != nil {
+			padding = (tarBlockBytes - h.Size%tarBlockBytes) % tarBlockBytes
+		}
 		name := strings.TrimSuffix(h.Name, "/")
+		var observed PrelaunchEntry
+		if inventory != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			alias := ArchivePathAlias(name)
+			if len(inventory.Entries) >= maxTreeFiles || !utf8.ValidString(name) || name == "" || path.Clean(name) != name || strings.HasPrefix(name, "/") || strings.ContainsAny(name, "\\\x00") || name == ".." || strings.HasPrefix(name, "../") || seen[alias] || h.Mode < 0 || h.Mode&^0777 != 0 || h.Size < 0 || h.Size > 32<<20 {
+				return ErrFrozenInputs
+			}
+			seen[alias] = true
+			observed = PrelaunchEntry{Path: name, Type: h.Typeflag, Mode: h.Mode, Size: h.Size, UID: h.Uid, GID: h.Gid, LinkTarget: h.Linkname}
+			if h.Typeflag == tar.TypeReg {
+				observed.LogicalMode = 0100644
+				if h.Mode&0111 != 0 {
+					observed.LogicalMode = 0100755
+				}
+			} else if h.Typeflag != tar.TypeDir {
+				observed.Unresolved = true
+			}
+		}
 		switch h.Typeflag {
 		case tar.TypeReg:
 			b, err := io.ReadAll(io.LimitReader(tr, 1<<30))
 			if err != nil {
 				return err
+			}
+			if inventory != nil {
+				if int64(len(b)) != h.Size {
+					return ErrFrozenInputs
+				}
+				observed.Digest = sumDigest(b)
 			}
 			if err := d.WriteFile(name, b, os.FileMode(h.Mode&0o777)); err != nil {
 				return fmt.Errorf("unsafe archive entry: %w", err)
@@ -394,6 +478,9 @@ func untar(data []byte, dir string) error {
 			}
 		default:
 			return fmt.Errorf("unsupported archive entry type")
+		}
+		if inventory != nil {
+			inventory.Entries = append(inventory.Entries, observed)
 		}
 	}
 }

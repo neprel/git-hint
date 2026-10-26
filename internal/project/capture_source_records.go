@@ -105,6 +105,7 @@ type CaptureSourceIdentity struct {
 	CreatedAt                           string                      `json:"created_at"`
 }
 type CaptureSourceInputs struct {
+	ref      CaptureSourceRef
 	identity CaptureSourceIdentity
 	objects  map[string][]byte
 }
@@ -273,7 +274,7 @@ func loadCaptureSource(ctx context.Context, s *store.Store, ref CaptureSourceRef
 	if e = compareBaselineSource(ctx, s, v, pair, objects); e != nil {
 		return nil, e
 	}
-	return &CaptureSourceInputs{a, objects}, nil
+	return &CaptureSourceInputs{ref, a, objects}, nil
 }
 func captureInventory(pair *trees.DecodedSelectedSourcePair, receipts []DefinitionObject, config DefinitionObject, objects map[string][]byte) ([]CaptureSourceObject, error) {
 	roles := map[string][]string{}
@@ -389,4 +390,13 @@ func captureAbsentValid(names []string) bool {
 		previous = name
 	}
 	return true
+}
+
+// Ref is the exact reference supplied to the successful sole loader. No caller
+// map, identity rehash or authority upgrade is involved.
+func (h *CaptureSourceInputs) Ref() CaptureSourceRef {
+	if h == nil {
+		return CaptureSourceRef{}
+	}
+	return h.ref
 }

@@ -24,6 +24,12 @@ import (
 )
 
 type studyFakeOptions struct {
+	parent                                                context.Context
+	omitApp                                               map[string]bool
+	taskDir                                               string
+	external                                              *RunOptions
+	skipRequest                                           bool
+	extraApp                                              map[string]storedStudyFile
 	prelaunchCheck                                        func(context.Context, *PrelaunchArtifact) error
 	expectedBackend                                       *CaptureSnapshot
 	capture                                               *fakeTransport
@@ -73,6 +79,10 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 	d, s := fakeQ4Docker(t, false)
 	live, _ := fakeModel(t)
 	c := live.NewTrial(10)
+	if o.external != nil {
+		live = o.external.Live
+		c = o.external.Counter
+	}
 	st := &studyFakeState{engine: s, files: map[string]storedStudyFile{}, dir: t.TempDir()}
 	isAgent := func(p string) bool {
 		id := path.Base(path.Dir(p))
@@ -239,9 +249,15 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 				files["opencode"] = storedStudyFile{header: tar.Header{Typeflag: tar.TypeReg, Mode: 0755}, body: []byte("old")}
 			case "/app":
 				for name, file := range st.files {
+					if o.omitApp[strings.TrimPrefix(name, "app/")] {
+						continue
+					}
 					if strings.TrimSuffix(name, "/") == "app" || strings.HasPrefix(name, "app/") {
 						files[name] = file
 					}
+				}
+				for name, file := range o.extraApp {
+					files["app/"+name] = file
 				}
 			default:
 				t.Errorf("unexpected archive source %q", source)
@@ -314,7 +330,7 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 				return
 			}
 		}
-		if strings.HasSuffix(p, "/wait") && isAgent(p) {
+		if !o.skipRequest && strings.HasSuffix(p, "/wait") && isAgent(p) {
 			req := httptest.NewRequest("POST", "http://proxy/t/"+c.token+"/chat/completions", strings.NewReader(`{"model":"m"}`))
 			live.srv.Handler.ServeHTTP(httptest.NewRecorder(), req)
 		}
@@ -332,12 +348,7 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 		t.Fatal(err)
 	}
 	d.probes = map[string]GateProbe{key: {OK: true, Key: key, Image: fakeGateID}}
-	tgz := makeTgz(t, fileE("package/bin/opencode", "synthetic binary; not executed"))
-	old := OpenCodePins[DockerOpenCodeVersion]
-	OpenCodePins[DockerOpenCodeVersion] = map[string]string{"linux-arm64": sha512Hex(tgz)}
-	t.Cleanup(func() { OpenCodePins[DockerOpenCodeVersion] = old })
-	file := filepath.Join(t.TempDir(), "binary.tgz")
-	os.WriteFile(file, tgz, 0600)
+	file := studySourceForTest(t)
 	planned, err := DockerLaunchDigestWithPolicy(DockerOpenCodeVersion, "m", "linux-arm64", StudyLaunchSingleRootV1)
 	if err != nil {
 		t.Fatal(err)
@@ -351,15 +362,27 @@ func studyFake(t *testing.T, o studyFakeOptions) (trialResult, *Counter, *studyF
 	if o.mismatch {
 		planned = "sha256:" + strings.Repeat("0", 64)
 	}
-	task := t.TempDir()
-	os.MkdirAll(filepath.Join(task, "environment", "repo"), 0755)
-	os.WriteFile(filepath.Join(task, "instruction.md"), []byte("do"), 0600)
+	task := o.taskDir
+	if task == "" {
+		task = t.TempDir()
+		os.MkdirAll(filepath.Join(task, "environment", "repo"), 0755)
+		os.WriteFile(filepath.Join(task, "instruction.md"), []byte("do"), 0600)
+	}
 	opts := RunOptions{Agent: "opencode", Attempts: 1, Live: live, Counter: c, OpenCode: &OpenCodeSource{Version: DockerOpenCodeVersion, TgzFile: file, CacheDir: t.TempDir()}, ExpectTarget: "linux-arm64", StudyLaunchPolicy: StudyLaunchSingleRootV1, CapturePrelaunchTree: true, ExpectLaunchDigest: planned, BeforeAgentStart: o.hook, PrelaunchCheck: o.prelaunchCheck}
 	if o.ripgrepFile != "" {
 		opts.Ripgrep = &RipgrepSource{BinaryFile: o.ripgrepFile}
 	}
+	if o.external != nil {
+		opts.ExpectLaunchDigest = o.external.ExpectLaunchDigest
+		opts.PrelaunchCheck = o.external.PrelaunchCheck
+		opts.BeforeAgentStart = o.external.BeforeAgentStart
+	}
 	opts.ExpectedBackend, opts.capture, opts.captureRef = o.expectedBackend, transportOf(o.capture), refOf(o.capture)
-	ctx, cancel := context.WithCancel(context.Background())
+	parent := o.parent
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	if o.cancelAfter > 0 {
 		timer := time.AfterFunc(o.cancelAfter, cancel)
@@ -415,4 +438,16 @@ func TestStudyFakeEngineRefusesBeforeAgentStart(t *testing.T) {
 			}
 		})
 	}
+}
+
+// SAME fake archive/source setup, shared by the external mapping fixture.
+func studySourceForTest(t *testing.T) string {
+	t.Helper()
+	tgz := makeTgz(t, fileE("package/bin/opencode", "synthetic binary; not executed"))
+	old := OpenCodePins[DockerOpenCodeVersion]
+	OpenCodePins[DockerOpenCodeVersion] = map[string]string{"linux-arm64": sha512Hex(tgz)}
+	t.Cleanup(func() { OpenCodePins[DockerOpenCodeVersion] = old })
+	file := filepath.Join(t.TempDir(), "binary.tgz")
+	os.WriteFile(file, tgz, 0600)
+	return file
 }

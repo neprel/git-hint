@@ -16,6 +16,8 @@ import (
 var ErrFrozenInputs = errors.New("frozen verification inputs refused")
 
 type FrozenIOInputs struct {
+	base                []byte
+	baseInventory       PrelaunchInventory
 	task                *ioTask
 	limits              taskLimits
 	image, configDigest string
@@ -60,6 +62,8 @@ func (t *Task) FrozenIOInputs() (*FrozenIOInputs, error) {
 		return nil, ErrFrozenInputs
 	}
 	v := *t.frozen
+	v.base = bytes.Clone(v.base)
+	v.baseInventory = v.baseInventory.Copy()
 	v.task = cloneIOTask(v.task)
 	v.sources = cloneStringMap(v.sources)
 	return &v, nil
@@ -172,4 +176,19 @@ func ValidateFrozenIOReferenceTranscript(parent context.Context, inputs *FrozenI
 		return nil, ErrFrozenInputs
 	}
 	return &FrozenIOReferenceTranscript{inputs.stamp(), digest, v}, nil
+}
+
+// BaseArchive and BaseInventory expose only copied bytes/facts from THIS actual
+// bounded B1 export, never a caller path or mutable Task.Inputs dictionary.
+func (h *FrozenIOInputs) BaseArchive() ([]byte, error) {
+	if !h.valid() || len(h.base) == 0 || len(h.base) > 32<<20 || sumDigest(h.base) != h.sources["base_archive"] || h.baseInventory.Digest != h.sources["base_archive"] {
+		return nil, ErrFrozenInputs
+	}
+	return bytes.Clone(h.base), nil
+}
+func (h *FrozenIOInputs) BaseInventory() (PrelaunchInventory, error) {
+	if _, e := h.BaseArchive(); e != nil {
+		return PrelaunchInventory{}, e
+	}
+	return h.baseInventory.Copy(), nil
 }

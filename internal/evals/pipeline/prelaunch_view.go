@@ -12,6 +12,7 @@ import (
 // ObservedPrelaunch owns one actual prelaunch graph. It conveys no source authority
 // or baseline mapping. The legacy graph population includes captured Git metadata.
 type ObservedPrelaunch struct {
+	input     *RetainedTaskInput
 	result    *observedStartResult
 	inventory runner.PrelaunchInventory
 }
@@ -48,4 +49,13 @@ func prepareObservedPrelaunch(ctx context.Context, s *store.Store, rec map[strin
 		return nil, e
 	}
 	return &ObservedPrelaunch{result: r, inventory: inv}, nil
+}
+
+// TaskInput is opaque actual per-attempt export custody; no public constructor or
+// mutable byte/map fields are exposed. Nil means this was not a bounded B1 export.
+func (v *ObservedPrelaunch) TaskInput() *RetainedTaskInput {
+	if v == nil {
+		return nil
+	}
+	return v.input
 }
