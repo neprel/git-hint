@@ -289,7 +289,8 @@ func definitionBase(s *store.Store, now time.Time, exports []byte, inputs []Defi
 		}
 		base.Repos[in.RepoID] = &CurrentRepo{Name: repo.Name, Snapshot: &snap, Stored: true}
 		base.Local.SnapshotDigests[in.RepoID] = snap.Record.Digest
-		base.Local.SnapshotDigestSets[latest.SnapshotID] = st.SnapshotDigests[latest.SnapshotID]
+		// ImportRecommendations looks up exported versions by repository, not snapshot ID.
+		base.Local.SnapshotDigestSets[in.RepoID] = st.SnapshotDigests[latest.SnapshotID]
 		for _, entity := range snap.Entities {
 			if entity.RepoID != in.RepoID || entity.SnapshotID != latest.SnapshotID {
 				return nil, nil, ErrWorkDefinition
